@@ -12,7 +12,7 @@
  * ============================================================================
  */
 
-import React, { useState, memo, useMemo, useCallback } from 'react';
+import React, { useState, memo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -412,7 +412,7 @@ const MarketingSection = memo(() => (
 ));
 MarketingSection.displayName = 'MarketingSection';
 
-const BentoModule = ({ icon: Icon, title, desc, index }: any) => {
+const BentoModule = React.forwardRef(({ icon: Icon, title, desc, index }: any, ref: React.Ref<View>) => {
   const rotateX = useSharedValue(0);
   const rotateY = useSharedValue(0);
   const scale = useSharedValue(1);
@@ -457,6 +457,7 @@ const BentoModule = ({ icon: Icon, title, desc, index }: any) => {
 
   return (
     <Animated.View
+      ref={ref}
       entering={FadeInRight.delay(400 + index * 100).springify()}
       style={[
         { width: '48%', borderRadius: 28, borderWidth: 1 },
@@ -493,7 +494,8 @@ const BentoModule = ({ icon: Icon, title, desc, index }: any) => {
       </Pressable>
     </Animated.View>
   );
-};
+});
+BentoModule.displayName = 'BentoModule';
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
