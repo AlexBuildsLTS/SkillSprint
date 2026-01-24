@@ -1,56 +1,81 @@
 import React from 'react';
-import { Pressable, View, Platform } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
+import { Pressable, View, Text, ViewStyle, Platform } from 'react-native';
+import Animated, { 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withSpring, 
+  FadeInDown 
 } from 'react-native-reanimated';
 
 interface BentoCardProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   className?: string;
-  onPress: () => void;
+  onPress?: () => void;
   delay?: number;
+  title?: string;
+  value?: string | number;
+  icon?: React.ReactNode;
+  style?: ViewStyle | ViewStyle[]; // FIXED: Added style prop support
 }
 
-export const BentoCard = ({
-  children,
-  className,
-  onPress,
+export const BentoCard = ({ 
+  children, 
+  className = "", 
+  onPress, 
   delay = 0,
+  title,
+  value,
+  icon,
+  style 
 }: BentoCardProps) => {
   const scale = useSharedValue(1);
-  const borderOpacity = useSharedValue(0.1);
+  const glow = useSharedValue(0);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
-    borderColor: `rgba(99, 102, 241, ${borderOpacity.value + 0.1})`,
   }));
 
-  const onHoverIn = () => {
+  const handleHoverIn = () => {
     if (Platform.OS === 'web') {
-      scale.value = withSpring(1.02, { damping: 10 });
-      borderOpacity.value = withSpring(0.6);
+      scale.value = withSpring(1.02);
     }
   };
 
-  const onHoverOut = () => {
+  const handleHoverOut = () => {
     scale.value = withSpring(1);
-    borderOpacity.value = withSpring(0.1);
   };
 
   return (
-    <Animated.View
-      style={animatedStyle}
-      className={`bg-slate-900/40 border rounded-[24px] overflow-hidden ${className}`}
+    <Animated.View 
+      entering={FadeInDown.delay(delay).springify()}
+      style={[animatedStyle, style]} // FIXED: Applying the style prop
+      className={`bg-slate-900/40 border border-slate-800 rounded-[24px] overflow-hidden ${className}`}
     >
-      <Pressable
+      <Pressable 
         onPress={onPress}
-        onPointerEnter={onHoverIn}
-        onPointerLeave={onHoverOut}
-        className="flex-1 p-5"
+        onPointerEnter={handleHoverIn}
+        onPointerLeave={handleHoverOut}
+        className="justify-between flex-1 p-5"
       >
-        {children}
+        {children ? children : (
+          <>
+            <View className="flex-row items-start justify-between">
+              <View className="bg-indigo-500/10 p-2.5 rounded-xl border border-indigo-500/20">
+                {icon}
+              </View>
+              {title && (
+                <Text className="text-slate-500 font-bold text-[10px] uppercase tracking-[1px]">
+                  {title}
+                </Text>
+              )}
+            </View>
+            {value && (
+              <Text className="mt-4 text-3xl font-black tracking-tight text-white">
+                {value}
+              </Text>
+            )}
+          </>
+        )}
       </Pressable>
     </Animated.View>
   );
