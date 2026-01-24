@@ -68,7 +68,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { PasswordStrengthIndicator } from '@/components/auth/PasswordStrengthIndicator';
 import Button from '@/components/ui/Button';
 
-const APP_ICON = require('../../assets/images/icon.png');
+const APP_ICON = require('../../assets/images/favicons.png');
 
 const THEME = {
   indigo: '#6366f1',

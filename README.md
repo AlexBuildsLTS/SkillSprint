@@ -70,4 +70,3 @@ By leveraging **Reanimated v4’s** cutting-edge worklet engine and **Supabase D
 - Node.js 20+
 - Expo Go or Development Build
 - Supabase CLI
-

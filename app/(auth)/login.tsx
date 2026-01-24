@@ -69,7 +69,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import Button from '@/components/ui/Button';
 
 // ASSET: Unrestricted High-Resolution Identity
-const APP_ICON = require('../../assets/images/icon.png');
+const APP_ICON = require('../../assets/images/favicons.png');
 
 // --- THEME ARCHITECTURE ---
 const THEME = {

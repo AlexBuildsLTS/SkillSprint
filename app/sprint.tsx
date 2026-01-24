@@ -240,13 +240,13 @@ export default function SprintScreen() {
         } else {
           Alert.alert(
             'System Error',
-            'Neural link failed. No content received.',
+            'Failed to generate sprint content. Please try again.',
           );
           router.back();
         }
       } catch (err) {
         console.error(err);
-        Alert.alert('Connection Error', 'Could not establish uplink.');
+        Alert.alert('Connection Error', 'Could not load sprint content. Please check your connection.');
         router.back();
       }
     };
