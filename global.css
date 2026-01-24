@@ -1,0 +1,16 @@
+/* global.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom background for the "Dark" theme used in RootLayout */
+body {
+  background-color: #0f172a;
+}
+
+/* Optional: Smooth transitions for Web */
+* {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
