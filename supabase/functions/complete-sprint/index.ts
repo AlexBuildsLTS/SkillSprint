@@ -1,121 +1,82 @@
+import { createClient } from '@supabase/supabase-js';
 import { corsHeaders } from '../_shared/cors.ts';
-import { supabaseAdmin } from '../_shared/supabaseAdmin.ts';
-
-/**
- * Edge Function: complete-sprint
- * Handles the logic when a user finishes their daily sprint.
- * 1. Validates the user's session.
- * 2. Calculates XP based on the score.
- * 3. Updates user_stats (XP, total sprints, last active).
- * 4. Marks today's daily sprint as completed.
- */
 
 Deno.serve(async (req) => {
-  // Handle CORS Preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // 1. Authorization Check
+    // 1. Initialize Client (using Service Role to bypass RLS for stats updates if needed)
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+
+    // 2. Auth Check (Get User from Token)
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Missing Authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      throw new Error('Missing Authorization header');
     }
 
-    // Use the user's token to get their identity
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    const {
+      data: { user },
+      error: userError,
+    } = await supabaseClient.auth.getUser(token);
 
     if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Invalid or expired token' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      throw new Error('Invalid user token');
     }
 
-    // 2. Parse and Validate Request Body
-    const body = await req.json().catch(() => ({}));
-    const { score } = body;
+    // 3. Get Data
+    const { score } = await req.json();
+    if (typeof score !== 'number') throw new Error('Invalid score');
 
-    if (typeof score !== 'number') {
-      return new Response(JSON.stringify({ error: 'Invalid score provided. Expected a number.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // 3. Business Logic: Calculate Earned XP
-    // Base reward: 10 XP | Performance reward: 5 XP per point
-    const earnedXP = 10 + (score * 5);
+    const xpEarned = 10 + score * 5;
     const today = new Date().toISOString().split('T')[0];
 
-    // 4. Update Database
-    // We use supabaseAdmin to ensure these internal tables are updated correctly 
-    // even if Row Level Security (RLS) restricts direct user writes.
+    // 4. Update Daily Sprint
+    const { error: sprintError } = await supabaseClient
+      .from('daily_sprints')
+      .update({ is_completed: true, xp_earned: xpEarned })
+      .eq('user_id', user.id)
+      .eq('date', today);
 
-    // A. Fetch current stats (needed for incrementing XP safely)
-    const { data: stats, error: statsError } = await supabaseAdmin
+    if (sprintError) throw sprintError;
+
+    // 5. Update User Stats (Get current first to increment)
+    const { data: stats, error: statsFetchError } = await supabaseClient
       .from('user_stats')
       .select('xp, total_sprints_completed')
       .eq('user_id', user.id)
       .single();
 
-    if (statsError || !stats) {
-      throw new Error('User stats profile not found');
-    }
-
-    // B. Execute Updates
-    // We perform these as separate calls, but they could be combined into an RPC for true atomicity.
-    const [statsUpdate, sprintUpdate] = await Promise.all([
-      // Update User Stats
-      supabaseAdmin
+    if (statsFetchError) {
+      // Handle case where stats might not exist yet (create them)
+      await supabaseClient.from('user_stats').insert({
+        user_id: user.id,
+        xp: xpEarned,
+        total_sprints_completed: 1,
+        last_active_date: new Date().toISOString(),
+      });
+    } else {
+      await supabaseClient
         .from('user_stats')
         .update({
-          xp: stats.xp + earnedXP,
+          xp: (stats.xp || 0) + xpEarned,
           total_sprints_completed: (stats.total_sprints_completed || 0) + 1,
           last_active_date: new Date().toISOString(),
         })
-        .eq('user_id', user.id),
+        .eq('user_id', user.id);
+    }
 
-      // Update Daily Sprint Status
-      supabaseAdmin
-        .from('daily_sprints')
-        .update({
-          is_completed: true,
-          xp_earned: earnedXP,
-        })
-        .eq('user_id', user.id)
-        .eq('date', today)
-    ]);
-
-    if (statsUpdate.error) throw statsUpdate.error;
-    // We don't throw if sprintUpdate fails as it might just mean the user is re-submitting 
-    // or did a sprint not tracked in daily_sprints table.
-
-    // 5. Final Response
-    return new Response(
-      JSON.stringify({
-        success: true,
-        xpEarned: earnedXP,
-        newTotalXp: stats.xp + earnedXP,
-        message: 'Sprint completed successfully',
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
-
-  } catch (err) {
-    console.error('Error in complete-sprint:', err);
-    const message = err instanceof Error ? err.message : 'An internal error occurred';
-    
-    return new Response(JSON.stringify({ error: message }), {
-      status: err instanceof Error && message.includes('found') ? 404 : 400,
+    return new Response(JSON.stringify({ success: true, xpEarned }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error: any) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

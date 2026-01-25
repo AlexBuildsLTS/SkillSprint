@@ -1,29 +1,44 @@
 import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, Image } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
-import { Home, Zap, Layers, User } from 'lucide-react-native';
+import { LayoutGrid, Layers, User, ShieldCheck } from 'lucide-react-native';
+import { useAuth } from '@/context/AuthContext';
 import { clsx } from 'clsx';
 
 const Sidebar = () => {
   const router = useRouter();
   const pathname = usePathname();
+  const { user } = useAuth();
 
   const navItems = [
-    { icon: Home, label: 'Home', path: '/' },
+    { icon: LayoutGrid, label: 'HQ', path: '/' },
     { icon: Layers, label: 'Tracks', path: '/tracks' },
-    { icon: Zap, label: 'Sprint', path: '/sprint' }, // Note: Sprint is usually modal, but keeping link here
-    { icon: User, label: 'Profile', path: '/profile' },
+    { icon: User, label: 'Operative', path: '/profile' },
   ];
 
   return (
-    <View className="w-64 bg-surface h-full border-r border-gray-700 p-6 flex flex-col hidden md:flex">
-      <View className="flex-row items-center gap-3 mb-10">
-        <View className="w-8 h-8 bg-indigo-500 rounded-lg items-center justify-center">
-          <Text className="text-white font-bold text-lg">S</Text>
+    <View className="w-72 bg-[#020617] h-full border-r border-slate-800/50 flex flex-col md:flex pt-8 pb-6 px-4">
+      
+      {/* PROFILE HEADER (Top Left) */}
+      <View className="flex-row items-center gap-3 px-2 mb-10">
+        <View className="items-center justify-center w-10 h-10 overflow-hidden border rounded-xl bg-indigo-500/20 border-indigo-500/50">
+           {user?.profile?.avatar_url ? (
+             <Image source={{ uri: user.profile.avatar_url }} className="w-full h-full" />
+           ) : (
+             <ShieldCheck size={20} color="#6366f1" />
+           )}
         </View>
-        <Text className="text-xl font-bold text-white">SkillSprint</Text>
+        <View>
+          <Text className="text-sm font-bold text-white">
+            {user?.profile?.username || 'Admin'}
+          </Text>
+          <Text className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">
+            Level {user?.stats?.level || 1} Operator
+          </Text>
+        </View>
       </View>
 
+      {/* NAVIGATION ITEMS */}
       <View className="flex-1 gap-2">
         {navItems.map((item) => {
           const isActive = pathname === item.path || (item.path === '/' && pathname === '/index');
@@ -32,12 +47,12 @@ const Sidebar = () => {
               key={item.path}
               onPress={() => router.push(item.path as any)}
               className={clsx(
-                "flex-row items-center gap-3 px-4 py-3 rounded-xl transition-all",
-                isActive ? "bg-indigo-500/20" : "hover:bg-gray-800"
+                "flex-row items-center gap-4 px-4 py-3.5 rounded-xl transition-all",
+                isActive ? "bg-indigo-500/10 border border-indigo-500/20" : "hover:bg-slate-800/50 border border-transparent"
               )}
             >
-              <item.icon size={20} color={isActive ? '#6366f1' : '#9ca3af'} />
-              <Text className={clsx("font-medium", isActive ? "text-primary" : "text-gray-400")}>
+              <item.icon size={18} color={isActive ? '#6366f1' : '#64748b'} />
+              <Text className={clsx("font-bold text-sm tracking-wide", isActive ? "text-white" : "text-slate-500")}>
                 {item.label}
               </Text>
             </Pressable>
@@ -45,12 +60,15 @@ const Sidebar = () => {
         })}
       </View>
 
-      <View className="mt-auto p-4 bg-gray-900/50 rounded-xl border border-gray-700">
-        <Text className="text-xs text-gray-400 mb-2">Daily Goal</Text>
-        <View className="w-full bg-gray-700 h-2 rounded-full overflow-hidden">
-          <View className="bg-secondary w-3/4 h-full rounded-full" />
+      {/* SYSTEM STATUS (Bottom) */}
+      <View className="p-4 mt-auto border bg-slate-900/50 border-slate-800 rounded-2xl">
+        <Text className="text-[9px] font-black text-slate-600 uppercase tracking-[2px] mb-2">
+          System Status
+        </Text>
+        <View className="flex-row items-center gap-2">
+          <View className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+          <Text className="text-emerald-500 text-[10px] font-bold tracking-wide">Deno Edge: Online</Text>
         </View>
-        <Text className="text-right text-xs text-gray-400 mt-1">75%</Text>
       </View>
     </View>
   );

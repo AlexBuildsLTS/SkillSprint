@@ -67,13 +67,11 @@ Deno.serve(async (req) => {
 
     // 6. Best Practice: Use Gemini's native JSON mode for reliable output
     // This eliminates the need for manual markdown stripping or regex cleaning.
-    const genAI = new GoogleGenerativeAI(geminiApiKey);
-    const model = genAI.getGenerativeModel({ 
-      model: GEMINI_MODEL,
-      generationConfig: {
-        responseMimeType: "application/json",
-      }
-    });
+    const genAI = new GoogleGenerativeAI(geminiApiKey); 
+
+ const model = genAI.getGenerativeModel({ 
+  model: GEMINI_MODEL 
+});
 
     const prompt = `Generate a JSON array of 5 learning cards for a Software Engineer. 
     Types: 
@@ -104,7 +102,7 @@ Deno.serve(async (req) => {
       .insert({
         user_id: user.id,
         date: today,
-        content: content as any,
+        content: content,
       });
 
     if (insertError) {

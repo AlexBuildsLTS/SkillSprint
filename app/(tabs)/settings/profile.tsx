@@ -22,9 +22,8 @@ import { User, Mail, Camera, Save } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/services/supabase';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { Button } from '@/components/ui/Button';
+import Button from '@/components/ui/Button';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
 import * as Haptics from 'expo-haptics';
 
@@ -119,7 +118,7 @@ export default function ProfileEditScreen() {
       const updates: { full_name?: string; username?: string } = {};
 
       if (fullName.trim() !== user.profile?.full_name) {
-        updates.full_name = fullName.trim() || null;
+        updates.full_name = fullName.trim();
       }
 
       if (username.trim() !== user.profile?.username) {
