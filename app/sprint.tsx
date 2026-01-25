@@ -3,22 +3,9 @@
  * ⚡ SCREEN: DAILY SPRINT ENGINE (CORE GAME LOOP)
  * ============================================================================
  * PATH: app/sprint.tsx
- * STATUS: PRODUCTION READY - ARCHITECT LEVEL
- * FEATURES:
- * - 3D Reanimated Card Stack (Perspective Matrix).
- * - Real-time XP Calculation Engine.
- * - Haptic Feedback State Machine.
- * - Dynamic Difficulty Adjustment (DDA) Logic.
- * ============================================================================
  */
 
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-} from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -26,11 +13,8 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  useWindowDimensions,
   StyleSheet,
-  Platform,
   Vibration,
-  ImageBackground,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -41,38 +25,25 @@ import {
   AlertTriangle,
   ArrowRight,
   Trophy,
-  Timer,
-  Zap,
   Brain,
   Code,
   Flame,
-  Pause,
-  Play,
 } from 'lucide-react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withTiming,
-  interpolate,
-  Extrapolation,
-  runOnJS,
   withSequence,
-  withDelay,
-  Easing,
   FadeIn,
-  FadeOut,
-  ZoomIn,
 } from 'react-native-reanimated';
-import { BlurView } from 'expo-blur';
 
 // INTERNAL SERVICES
 import { api } from '@/services/api';
-import { SprintCard, QuestionType, SprintResult } from '@/types';
+import { SprintCard, SprintResult, SprintCardType } from '@/services/types';
 import Button from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
 
-// CONSTANTS & CONFIG
 const THEME = {
   indigo: '#6366f1',
   success: '#10b981',
@@ -89,12 +60,11 @@ const SPRING_CONFIG = {
   mass: 1,
 };
 
-// TYPES & INTERFACES
 interface SprintState {
   status: 'initializing' | 'active' | 'paused' | 'calculating' | 'summary';
   startTime: number;
   questionStartTime: number;
-  timeSpent: number; // seconds
+  timeSpent: number;
 }
 
 interface ComboMetrics {
@@ -103,12 +73,6 @@ interface ComboMetrics {
   multiplier: number;
 }
 
-/**
- * ============================================================================
- * 🧩 COMPONENT: PROGRESS BAR (SEGMENTED)
- * Visualizes the sprint journey with micro-interactions
- * ============================================================================
- */
 const SprintProgressBar = ({
   total,
   current,
@@ -137,21 +101,7 @@ const SprintProgressBar = ({
   );
 };
 
-/**
- * ============================================================================
- * 🧩 COMPONENT: 3D CARD ENGINE
- * Handles the perspective tilt and layout of the question card
- * ============================================================================
- */
-const SprintCard3D = ({
-  card,
-  isActive,
-  onOptionSelect,
-  selectedOption,
-  isAnswered,
-  children,
-}: any) => {
-  const rotateX = useSharedValue(0);
+const SprintCard3D = ({ isActive, children }: any) => {
   const scale = useSharedValue(0.9);
   const opacity = useSharedValue(0);
 
@@ -160,19 +110,14 @@ const SprintCard3D = ({
       scale.value = withSpring(1, SPRING_CONFIG);
       opacity.value = withTiming(1, { duration: 400 });
     } else {
-      // Send to background stack
       scale.value = withTiming(0.8);
       opacity.value = withTiming(0);
     }
-  }, [isActive]);
+  }, [isActive, opacity, scale]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [
-      { perspective: 1000 },
-      { scale: scale.value },
-      { rotateX: `${rotateX.value}deg` },
-    ],
+    transform: [{ perspective: 1000 }, { scale: scale.value }],
   }));
 
   if (!isActive && opacity.value === 0) return null;
@@ -186,16 +131,9 @@ const SprintCard3D = ({
   );
 };
 
-/**
- * ============================================================================
- * 🚀 MAIN ENGINE: SPRINT SCREEN
- * ============================================================================
- */
 export default function SprintScreen() {
   const router = useRouter();
-  const { width } = useWindowDimensions();
 
-  // -- STATE MACHINE --
   const [session, setSession] = useState<SprintState>({
     status: 'initializing',
     startTime: Date.now(),
@@ -215,20 +153,15 @@ export default function SprintScreen() {
   });
   const [result, setResult] = useState<SprintResult | null>(null);
 
-  // -- ANIMATED VALUES --
-  const timerProgress = useSharedValue(1);
   const comboScale = useSharedValue(1);
 
-  /**
-   * INITIALIZATION SEQUENCE
-   */
   useEffect(() => {
     const initSprint = async () => {
       try {
-        // Haptic: Engine Start
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
         const data = await api.generateDailySprint();
+
         if (data && data.length > 0) {
           setCards(data);
           setSession((prev) => ({
@@ -238,50 +171,43 @@ export default function SprintScreen() {
             questionStartTime: Date.now(),
           }));
         } else {
-          Alert.alert(
-            'System Error',
-            'Failed to generate sprint content. Please try again.',
-          );
-          router.back();
+          throw new Error('Empty data received');
         }
-      } catch (err) {
-        console.error(err);
-        Alert.alert('Connection Error', 'Could not load sprint content. Please check your connection.');
-        router.back();
+      } catch (err: any) {
+        console.error('Sprint Init Error:', err);
+        Alert.alert(
+          'Connection Issue',
+          'Unable to connect to Neural Link (AI). Please try again.',
+          [{ text: 'Exit', onPress: () => router.back() }],
+        );
       }
     };
 
     initSprint();
-  }, []);
+  }, [router]);
 
-  /**
-   * ANSWER VALIDATION LOGIC
-   * Computes XP, updates Streak, triggers Animations
-   */
   const handleAnswer = useCallback(
     (index: number) => {
       if (isAnswered) return;
 
-      // Haptic: Selection
       Haptics.selectionAsync();
       setSelectedOption(index);
       setIsAnswered(true);
 
       const currentCard = cards[currentIndex];
-      const isCorrect = index === currentCard.correctAnswer;
+      // Default to 0 if correctAnswer is missing to prevent crash
+      const correctIdx = currentCard.correctAnswer ?? 0;
+      const isCorrect = index === correctIdx;
 
       if (isCorrect) {
-        // SUCCESS SEQUENCE
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setScore((s) => s + 1);
 
-        // Combo Logic
         setCombo((prev) => {
           const newCurrent = prev.current + 1;
           const newMax = Math.max(prev.max, newCurrent);
-          const newMult = 1 + Math.floor(newCurrent / 3) * 0.1; // +10% XP every 3 correct
+          const newMult = 1 + Math.floor(newCurrent / 3) * 0.1;
 
-          // Trigger Combo Animation
           if (newCurrent > 1) {
             comboScale.value = withSequence(withSpring(1.5), withSpring(1));
           }
@@ -289,34 +215,23 @@ export default function SprintScreen() {
           return { current: newCurrent, max: newMax, multiplier: newMult };
         });
       } else {
-        // FAILURE SEQUENCE
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setCombo((prev) => ({ ...prev, current: 0, multiplier: 1 }));
         Vibration.vibrate(100);
       }
     },
-    [currentIndex, cards, isAnswered],
+    [isAnswered, cards, currentIndex, comboScale],
   );
 
-  /**
-   * TRANSITION LOGIC
-   * Moves to next card or Summary screen
-   */
   const handleNext = async () => {
     if (currentIndex < cards.length - 1) {
-      // Next Card
       setCurrentIndex((prev) => prev + 1);
       setSelectedOption(null);
       setIsAnswered(false);
       setSession((prev) => ({ ...prev, questionStartTime: Date.now() }));
     } else {
-      // Finish Sprint
       setSession((prev) => ({ ...prev, status: 'calculating' }));
 
-      // Calculate Final XP
-      // Base XP = 10 per question
-      // Speed Bonus = (Total Time / Questions) < 10s ? +50 : 0
-      // Combo Bonus = Max Streak * 5
       const baseXP = score * 10;
       const speedBonus =
         (Date.now() - session.startTime) / 1000 < cards.length * 15 ? 50 : 0;
@@ -331,12 +246,12 @@ export default function SprintScreen() {
         setSession((prev) => ({ ...prev, status: 'summary' }));
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (e) {
-        Alert.alert('Upload Failed', 'Progress saved locally.');
+        // Fallback result if API fails
         setResult({
           xpEarned: totalXP,
           questionsCorrect: score,
           totalQuestions: cards.length,
-          newStreak: 0,
+          newStreak: 1,
         });
         setSession((prev) => ({ ...prev, status: 'summary' }));
       }
@@ -451,15 +366,13 @@ export default function SprintScreen() {
           <ScrollView showsVerticalScrollIndicator={false}>
             {/* TYPE BADGE */}
             <View style={styles.typeBadge}>
-              {currentCard.type === QuestionType.INFO ? (
-                <Brain size={12} color={THEME.indigo} />
+              {currentCard.type === 'info' ? (
+                <Brain size={14} color={THEME.indigo} />
               ) : (
-                <Code size={12} color={THEME.indigo} />
+                <Code size={14} color={THEME.indigo} />
               )}
               <Text style={styles.typeText}>
-                {currentCard.type === QuestionType.INFO
-                  ? 'KNOWLEDGE NODE'
-                  : 'CHALLENGE'}
+                {currentCard.type === 'info' ? 'KNOWLEDGE' : 'CHALLENGE'}
               </Text>
             </View>
 
@@ -472,9 +385,9 @@ export default function SprintScreen() {
               <View style={styles.optionsGrid}>
                 {currentCard.options.map((option, idx) => {
                   const isSelected = selectedOption === idx;
-                  const isCorrect = idx === currentCard.correctAnswer;
+                  const correctIdx = currentCard.correctAnswer ?? 0;
+                  const isCorrect = idx === correctIdx;
 
-                  // DYNAMIC STYLING LOGIC
                   let styleState = styles.optionNormal;
                   let textStyle = styles.optionTextNormal;
                   let icon = null;
@@ -522,7 +435,8 @@ export default function SprintScreen() {
               >
                 <Text style={styles.explanationTitle}>ANALYSIS</Text>
                 <Text style={styles.explanationText}>
-                  {currentCard.explanation}
+                  {currentCard.explanation ||
+                    'Good effort! Review the concept.'}
                 </Text>
               </Animated.View>
             )}
@@ -532,7 +446,7 @@ export default function SprintScreen() {
 
       {/* FOOTER CONTROLS */}
       <View style={styles.footer}>
-        {isAnswered || currentCard.type === QuestionType.INFO ? (
+        {isAnswered || currentCard.type === 'info' ? (
           <Button
             fullWidth
             size="lg"
@@ -554,11 +468,6 @@ export default function SprintScreen() {
   );
 }
 
-/**
- * ============================================================================
- * 🎨 STYLESHEET (HIGH DENSITY)
- * ============================================================================
- */
 const styles = StyleSheet.create({
   // LAYOUT
   container: {
@@ -783,7 +692,7 @@ const styles = StyleSheet.create({
     height: 400,
     borderRadius: 200,
     backgroundColor: 'rgba(99, 102, 241, 0.15)',
-    filter: 'blur(80px)', // Web Only, need fallback for native if heavy
+    filter: 'blur(80px)',
   },
   summaryBlobBottom: {
     position: 'absolute',
