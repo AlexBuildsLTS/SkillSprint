@@ -29,7 +29,7 @@ import {
   Pressable,
 } from 'react-native';
 import { useRouter, Link } from 'expo-router';
-import { supabase } from '@/services/supabase';
+import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
 import {
   User,
@@ -412,89 +412,91 @@ const MarketingSection = memo(() => (
 ));
 MarketingSection.displayName = 'MarketingSection';
 
-const BentoModule = React.forwardRef(({ icon: Icon, title, desc, index }: any, ref: React.Ref<View>) => {
-  const rotateX = useSharedValue(0);
-  const rotateY = useSharedValue(0);
-  const scale = useSharedValue(1);
-  const glow = useSharedValue(0);
+const BentoModule = React.forwardRef(
+  ({ icon: Icon, title, desc, index }: any, ref: React.Ref<View>) => {
+    const rotateX = useSharedValue(0);
+    const rotateY = useSharedValue(0);
+    const scale = useSharedValue(1);
+    const glow = useSharedValue(0);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { perspective: 1200 },
-      { rotateX: `${rotateX.value}deg` },
-      { rotateY: `${rotateY.value}deg` },
-      { scale: withSpring(scale.value, { damping: 12, stiffness: 100 }) },
-    ],
-    backgroundColor: interpolateColor(
-      glow.value,
-      [0, 1],
-      ['rgba(15, 23, 42, 0.3)', 'rgba(99, 102, 241, 0.08)'],
-    ),
-    borderColor: interpolateColor(
-      glow.value,
-      [0, 1],
-      ['rgba(255,255,255,0.05)', 'rgba(99, 102, 241, 0.4)'],
-    ),
-  }));
+    const animatedStyle = useAnimatedStyle(() => ({
+      transform: [
+        { perspective: 1200 },
+        { rotateX: `${rotateX.value}deg` },
+        { rotateY: `${rotateY.value}deg` },
+        { scale: withSpring(scale.value, { damping: 12, stiffness: 100 }) },
+      ],
+      backgroundColor: interpolateColor(
+        glow.value,
+        [0, 1],
+        ['rgba(15, 23, 42, 0.3)', 'rgba(99, 102, 241, 0.08)'],
+      ),
+      borderColor: interpolateColor(
+        glow.value,
+        [0, 1],
+        ['rgba(255,255,255,0.05)', 'rgba(99, 102, 241, 0.4)'],
+      ),
+    }));
 
-  const onPointerMove = (e: any) => {
-    if (Platform.OS === 'web') {
-      const { nativeEvent } = e;
-      rotateY.value = interpolate(
-        nativeEvent.offsetX,
-        [0, 300],
-        [-8, 8],
-        Extrapolation.CLAMP,
-      );
-      rotateX.value = interpolate(
-        nativeEvent.offsetY,
-        [0, 250],
-        [8, -8],
-        Extrapolation.CLAMP,
-      );
-    }
-  };
+    const onPointerMove = (e: any) => {
+      if (Platform.OS === 'web') {
+        const { nativeEvent } = e;
+        rotateY.value = interpolate(
+          nativeEvent.offsetX,
+          [0, 300],
+          [-8, 8],
+          Extrapolation.CLAMP,
+        );
+        rotateX.value = interpolate(
+          nativeEvent.offsetY,
+          [0, 250],
+          [8, -8],
+          Extrapolation.CLAMP,
+        );
+      }
+    };
 
-  return (
-    <Animated.View
-      ref={ref}
-      entering={FadeInRight.delay(400 + index * 100).springify()}
-      style={[
-        { width: '48%', borderRadius: 28, borderWidth: 1 },
-        animatedStyle,
-      ]}
-    >
-      <Pressable
-        onPointerEnter={() => {
-          scale.value = 1.04;
-          glow.value = withTiming(1);
-        }}
-        onPointerLeave={() => {
-          scale.value = 1;
-          glow.value = withTiming(0);
-          rotateX.value = withSpring(0);
-          rotateY.value = withSpring(0);
-        }}
-        onPointerMove={onPointerMove}
-        onTouchStart={() => {
-          scale.value = 0.98;
-          glow.value = withTiming(1);
-        }}
-        onTouchEnd={() => {
-          scale.value = 1;
-          glow.value = withTiming(0);
-        }}
-        style={styles.bentoInnerContent}
+    return (
+      <Animated.View
+        ref={ref}
+        entering={FadeInRight.delay(400 + index * 100).springify()}
+        style={[
+          { width: '48%', borderRadius: 28, borderWidth: 1 },
+          animatedStyle,
+        ]}
       >
-        <View style={styles.bentoIconBox}>
-          <Icon size={26} color={THEME.indigo} strokeWidth={2.5} />
-        </View>
-        <Text style={styles.bentoTitle}>{title}</Text>
-        <Text style={styles.bentoDesc}>{desc}</Text>
-      </Pressable>
-    </Animated.View>
-  );
-});
+        <Pressable
+          onPointerEnter={() => {
+            scale.value = 1.04;
+            glow.value = withTiming(1);
+          }}
+          onPointerLeave={() => {
+            scale.value = 1;
+            glow.value = withTiming(0);
+            rotateX.value = withSpring(0);
+            rotateY.value = withSpring(0);
+          }}
+          onPointerMove={onPointerMove}
+          onTouchStart={() => {
+            scale.value = 0.98;
+            glow.value = withTiming(1);
+          }}
+          onTouchEnd={() => {
+            scale.value = 1;
+            glow.value = withTiming(0);
+          }}
+          style={styles.bentoInnerContent}
+        >
+          <View style={styles.bentoIconBox}>
+            <Icon size={26} color={THEME.indigo} strokeWidth={2.5} />
+          </View>
+          <Text style={styles.bentoTitle}>{title}</Text>
+          <Text style={styles.bentoDesc}>{desc}</Text>
+        </Pressable>
+      </Animated.View>
+    );
+  },
+);
 BentoModule.displayName = 'BentoModule';
 
 const styles = StyleSheet.create({

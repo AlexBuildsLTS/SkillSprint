@@ -9,7 +9,16 @@ import {
   Image,
 } from 'react-native';
 import { Tabs, Slot, useRouter, usePathname } from 'expo-router';
-import { Grid, Layers, LifeBuoy, LogOut, Settings } from 'lucide-react-native';
+import {
+  Grid,
+  Layers,
+  LifeBuoy,
+  LogOut,
+  Settings,
+  Bot,
+  Framer,
+  BrainCircuit,
+} from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
@@ -56,7 +65,8 @@ export default function AdaptiveLayout() {
   if (isDesktop) {
     const navItems = [
       { label: 'HOME', path: '/(tabs)/', icon: Grid },
-      { label: 'TRACKS', path: '/(tabs)/tracks', icon: Layers },
+      { label: 'TRACKS', path: '/(tabs)/tracks', icon: Framer },
+      { label: 'AI', path: '/(tabs)/ai-chat', icon: BrainCircuit },
       { label: 'SUPPORT', path: '/(tabs)/support', icon: LifeBuoy },
       { label: 'SETTINGS', path: '/(tabs)/settings', icon: Settings },
     ];
@@ -153,28 +163,46 @@ export default function AdaptiveLayout() {
             },
           }}
         >
-  <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color }) => <Grid size={24} color={color} /> }} />
-          <Tabs.Screen name="tracks" options={{ title: 'Tracks', tabBarIcon: ({ color }) => <Layers size={24} color={color} /> }} />
-          <Tabs.Screen name="support" options={{ title: 'Support', tabBarIcon: ({ color }) => <LifeBuoy size={24} color={color} /> }} />
+          <Tabs.Screen
+            name="index"
+            options={{
+              title: 'Home',
+              tabBarIcon: ({ color }) => <Grid size={24} color={color} />,
+            }}
+          />
+          <Tabs.Screen
+            name="tracks"
+            options={{
+              title: 'Tracks',
+              tabBarIcon: ({ color }) => <Framer size={24} color={color} />,
+            }}
+          />
+          <Tabs.Screen
+            name="ai-chat"
+            options={{
+              title: 'AI Coach',
+              tabBarIcon: ({ color }) => <BrainCircuit size={24} color={color} />,
+            }}
+          />
 
-  {/* HIDDEN ROUTES */}
+          {/* HIDDEN ROUTES */}
           <Tabs.Screen name="settings" options={{ href: null }} />
           <Tabs.Screen name="settings/profile-view" options={{ href: null }} />
-          
+           <Tabs.Screen name="support" options={{ href: null }} />
+
           {/* ADMIN TAB: Completely Hidden from Mobile Tab Bar */}
-          <Tabs.Screen 
-            name="admin" 
-            options={{ 
+          <Tabs.Screen
+            name="admin"
+            options={{
               tabBarButton: () => null,
               tabBarItemStyle: { display: 'none' },
-            }} 
+            }}
           />
         </Tabs>
       </View>
     </View>
   );
 }
-
 
 const styles = StyleSheet.create({
   desktopRoot: {

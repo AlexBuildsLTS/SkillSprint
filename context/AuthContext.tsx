@@ -6,7 +6,7 @@ import React, {
   useCallback,
 } from 'react';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
-import { supabase } from '../services/supabase';
+import { supabase } from '../lib/supabase';
 import { Database } from '../supabase/database.types';
 
 type UserProfile = Database['public']['Tables']['profiles']['Row'];

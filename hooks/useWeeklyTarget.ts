@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '../services/supabase';
+import { supabase } from '../lib/supabase';
 import { Database } from '../supabase/database.types';
 
 interface WeeklyTarget {
@@ -20,7 +20,7 @@ export const useWeeklyTarget = (userId: string | undefined) => {
       const monday = new Date(today);
       monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
       monday.setHours(0, 0, 0, 0);
-      
+
       const sunday = new Date(monday);
       sunday.setDate(monday.getDate() + 6);
       sunday.setHours(23, 59, 59, 999);

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '../services/supabase';
+import { supabase } from '../lib/supabase';
 import { Database } from '../supabase/database.types';
 
 type DailySprint = Database['public']['Tables']['daily_sprints']['Row'];
@@ -34,7 +34,7 @@ export const useActivityLog = (userId: string | undefined) => {
       // Create a map of day -> count
       const dayMap = new Map<string, number>();
       const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-      
+
       // Initialize all days to 0
       for (let i = 0; i < 7; i++) {
         const date = new Date(sevenDaysAgo);

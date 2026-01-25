@@ -1,29 +1,19 @@
-/**
- * @file lib/supabase.ts
- * @description Unified Singleton Client for Pantry Pal.
- * FIXES: "Multiple GoTrueClient instances" warning.
- */
-
+import 'react-native-get-random-values'; // <--- THIS MUST BE FIRST
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
-import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
 import { Database } from '../supabase/database.types';
+import { secureStorage } from './secureStorage';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
-const ExpoSecureStoreAdapter = {
-  getItem: (key: string) => SecureStore.getItemAsync(key),
-  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
-  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
-};
-
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+const supabaseOptions = {
   auth: {
-    storage: Platform.OS === 'web' ? undefined : ExpoSecureStoreAdapter,
+    storage: secureStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
   },
-});
+};
+
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, supabaseOptions);

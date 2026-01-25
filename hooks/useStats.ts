@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '../services/supabase';
+import { supabase } from '../lib/supabase';
 import { Database } from '../supabase/database.types';
 
 type UserStats = Database['public']['Tables']['user_stats']['Row'];
