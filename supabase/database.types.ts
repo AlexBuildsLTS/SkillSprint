@@ -125,6 +125,7 @@ export type Database = {
           full_name: string | null;
           id: string;
           role: Database['public']['Enums']['user_role'];
+          status: string | null;
           updated_at: string;
           username: string;
         };
@@ -135,6 +136,7 @@ export type Database = {
           full_name?: string | null;
           id: string;
           role?: Database['public']['Enums']['user_role'];
+          status?: string | null;
           updated_at?: string;
           username: string;
         };
@@ -145,6 +147,7 @@ export type Database = {
           full_name?: string | null;
           id?: string;
           role?: Database['public']['Enums']['user_role'];
+          status?: string | null;
           updated_at?: string;
           username?: string;
         };
@@ -437,7 +440,17 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      admin_update_user_role: {
+        Args: {
+          new_role: Database['public']['Enums']['user_role'];
+          target_user_id: string;
+        };
+        Returns: undefined;
+      };
+      admin_update_user_status: {
+        Args: { new_status: string; target_user_id: string };
+        Returns: undefined;
+      };
     };
     Enums: {
       difficulty_level: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
