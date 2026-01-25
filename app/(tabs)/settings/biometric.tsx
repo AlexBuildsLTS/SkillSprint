@@ -54,7 +54,8 @@ export default function BiometricScreen() {
         const enrolled = await LocalAuthentication.isEnrolledAsync();
         setIsEnrolled(enrolled);
 
-        const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
+        const types =
+          await LocalAuthentication.supportedAuthenticationTypesAsync();
         setBiometricType(types);
       }
     } catch (error) {
@@ -112,7 +113,7 @@ export default function BiometricScreen() {
       Alert.alert(
         'Biometric Not Set Up',
         'Please set up biometric authentication in your device settings first.',
-        [{ text: 'OK' }]
+        [{ text: 'OK' }],
       );
       return;
     }
@@ -128,7 +129,10 @@ export default function BiometricScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         await saveBiometricSetting(true);
       } else if (result.error !== 'user_cancel') {
-        Alert.alert('Authentication Failed', 'Could not enable biometric authentication');
+        Alert.alert(
+          'Authentication Failed',
+          'Could not enable biometric authentication',
+        );
       }
     } else {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -138,8 +142,13 @@ export default function BiometricScreen() {
 
   const getBiometricIcon = () => {
     if (Platform.OS === 'ios') {
-      if (biometricType.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-        return      }
+      if (
+        biometricType.includes(
+          LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+        )
+      ) {
+        return;
+      }
       return Fingerprint;
     } else {
       return Fingerprint;
@@ -148,15 +157,25 @@ export default function BiometricScreen() {
 
   const getBiometricName = () => {
     if (Platform.OS === 'ios') {
-      if (biometricType.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+      if (
+        biometricType.includes(
+          LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+        )
+      ) {
         return 'Face ID';
       }
       return 'Touch ID';
     }
-    if (biometricType.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+    if (
+      biometricType.includes(
+        LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+      )
+    ) {
       return 'Face Recognition';
     }
-    if (biometricType.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+    if (
+      biometricType.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)
+    ) {
       return 'Fingerprint';
     }
     if (biometricType.includes(LocalAuthentication.AuthenticationType.IRIS)) {
@@ -215,8 +234,8 @@ export default function BiometricScreen() {
                       {!isSupported
                         ? 'Not Supported'
                         : !isEnrolled
-                        ? 'Not Set Up'
-                        : 'Unavailable'}
+                          ? 'Not Set Up'
+                          : 'Unavailable'}
                     </Text>
                   </>
                 )}
@@ -293,8 +312,8 @@ export default function BiometricScreen() {
             </Text>
             <Text className="text-xs text-slate-400 leading-5">
               Biometric authentication provides a secure and convenient way to
-              access your account. Your biometric data is stored securely on your
-              device and never shared with our servers.
+              access your account. Your biometric data is stored securely on
+              your device and never shared with our servers.
             </Text>
           </View>
         </GlassCard>

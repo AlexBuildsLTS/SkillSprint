@@ -27,7 +27,7 @@ import {
   User as UserIcon,
 } from 'lucide-react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { supabase } from '@/services/supabase';
+import { supabase } from '@/lib/supabase';
 import { Bento3DCard } from '@/components/ui/Bento3DCard';
 
 const THEME = {

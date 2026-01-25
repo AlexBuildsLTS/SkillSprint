@@ -15,7 +15,7 @@ import {
   Image,
   Alert,
   ActivityIndicator,
-  StyleSheet
+  StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -30,10 +30,10 @@ import {
   Camera,
   User,
   ShieldAlert,
-  Crown
+  Crown,
 } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/services/supabase';
+import { supabase } from '@/lib/supabase';
 import { GlassCard } from '@/components/ui/GlassCard';
 import * as Haptics from 'expo-haptics';
 
@@ -45,7 +45,7 @@ const THEME = {
   danger: '#ef4444',
   success: '#10b981',
   warning: '#f59e0b',
-  white: '#ffffff'
+  white: '#ffffff',
 };
 
 export default function ProfileViewScreen() {
@@ -93,7 +93,9 @@ export default function ProfileViewScreen() {
       if (uploadError) throw uploadError;
 
       // 3. Update DB
-      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('avatars').getPublicUrl(filePath);
 
       const { error: updateError } = await supabase
         .from('profiles')
@@ -104,7 +106,6 @@ export default function ProfileViewScreen() {
 
       await refreshUserData();
       Alert.alert('Updated', 'Your profile picture has been changed.');
-
     } catch (error: any) {
       Alert.alert('Upload Failed', error.message);
     } finally {
@@ -113,7 +114,13 @@ export default function ProfileViewScreen() {
   };
 
   // --- MENU ITEM COMPONENT ---
-  const MenuItem = ({ icon: Icon, label, onPress, color = 'white', subtitle }: any) => (
+  const MenuItem = ({
+    icon: Icon,
+    label,
+    onPress,
+    color = 'white',
+    subtitle,
+  }: any) => (
     <TouchableOpacity
       onPress={onPress}
       style={styles.menuItem}
@@ -124,8 +131,8 @@ export default function ProfileViewScreen() {
           <Icon size={20} color={color} />
         </View>
         <View>
-            <Text style={styles.menuLabel}>{label}</Text>
-            {subtitle && <Text style={styles.menuSub}>{subtitle}</Text>}
+          <Text style={styles.menuLabel}>{label}</Text>
+          {subtitle && <Text style={styles.menuSub}>{subtitle}</Text>}
         </View>
       </View>
       <ChevronRight size={16} color="#475569" />
@@ -137,8 +144,13 @@ export default function ProfileViewScreen() {
       {/* PADDING TOP 120: Ensures content clears the fixed MainHeader from _layout.tsx 
          PADDING BOTTOM 100: Ensures content clears the Tab Bar on mobile
       */}
-      <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 120, paddingBottom: 120 }}>
-        
+      <ScrollView
+        contentContainerStyle={{
+          padding: 24,
+          paddingTop: 120,
+          paddingBottom: 120,
+        }}
+      >
         {/* --- HEADER PROFILE SECTION --- */}
         <View style={styles.profileHeader}>
           <TouchableOpacity
@@ -167,20 +179,44 @@ export default function ProfileViewScreen() {
             </View>
           </TouchableOpacity>
 
-          <Text style={styles.nameText}>{user?.profile?.full_name || 'User'}</Text>
-          <Text style={styles.handleText}>@{user?.profile?.username || 'username'}</Text>
+          <Text style={styles.nameText}>
+            {user?.profile?.full_name || 'User'}
+          </Text>
+          <Text style={styles.handleText}>
+            @{user?.profile?.username || 'username'}
+          </Text>
 
           {/* Role Chip */}
-          <View style={[
-              styles.roleChip, 
-              { borderColor: isStaff ? THEME.success : isPremium ? THEME.warning : THEME.slate }
-          ]}>
-            {isStaff ? <ShieldAlert size={12} color={THEME.success} /> : isPremium ? <Crown size={12} color={THEME.warning} /> : null}
-            <Text style={[
-                styles.roleText, 
-                { color: isStaff ? THEME.success : isPremium ? THEME.warning : THEME.slate }
-            ]}>
-                {role} ACCOUNT
+          <View
+            style={[
+              styles.roleChip,
+              {
+                borderColor: isStaff
+                  ? THEME.success
+                  : isPremium
+                    ? THEME.warning
+                    : THEME.slate,
+              },
+            ]}
+          >
+            {isStaff ? (
+              <ShieldAlert size={12} color={THEME.success} />
+            ) : isPremium ? (
+              <Crown size={12} color={THEME.warning} />
+            ) : null}
+            <Text
+              style={[
+                styles.roleText,
+                {
+                  color: isStaff
+                    ? THEME.success
+                    : isPremium
+                      ? THEME.warning
+                      : THEME.slate,
+                },
+              ]}
+            >
+              {role} ACCOUNT
             </Text>
           </View>
         </View>
@@ -195,16 +231,16 @@ export default function ProfileViewScreen() {
               onPress={() => router.push('/(tabs)/settings/profile')}
               color="#6366f1"
             />
-            
+
             {/* ADMIN ACCESS */}
             {isStaff && (
-                <MenuItem
-                    icon={ShieldAlert}
-                    label="Admin Console"
-                    subtitle="User management & system logs"
-                    onPress={() => router.push('/(tabs)/admin/')}
-                    color="#10b981"
-                />
+              <MenuItem
+                icon={ShieldAlert}
+                label="Admin Console"
+                subtitle="User management & system logs"
+                onPress={() => router.push('/(tabs)/admin/')}
+                color="#10b981"
+              />
             )}
 
             <MenuItem
@@ -214,7 +250,7 @@ export default function ProfileViewScreen() {
               onPress={() => router.push('/(tabs)/support')}
               color="#38bdf8"
             />
-            
+
             <MenuItem
               icon={Settings}
               label="Advanced Settings"
@@ -228,7 +264,7 @@ export default function ProfileViewScreen() {
             <MenuItem
               icon={CreditCard}
               label="Subscription"
-              subtitle={isPremium ? "Manage Premium Plan" : "Upgrade to Pro"}
+              subtitle={isPremium ? 'Manage Premium Plan' : 'Upgrade to Pro'}
               onPress={() => {}}
               color="#f59e0b"
             />
@@ -242,8 +278,10 @@ export default function ProfileViewScreen() {
 
           <TouchableOpacity
             onPress={async () => {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                await signOut();
+              Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Success,
+              );
+              await signOut();
             }}
             style={styles.logoutBtn}
           >
@@ -251,30 +289,90 @@ export default function ProfileViewScreen() {
             <Text style={styles.logoutText}>Terminate Session</Text>
           </TouchableOpacity>
         </View>
-
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: THEME.obsidian },
-    profileHeader: { alignItems: 'center', marginBottom: 32 },
-    avatarWrapper: { position: 'relative', marginBottom: 16 },
-    avatarContainer: { width: 100, height: 100, borderRadius: 30, backgroundColor: 'rgba(99,102,241,0.1)', borderWidth: 2, borderColor: 'rgba(99,102,241,0.3)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-    avatarImage: { width: '100%', height: '100%' },
-    avatarText: { fontSize: 40, fontWeight: '900', color: THEME.indigo },
-    editBadge: { position: 'absolute', bottom: -6, right: -6, backgroundColor: THEME.indigo, padding: 6, borderRadius: 12, borderWidth: 4, borderColor: THEME.obsidian },
-    nameText: { fontSize: 24, fontWeight: '900', color: 'white', marginBottom: 4 },
-    handleText: { fontSize: 14, color: '#64748b', fontWeight: '500', marginBottom: 12 },
-    roleChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, backgroundColor: 'rgba(255,255,255,0.03)', gap: 6 },
-    roleText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-    menuGroup: { gap: 0 },
-    menuItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
-    menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-    iconContainer: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    menuLabel: { fontSize: 16, fontWeight: '700', color: 'white' },
-    menuSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
-    logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, marginTop: 24, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', backgroundColor: 'rgba(239,68,68,0.1)' },
-    logoutText: { fontSize: 16, fontWeight: 'bold', color: THEME.danger }
+  container: { flex: 1, backgroundColor: THEME.obsidian },
+  profileHeader: { alignItems: 'center', marginBottom: 32 },
+  avatarWrapper: { position: 'relative', marginBottom: 16 },
+  avatarContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 30,
+    backgroundColor: 'rgba(99,102,241,0.1)',
+    borderWidth: 2,
+    borderColor: 'rgba(99,102,241,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: { width: '100%', height: '100%' },
+  avatarText: { fontSize: 40, fontWeight: '900', color: THEME.indigo },
+  editBadge: {
+    position: 'absolute',
+    bottom: -6,
+    right: -6,
+    backgroundColor: THEME.indigo,
+    padding: 6,
+    borderRadius: 12,
+    borderWidth: 4,
+    borderColor: THEME.obsidian,
+  },
+  nameText: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: 'white',
+    marginBottom: 4,
+  },
+  handleText: {
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '500',
+    marginBottom: 12,
+  },
+  roleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    gap: 6,
+  },
+  roleText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  menuGroup: { gap: 0 },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuLabel: { fontSize: 16, fontWeight: '700', color: 'white' },
+  menuSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    marginTop: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
+    backgroundColor: 'rgba(239,68,68,0.1)',
+  },
+  logoutText: { fontSize: 16, fontWeight: 'bold', color: THEME.danger },
 });

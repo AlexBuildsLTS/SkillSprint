@@ -19,7 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/services/supabase';
+import { supabase } from '@/lib/supabase';
 import { GlassCard } from '@/components/ui/GlassCard';
 import Button from '@/components/ui/Button';
 import * as Haptics from 'expo-haptics';
@@ -208,9 +208,7 @@ export default function ChangePasswordScreen() {
             />
 
             {/* LIVE STRENGTH INDICATOR */}
-            <PasswordStrengthIndicator
-              password={newPassword}
-            />
+            <PasswordStrengthIndicator password={newPassword} />
 
             <PasswordInput
               label="Confirm New Password"

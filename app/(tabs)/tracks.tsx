@@ -65,7 +65,7 @@ import {
 } from 'lucide-react-native';
 
 // INTERNAL SERVICES
-import { supabase } from '@/services/supabase';
+import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { GlassCard } from '@/components/ui/GlassCard';
 
@@ -138,7 +138,7 @@ const TrackSkeleton = () => {
         opacity.value = withTiming(0.3, { duration: 800 });
       }
     });
-  }, []);
+  }, [opacity]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
@@ -465,7 +465,8 @@ export default function TracksScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return; // Or show upgrade modal
     }
-    // Navigate to track details (Assuming you will create app/tracks/[id].tsx later)
+    // Navigate to track details
+    router.push(`/tracks/${track.id}`); 
     // For now, we can push to a placeholder or alert
     // router.push(`/tracks/${track.id}`);
     console.log('Navigate to track:', track.id);

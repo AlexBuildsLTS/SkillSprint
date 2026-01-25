@@ -25,6 +25,7 @@ import {
   LogOut,
   Edit,
   ShieldAlert, // Icon for Admin Console
+  LifeBuoy, // Icon for Support
 } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { BlurView } from 'expo-blur';
@@ -80,6 +81,17 @@ export const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
       },
       color: '#8b5cf6',
     },
+    // ADDED SUPPORT CENTER HERE
+    {
+      icon: LifeBuoy,
+      label: 'Support Center',
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onClose();
+        router.push('/(tabs)/support');
+      },
+      color: '#3b82f6', // Blue
+    },
     {
       icon: Settings,
       label: 'Settings',
@@ -92,22 +104,27 @@ export const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
     },
   ];
 
-  // Add Admin Console if staff
+  // Add Admin Console if staff (inserted before Settings to keep hierarchy)
   if (isStaff) {
-    menuItems.splice(2, 0, {
-      // Insert before Settings
-      icon: ShieldAlert,
-      label: 'Admin Console',
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        onClose();
-        router.push('/(tabs)/admin/');
-      },
-      color: '#10b981', // Emerald green for admin
-    } as MenuItem);
+    // Finding index of Settings to insert Admin before it
+    const settingsIndex = menuItems.findIndex(
+      (item) => item.label === 'Settings',
+    );
+    if (settingsIndex !== -1) {
+      menuItems.splice(settingsIndex, 0, {
+        icon: ShieldAlert,
+        label: 'Admin Console',
+        onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          onClose();
+          router.push('/(tabs)/admin/');
+        },
+        color: '#10b981', // Emerald green for admin
+      });
+    }
   }
 
-  // Add Logout at the end
+  // Add Logout at the very end
   menuItems.push({
     icon: LogOut,
     label: 'Sign Out',

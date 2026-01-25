@@ -20,7 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { User, Mail, Camera, Save } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/services/supabase';
+import { supabase } from '@/lib/supabase';
 import { GlassCard } from '@/components/ui/GlassCard';
 import Button from '@/components/ui/Button';
 import * as ImagePicker from 'expo-image-picker';
@@ -36,7 +36,10 @@ export default function ProfileEditScreen() {
 
   const uploadAvatar = async () => {
     if (!user) {
-      Alert.alert('Authentication Error', 'You must be logged in to upload an avatar.');
+      Alert.alert(
+        'Authentication Error',
+        'You must be logged in to upload an avatar.',
+      );
       return;
     }
     try {
@@ -70,9 +73,9 @@ export default function ProfileEditScreen() {
       if (uploadError) throw uploadError;
 
       // 3. Get Public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('avatars').getPublicUrl(filePath);
 
       // 4. Update Profile Record
       const { error: updateError } = await supabase
@@ -86,7 +89,6 @@ export default function ProfileEditScreen() {
       await refreshUserData();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Success', 'Profile picture updated.');
-
     } catch (error: any) {
       Alert.alert('Upload Failed', error.message);
     } finally {
@@ -109,7 +111,10 @@ export default function ProfileEditScreen() {
     }
 
     if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-      Alert.alert('Error', 'Username can only contain letters, numbers, and underscores');
+      Alert.alert(
+        'Error',
+        'Username can only contain letters, numbers, and underscores',
+      );
       return;
     }
 
@@ -211,13 +216,17 @@ export default function ProfileEditScreen() {
                 <View className="w-10 h-10 rounded-full bg-indigo-500/20 items-center justify-center">
                   <User size={20} color="#6366f1" />
                 </View>
-                <Text className="text-lg font-black text-white">Profile Information</Text>
+                <Text className="text-lg font-black text-white">
+                  Profile Information
+                </Text>
               </View>
             </View>
 
             {/* Full Name */}
             <View className="mb-4">
-              <Text className="text-sm font-bold text-slate-300 mb-2">Full Name</Text>
+              <Text className="text-sm font-bold text-slate-300 mb-2">
+                Full Name
+              </Text>
               <TextInput
                 value={fullName}
                 onChangeText={setFullName}
@@ -230,7 +239,9 @@ export default function ProfileEditScreen() {
 
             {/* Username */}
             <View className="mb-4">
-              <Text className="text-sm font-bold text-slate-300 mb-2">Username</Text>
+              <Text className="text-sm font-bold text-slate-300 mb-2">
+                Username
+              </Text>
               <TextInput
                 value={username}
                 onChangeText={setUsername}
@@ -247,30 +258,33 @@ export default function ProfileEditScreen() {
 
             {/* Email (Read-only) */}
             <View className="mb-4">
-              <Text className="text-sm font-bold text-slate-300 mb-2">Email</Text>
+              <Text className="text-sm font-bold text-slate-300 mb-2">
+                Email
+              </Text>
               <View className="flex-row items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-4 py-4">
                 <Mail size={20} color="#64748b" />
-                <Text className="text-base text-slate-400 flex-1">{user?.email}</Text>
+                <Text className="text-base text-slate-400 flex-1">
+                  {user?.email}
+                </Text>
               </View>
               <Text className="text-xs text-slate-500 mt-2">
-                Email cannot be changed here. Use change password to update email.
+                Email cannot be changed here. Use change password to update
+                email.
               </Text>
             </View>
           </View>
         </GlassCard>
 
         {/* Save Button */}
-        <Button
-          onPress={handleSave}
-          disabled={saving}
-          className="mb-6"
-        >
+        <Button onPress={handleSave} disabled={saving} className="mb-6">
           {saving ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
             <View className="flex-row items-center gap-2">
               <Save size={20} color="#ffffff" />
-              <Text className="text-base font-black text-white">Save Changes</Text>
+              <Text className="text-base font-black text-white">
+                Save Changes
+              </Text>
             </View>
           )}
         </Button>
