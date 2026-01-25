@@ -1,8 +1,8 @@
 /**
  * =============================================================
- * 👤 PROFILE VIEW PAGE
+ * 👤 PROFILE VIEW SCREEN
  * =============================================================
- * Main profile view with avatar and navigation menu
+ * Detailed profile management with role-based access.
  * =============================================================
  */
 
@@ -15,6 +15,7 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  StyleSheet
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -28,33 +29,42 @@ import {
   CreditCard,
   Camera,
   User,
+  ShieldAlert,
+  Crown
 } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/services/supabase';
 import { GlassCard } from '@/components/ui/GlassCard';
-// REMOVED MainHeader import to prevent duplication
+import * as Haptics from 'expo-haptics';
+
+// THEME CONSTANTS
+const THEME = {
+  obsidian: '#020617',
+  indigo: '#6366f1',
+  slate: '#94a3b8',
+  danger: '#ef4444',
+  success: '#10b981',
+  warning: '#f59e0b',
+  white: '#ffffff'
+};
 
 export default function ProfileViewScreen() {
   const router = useRouter();
   const { user, signOut, refreshUserData } = useAuth();
   const [uploading, setUploading] = useState(false);
 
-  const isStaff =
-    user?.profile?.role === 'ADMIN' || user?.profile?.role === 'MODERATOR';
+  // Role Logic
+  const role = user?.profile?.role || 'MEMBER';
+  const isStaff = role === 'ADMIN' || role === 'MODERATOR';
+  const isPremium = role === 'PREMIUM' || isStaff;
 
-  // HANDLE IMAGE PICKER & UPLOAD
+  // --- AVATAR UPLOAD LOGIC ---
   const uploadAvatar = async () => {
-    if (!user) {
-      Alert.alert(
-        'Authentication Error',
-        'You must be logged in to upload an avatar.',
-      );
-      return;
-    }
+    if (!user) return;
     try {
       setUploading(true);
 
-      // 1. Pick Image
+      // 1. Pick
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -64,15 +74,16 @@ export default function ProfileViewScreen() {
       });
 
       if (result.canceled || !result.assets || !result.assets[0].base64) {
-        return; // User cancelled
+        setUploading(false);
+        return;
       }
 
+      // 2. Upload
       const image = result.assets[0];
       const fileExt = image.uri.split('.').pop();
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
-      // 2. Upload to Supabase Storage (avatars bucket)
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(filePath, decode(image.base64!), {
@@ -81,12 +92,9 @@ export default function ProfileViewScreen() {
 
       if (uploadError) throw uploadError;
 
-      // 3. Get Public URL
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      // 3. Update DB
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
 
-      // 4. Update Profile Record
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ avatar_url: publicUrl })
@@ -94,9 +102,9 @@ export default function ProfileViewScreen() {
 
       if (updateError) throw updateError;
 
-      // 5. Refresh Context
       await refreshUserData();
-      Alert.alert('Success', 'Profile picture updated.');
+      Alert.alert('Updated', 'Your profile picture has been changed.');
+
     } catch (error: any) {
       Alert.alert('Upload Failed', error.message);
     } finally {
@@ -104,122 +112,169 @@ export default function ProfileViewScreen() {
     }
   };
 
-  const MenuItem = ({ icon: Icon, label, onPress, color = 'white' }: any) => (
+  // --- MENU ITEM COMPONENT ---
+  const MenuItem = ({ icon: Icon, label, onPress, color = 'white', subtitle }: any) => (
     <TouchableOpacity
       onPress={onPress}
-      className="flex-row items-center justify-between p-4 border-b border-white/5 last:border-0"
+      style={styles.menuItem}
+      activeOpacity={0.7}
     >
-      <View className="flex-row items-center gap-4">
-        <View className="items-center justify-center w-10 h-10 rounded-full bg-white/5">
+      <View style={styles.menuLeft}>
+        <View style={[styles.iconContainer, { backgroundColor: color + '15' }]}>
           <Icon size={20} color={color} />
         </View>
-        <Text className="text-base font-bold text-white">{label}</Text>
+        <View>
+            <Text style={styles.menuLabel}>{label}</Text>
+            {subtitle && <Text style={styles.menuSub}>{subtitle}</Text>}
+        </View>
       </View>
       <ChevronRight size={16} color="#475569" />
     </TouchableOpacity>
   );
 
   return (
-    <View className="flex-1 bg-[#020617]">
-      {/* NOTE: Padding Top ensures content starts below the global transparent header 
-         from _layout.tsx. Adjust 100/120 based on header height preference.
+    <View style={styles.container}>
+      {/* PADDING TOP 120: Ensures content clears the fixed MainHeader from _layout.tsx 
+         PADDING BOTTOM 100: Ensures content clears the Tab Bar on mobile
       */}
-      <ScrollView
-        contentContainerStyle={{
-          padding: 24,
-          paddingTop: 100,
-          paddingBottom: 100,
-        }}
-      >
-        {/* AVATAR HEADER */}
-        <View className="items-center mb-8">
+      <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 120, paddingBottom: 120 }}>
+        
+        {/* --- HEADER PROFILE SECTION --- */}
+        <View style={styles.profileHeader}>
           <TouchableOpacity
             onPress={uploadAvatar}
             disabled={uploading}
-            className="relative mb-4"
+            style={styles.avatarWrapper}
           >
-            <View className="items-center justify-center w-32 h-32 overflow-hidden border-2 border-indigo-500/30 bg-indigo-500/10 rounded-3xl">
+            <View style={styles.avatarContainer}>
               {uploading ? (
                 <ActivityIndicator color="#6366f1" />
               ) : user?.profile?.avatar_url ? (
                 <Image
                   source={{ uri: user.profile.avatar_url }}
-                  className="w-full h-full"
+                  style={styles.avatarImage}
                   resizeMode="cover"
                 />
               ) : (
-                <Text className="text-5xl font-black text-indigo-400">
+                <Text style={styles.avatarText}>
                   {user?.profile?.username?.[0]?.toUpperCase()}
                 </Text>
               )}
             </View>
 
-            {/* Edit Badge */}
-            <View className="absolute bottom-[-6px] right-[-6px] bg-indigo-500 p-2 rounded-xl border-4 border-[#020617]">
-              <Camera size={16} color="white" />
+            <View style={styles.editBadge}>
+              <Camera size={14} color="white" />
             </View>
           </TouchableOpacity>
 
-          <Text className="text-2xl font-black text-white">
-            {user?.profile?.full_name || 'User'}
-          </Text>
-          <Text className="font-medium text-slate-400">
-            @{user?.profile?.username || 'username'}
-          </Text>
+          <Text style={styles.nameText}>{user?.profile?.full_name || 'User'}</Text>
+          <Text style={styles.handleText}>@{user?.profile?.username || 'username'}</Text>
 
-          {isStaff && (
-            <View className="px-3 py-1 mt-2 border rounded-full bg-indigo-500/20 border-indigo-500/30">
-              <Text className="text-xs font-bold text-indigo-300 uppercase">
-                {user?.profile?.role}
-              </Text>
-            </View>
-          )}
+          {/* Role Chip */}
+          <View style={[
+              styles.roleChip, 
+              { borderColor: isStaff ? THEME.success : isPremium ? THEME.warning : THEME.slate }
+          ]}>
+            {isStaff ? <ShieldAlert size={12} color={THEME.success} /> : isPremium ? <Crown size={12} color={THEME.warning} /> : null}
+            <Text style={[
+                styles.roleText, 
+                { color: isStaff ? THEME.success : isPremium ? THEME.warning : THEME.slate }
+            ]}>
+                {role} ACCOUNT
+            </Text>
+          </View>
         </View>
 
-        {/* MENU GROUPS */}
-        <View className="gap-6">
-          <GlassCard intensity="light">
+        {/* --- MENU GROUPS --- */}
+        <View style={styles.menuGroup}>
+          <GlassCard intensity="light" className="overflow-hidden">
             <MenuItem
               icon={User}
               label="Edit Profile"
+              subtitle="Personal details & preferences"
               onPress={() => router.push('/(tabs)/settings/profile')}
               color="#6366f1"
             />
+            
+            {/* ADMIN ACCESS */}
+            {isStaff && (
+                <MenuItem
+                    icon={ShieldAlert}
+                    label="Admin Console"
+                    subtitle="User management & system logs"
+                    onPress={() => router.push('/(tabs)/admin/')}
+                    color="#10b981"
+                />
+            )}
+
             <MenuItem
               icon={LifeBuoy}
               label="Support Center"
+              subtitle="Tickets & FAQ"
               onPress={() => router.push('/(tabs)/support')}
               color="#38bdf8"
             />
+            
             <MenuItem
               icon={Settings}
-              label="Settings & Security"
+              label="Advanced Settings"
+              subtitle="Security, notifications, data"
               onPress={() => router.push('/(tabs)/settings')}
+              color="#94a3b8"
             />
           </GlassCard>
 
-          <GlassCard intensity="light">
+          <GlassCard intensity="light" className="mt-6 overflow-hidden">
             <MenuItem
               icon={CreditCard}
               label="Subscription"
+              subtitle={isPremium ? "Manage Premium Plan" : "Upgrade to Pro"}
               onPress={() => {}}
+              color="#f59e0b"
             />
             <MenuItem
               icon={ShieldCheck}
               label="Privacy Policy"
               onPress={() => {}}
+              color="#8b5cf6"
             />
           </GlassCard>
 
           <TouchableOpacity
-            onPress={signOut}
-            className="flex-row items-center justify-center p-4 mt-4 border rounded-2xl bg-red-500/10 border-red-500/20"
+            onPress={async () => {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                await signOut();
+            }}
+            style={styles.logoutBtn}
           >
             <LogOut size={20} color="#ef4444" style={{ marginRight: 8 }} />
-            <Text className="font-bold text-red-400">Terminate Session</Text>
+            <Text style={styles.logoutText}>Terminate Session</Text>
           </TouchableOpacity>
         </View>
+
       </ScrollView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+    container: { flex: 1, backgroundColor: THEME.obsidian },
+    profileHeader: { alignItems: 'center', marginBottom: 32 },
+    avatarWrapper: { position: 'relative', marginBottom: 16 },
+    avatarContainer: { width: 100, height: 100, borderRadius: 30, backgroundColor: 'rgba(99,102,241,0.1)', borderWidth: 2, borderColor: 'rgba(99,102,241,0.3)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+    avatarImage: { width: '100%', height: '100%' },
+    avatarText: { fontSize: 40, fontWeight: '900', color: THEME.indigo },
+    editBadge: { position: 'absolute', bottom: -6, right: -6, backgroundColor: THEME.indigo, padding: 6, borderRadius: 12, borderWidth: 4, borderColor: THEME.obsidian },
+    nameText: { fontSize: 24, fontWeight: '900', color: 'white', marginBottom: 4 },
+    handleText: { fontSize: 14, color: '#64748b', fontWeight: '500', marginBottom: 12 },
+    roleChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, backgroundColor: 'rgba(255,255,255,0.03)', gap: 6 },
+    roleText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+    menuGroup: { gap: 0 },
+    menuItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
+    menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+    iconContainer: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    menuLabel: { fontSize: 16, fontWeight: '700', color: 'white' },
+    menuSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
+    logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, marginTop: 24, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', backgroundColor: 'rgba(239,68,68,0.1)' },
+    logoutText: { fontSize: 16, fontWeight: 'bold', color: THEME.danger }
+});

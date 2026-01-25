@@ -153,36 +153,28 @@ export default function AdaptiveLayout() {
             },
           }}
         >
-          <Tabs.Screen
-            name="index"
-            options={{
-              title: 'Home',
-              tabBarIcon: ({ color }) => <Grid size={24} color={color} />,
-            }}
-          />
-          <Tabs.Screen
-            name="tracks"
-            options={{
-              title: 'Tracks',
-              tabBarIcon: ({ color }) => <Layers size={24} color={color} />,
-            }}
-          />
-          <Tabs.Screen
-            name="support"
-            options={{
-              title: 'Support',
-              tabBarIcon: ({ color }) => <LifeBuoy size={24} color={color} />,
-            }}
-          />
+  <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color }) => <Grid size={24} color={color} /> }} />
+          <Tabs.Screen name="tracks" options={{ title: 'Tracks', tabBarIcon: ({ color }) => <Layers size={24} color={color} /> }} />
+          <Tabs.Screen name="support" options={{ title: 'Support', tabBarIcon: ({ color }) => <LifeBuoy size={24} color={color} /> }} />
 
-          {/* HIDDEN ROUTES (Accessible but no Tab Icon) */}
+  {/* HIDDEN ROUTES */}
           <Tabs.Screen name="settings" options={{ href: null }} />
           <Tabs.Screen name="settings/profile-view" options={{ href: null }} />
+          
+          {/* ADMIN TAB: Completely Hidden from Mobile Tab Bar */}
+          <Tabs.Screen 
+            name="admin" 
+            options={{ 
+              tabBarButton: () => null,
+              tabBarItemStyle: { display: 'none' },
+            }} 
+          />
         </Tabs>
       </View>
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   desktopRoot: {

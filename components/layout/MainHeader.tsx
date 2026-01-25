@@ -79,7 +79,7 @@ export const MainHeader: React.FC<MainHeaderProps> = ({
 
   const handleSettings = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/(tabs)/settings');
+    router.push('/(tabs)/settings/profile-view');
   };
 
   // Desktop Header (Horizontal Bar)

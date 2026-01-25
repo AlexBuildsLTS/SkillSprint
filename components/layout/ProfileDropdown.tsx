@@ -2,11 +2,11 @@
  * =============================================================
  * 👤 PROFILE DROPDOWN COMPONENT
  * =============================================================
- * Dropdown menu for profile actions
+ * Dropdown menu for profile actions with Admin Support
  * =============================================================
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -15,14 +15,16 @@ import {
   Pressable,
   Image,
   useWindowDimensions,
- Platform } from 'react-native';
+  Platform,
+  StyleSheet,
+} from 'react-native';
 import { useRouter } from 'expo-router';
-import { 
-  User, 
-  Settings, 
-  LogOut, 
-  ChevronDown,
-  Edit
+import {
+  User,
+  Settings,
+  LogOut,
+  Edit,
+  ShieldAlert, // Icon for Admin Console
 } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { BlurView } from 'expo-blur';
@@ -32,6 +34,14 @@ interface ProfileDropdownProps {
   visible: boolean;
   onClose: () => void;
   anchorPosition: { x: number; y: number };
+}
+
+interface MenuItem {
+  icon: any;
+  label: string;
+  onPress: () => void;
+  color: string;
+  isDestructive?: boolean;
 }
 
 export const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
@@ -44,7 +54,12 @@ export const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
   const { width } = useWindowDimensions();
   const isDesktop = width >= 1024;
 
-  const menuItems = [
+  // Check Role
+  const isStaff =
+    user?.profile?.role === 'ADMIN' || user?.profile?.role === 'MODERATOR';
+
+  // Base Menu Items
+  const menuItems: MenuItem[] = [
     {
       icon: User,
       label: 'View Profile',
@@ -75,20 +90,98 @@ export const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
       },
       color: '#94a3b8',
     },
-    {
-      icon: LogOut,
-      label: 'Sign Out',
-      onPress: async () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        onClose();
-        await signOut();
-      },
-      color: '#ef4444',
-      isDestructive: true,
-    },
   ];
 
+  // Add Admin Console if staff
+  if (isStaff) {
+    menuItems.splice(2, 0, {
+      // Insert before Settings
+      icon: ShieldAlert,
+      label: 'Admin Console',
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        onClose();
+        router.push('/(tabs)/admin/');
+      },
+      color: '#10b981', // Emerald green for admin
+    } as MenuItem);
+  }
+
+  // Add Logout at the end
+  menuItems.push({
+    icon: LogOut,
+    label: 'Sign Out',
+    onPress: async () => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      onClose();
+      await signOut();
+    },
+    color: '#ef4444',
+    isDestructive: true,
+  } as MenuItem);
+
   if (!visible) return null;
+
+  // Render Inner Content (Shared between Blur and View)
+  const renderContent = () => (
+    <View
+      style={{
+        backgroundColor: Platform.OS === 'ios' ? 'rgba(0,0,0,0.5)' : '#0A101F',
+      }}
+    >
+      {/* User Info Header */}
+      <View style={styles.header}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          {user?.profile?.avatar_url ? (
+            <Image
+              source={{ uri: user.profile.avatar_url }}
+              style={styles.avatar}
+            />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarText}>
+                {user?.profile?.username?.[0]?.toUpperCase() || 'U'}
+              </Text>
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.userName} numberOfLines={1}>
+              {user?.profile?.full_name || user?.profile?.username || 'User'}
+            </Text>
+            <Text style={styles.userEmail} numberOfLines={1}>
+              {user?.email}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Menu Items */}
+      {menuItems.map((item, index) => {
+        const Icon = item.icon;
+        return (
+          <TouchableOpacity
+            key={index}
+            onPress={item.onPress}
+            style={[
+              styles.menuItem,
+              index < menuItems.length - 1 && styles.borderBottom,
+              item.isDestructive && styles.destructiveBg,
+            ]}
+          >
+            <Icon size={18} color={item.color} />
+            <Text
+              style={[
+                styles.menuText,
+                item.isDestructive && { color: '#ef4444' },
+              ]}
+            >
+              {item.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
 
   return (
     <Modal
@@ -97,134 +190,71 @@ export const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable
-        style={{
-          flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        }}
-        onPress={onClose}
-      >
+      <Pressable style={styles.overlay} onPress={onClose}>
         <View
           style={{
             position: 'absolute',
-            top: anchorPosition.y + 60,
-            right: isDesktop ? undefined : 16,
-            left: isDesktop ? anchorPosition.x - 200 : undefined,
-            width: isDesktop ? 240 : width - 32,
-            maxWidth: 280,
+            // On desktop, align to anchor; fallback to fixed right for mobile
+            top: anchorPosition.y + 10,
+            right: isDesktop ? width - anchorPosition.x - 40 : 20,
+            width: 260,
+            borderRadius: 16,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.1)',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.5,
+            shadowRadius: 20,
+            elevation: 10,
           }}
         >
           {Platform.OS === 'ios' ? (
             <BlurView
               tint="dark"
-              intensity={50}
-              className="overflow-hidden border rounded-2xl border-white/10"
+              intensity={80}
+              style={StyleSheet.absoluteFill}
             >
-              <View className="bg-black/40">
-                {/* User Info Header */}
-                <View className="px-4 py-3 border-b border-white/10">
-                  <View className="flex-row items-center gap-3">
-                    {user?.profile?.avatar_url ? (
-                      <Image
-                        source={{ uri: user.profile.avatar_url }}
-                        className="w-10 h-10 rounded-full"
-                      />
-                    ) : (
-                      <View className="items-center justify-center w-10 h-10 rounded-full bg-indigo-500/30">
-                        <Text className="text-lg font-black text-indigo-300">
-                          {user?.profile?.username?.[0]?.toUpperCase() || 'U'}
-                        </Text>
-                      </View>
-                    )}
-                    <View className="flex-1">
-                      <Text className="text-sm font-bold text-white">
-                        {user?.profile?.full_name || user?.profile?.username || 'User'}
-                      </Text>
-                      <Text className="text-xs text-slate-400">
-                        {user?.email}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Menu Items */}
-                {menuItems.map((item, index) => {
-                  const Icon = item.icon;
-                  return (
-                    <TouchableOpacity
-                      key={index}
-                      onPress={item.onPress}
-                      className={`flex-row items-center gap-3 px-4 py-3 ${
-                        index < menuItems.length - 1 ? 'border-b border-white/5' : ''
-                      } ${item.isDestructive ? 'bg-red-500/10' : ''}`}
-                    >
-                      <Icon size={18} color={item.color} />
-                      <Text
-                        className={`text-sm font-semibold ${
-                          item.isDestructive ? 'text-red-400' : 'text-white'
-                        }`}
-                      >
-                        {item.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              {renderContent()}
             </BlurView>
           ) : (
-            <View className="bg-[#0A101F] rounded-2xl border border-white/10 overflow-hidden">
-              {/* User Info Header */}
-              <View className="px-4 py-3 border-b border-white/10">
-                <View className="flex-row items-center gap-3">
-                  {user?.profile?.avatar_url ? (
-                    <Image
-                      source={{ uri: user.profile.avatar_url }}
-                      className="w-10 h-10 rounded-full"
-                    />
-                  ) : (
-                    <View className="items-center justify-center w-10 h-10 rounded-full bg-indigo-500/30">
-                      <Text className="text-lg font-black text-indigo-300">
-                        {user?.profile?.username?.[0]?.toUpperCase() || 'U'}
-                      </Text>
-                    </View>
-                  )}
-                  <View className="flex-1">
-                    <Text className="text-sm font-bold text-white">
-                      {user?.profile?.full_name || user?.profile?.username || 'User'}
-                    </Text>
-                    <Text className="text-xs text-slate-400">
-                      {user?.email}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Menu Items */}
-              {menuItems.map((item, index) => {
-                const Icon = item.icon;
-                return (
-                  <TouchableOpacity
-                    key={index}
-                    onPress={item.onPress}
-                    className={`flex-row items-center gap-3 px-4 py-3 ${
-                      index < menuItems.length - 1 ? 'border-b border-white/5' : ''
-                    } ${item.isDestructive ? 'bg-red-500/10' : ''}`}
-                  >
-                    <Icon size={18} color={item.color} />
-                    <Text
-                      className={`text-sm font-semibold ${
-                        item.isDestructive ? 'text-red-400' : 'text-white'
-                      }`}
-                    >
-                      {item.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            renderContent()
           )}
         </View>
       </Pressable>
     </Modal>
   );
 };
+
+const styles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'transparent' }, // Transparent so you can click outside to close
+  header: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  avatar: { width: 40, height: 40, borderRadius: 20 },
+  avatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(99, 102, 241, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { fontSize: 18, fontWeight: '900', color: '#818cf8' },
+  userName: { fontSize: 14, fontWeight: 'bold', color: 'white' },
+  userEmail: { fontSize: 12, color: '#94a3b8' },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+  },
+  borderBottom: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  destructiveBg: { backgroundColor: 'rgba(239, 68, 68, 0.1)' },
+  menuText: { fontSize: 14, fontWeight: '600', color: 'white' },
+});
