@@ -1,23 +1,41 @@
-import React from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  FlatList, 
-  StyleSheet, 
-  Dimensions, 
+import React, { useCallback } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Dimensions,
   StatusBar,
-  ImageBackground
+  Platform,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, PlayCircle, Trophy, Clock, BarChart3 } from 'lucide-react-native';
+import {
+  ChevronLeft,
+  PlayCircle,
+  Trophy,
+  Clock,
+  BarChart3,
+  Code2,
+  Gamepad2,
+  Globe,
+} from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
+import Animated, {
+  FadeInDown,
+  useAnimatedScrollHandler,
+  useSharedValue,
+  useAnimatedStyle,
+  interpolate,
+  Extrapolation,
+} from 'react-native-reanimated';
 import { supabase } from '@/lib/supabase';
+import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
+const HEADER_HEIGHT = 300;
 
 const THEME = {
   obsidian: '#020617',
@@ -25,6 +43,7 @@ const THEME = {
   surface: '#1e293b',
   indigo: '#6366f1',
   indigoDark: '#4338ca',
+  accent: '#8b5cf6',
   textPrimary: '#f8fafc',
   textSecondary: '#94a3b8',
   success: '#10b981',
@@ -35,8 +54,14 @@ export default function TrackDetailsScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const trackId = Array.isArray(id) ? id[0] : id;
+  const scrollY = useSharedValue(0);
 
-  const { data: track, isLoading, error } = useQuery({
+  // OPTIMIZED QUERY: Fixes "Signal Aborted" and Reflows
+  const {
+    data: track,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['track', trackId],
     queryFn: async () => {
       if (!trackId) return null;
@@ -45,139 +70,236 @@ export default function TrackDetailsScreen() {
         .select('*, lessons(*)')
         .eq('id', trackId)
         .single();
-      
+
       if (error) throw error;
-      
+
       if (data.lessons) {
         data.lessons.sort((a: any, b: any) => a.order - b.order);
       }
       return data;
     },
     enabled: !!trackId,
+    staleTime: 1000 * 60 * 5, // 5 Minutes Cache (CRITICAL FOR PERFORMANCE)
+    retry: 2, // Retry only twice to prevent loop
   });
 
-  // --- LOADING STATE (SKELETON) ---
+  const scrollHandler = useAnimatedScrollHandler((event) => {
+    scrollY.value = event.contentOffset.y;
+  });
+
+  const headerStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        {
+          translateY: interpolate(
+            scrollY.value,
+            [-HEADER_HEIGHT, 0, HEADER_HEIGHT],
+            [-HEADER_HEIGHT / 2, 0, HEADER_HEIGHT * 0.75],
+            Extrapolation.CLAMP,
+          ),
+        },
+        {
+          scale: interpolate(
+            scrollY.value,
+            [-HEADER_HEIGHT, 0, HEADER_HEIGHT],
+            [2, 1, 1],
+            Extrapolation.CLAMP,
+          ),
+        },
+      ],
+    };
+  });
+
+  const getLessonIcon = (index: number) => {
+    if (index % 3 === 0) return <Code2 size={20} color={THEME.indigo} />;
+    if (index % 3 === 1) return <Globe size={20} color={THEME.accent} />;
+    return <Gamepad2 size={20} color={THEME.success} />;
+  };
+
+  const handleLessonPress = useCallback(
+    (lessonId: string) => {
+      Haptics.selectionAsync();
+      router.push(`/lesson/${lessonId}`);
+    },
+    [router],
+  );
+
   if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <View
+          style={{ height: HEADER_HEIGHT, backgroundColor: THEME.charcoal }}
+        />
+        <View style={{ padding: 24, gap: 16 }}>
+          <View style={[styles.skeleton, { height: 40, width: '60%' }]} />
+          <View style={[styles.skeleton, { height: 200 }]} />
+        </View>
+      </View>
+    );
+  }
+
+  if (error || !track) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <View style={[styles.skeleton, { width: 40, height: 40, borderRadius: 12 }]} />
-          <View style={[styles.skeleton, { width: 150, height: 24, borderRadius: 4 }]} />
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backBtn}
+          >
+            <ChevronLeft size={24} color="white" />
+          </TouchableOpacity>
         </View>
-        <View style={{ padding: 24, gap: 16 }}>
-          <View style={[styles.skeleton, { width: '100%', height: 200, borderRadius: 24 }]} />
-          <View style={[styles.skeleton, { width: '60%', height: 20, borderRadius: 4 }]} />
-          <View style={[styles.skeleton, { width: '100%', height: 80, borderRadius: 16 }]} />
-          <View style={[styles.skeleton, { width: '100%', height: 80, borderRadius: 16 }]} />
+        <View style={styles.errorContainer}>
+          <Trophy
+            size={64}
+            color={THEME.textSecondary}
+            style={{ opacity: 0.2, marginBottom: 20 }}
+          />
+          <Text style={styles.errorText}>Track not found</Text>
+          <TouchableOpacity onPress={router.back} style={styles.primaryBtn}>
+            <Text style={styles.primaryBtnText}>Return to Base</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // --- ERROR STATE ---
-  if (error || !track) {
-    return (
-      <SafeAreaView style={styles.errorContainer}>
-        <Trophy size={48} color={THEME.textSecondary} style={{ opacity: 0.5, marginBottom: 16 }} />
-        <Text style={styles.errorTitle}>Track Not Found</Text>
-        <Text style={styles.errorText}>We couldn&apos;t load the course details.</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.primaryBtn}>
-          <Text style={styles.primaryBtnText}>Go Back</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
-
-  const totalXp = track.lessons?.reduce((sum: number, l: any) => sum + (l.xp_reward || 0), 0) || 0;
+  const totalXp =
+    track.lessons?.reduce(
+      (sum: number, l: any) => sum + (l.xp_reward || 0),
+      0,
+    ) || 0;
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
-      
-      {/* BACKGROUND GRADIENT */}
-      <LinearGradient
-        colors={[THEME.charcoal, THEME.obsidian]}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
 
-      <SafeAreaView style={{ flex: 1 }}>
-        {/* HEADER */}
-        <Animated.View entering={FadeIn.duration(400)} style={styles.header}>
-          <TouchableOpacity 
-            onPress={() => router.back()} 
+      <Animated.View style={[styles.headerBackground, headerStyle]}>
+        <LinearGradient
+          colors={[THEME.indigoDark, THEME.obsidian]}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+        />
+        <View
+          style={[
+            styles.circle,
+            {
+              top: -50,
+              left: -50,
+              width: 300,
+              height: 300,
+              backgroundColor: THEME.indigo,
+              opacity: 0.15,
+            },
+          ]}
+        />
+        <View
+          style={[
+            styles.circle,
+            {
+              bottom: 50,
+              right: -100,
+              width: 400,
+              height: 400,
+              backgroundColor: THEME.accent,
+              opacity: 0.1,
+            },
+          ]}
+        />
+      </Animated.View>
+
+      <SafeAreaView style={{ flex: 1 }} edges={['top', 'left', 'right']}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.back();
+            }}
             style={styles.backBtn}
-            activeOpacity={0.7}
           >
             <ChevronLeft size={24} color="white" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle} numberOfLines={1}>Course Overview</Text>
-          <View style={{ width: 40 }} /> 
-        </Animated.View>
+          <View style={{ width: 40 }} />
+        </View>
 
-        <FlatList
-          data={track.lessons}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
+        <Animated.ScrollView
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
+          contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
-            <Animated.View entering={FadeInDown.delay(100).springify()}>
-              {/* HERO CARD */}
-              <View style={styles.heroCard}>
-                <LinearGradient
-                  colors={[THEME.indigo, THEME.indigoDark]}
-                  style={styles.heroGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                >
-                  <View style={styles.iconCircle}>
-                    <Trophy size={32} color="white" />
+        >
+          <Animated.View entering={FadeInDown.delay(100).duration(400)}>
+            <View style={styles.heroCard}>
+              <View style={styles.heroContent}>
+                <View style={styles.iconCircle}>
+                  <Trophy size={36} color={THEME.indigo} />
+                </View>
+                <Text style={styles.trackTitle}>{track.title}</Text>
+                <Text style={styles.trackDesc}>{track.description}</Text>
+
+                <View style={styles.statsContainer}>
+                  <View style={styles.statBox}>
+                    <BarChart3 size={16} color={THEME.textSecondary} />
+                    <Text style={styles.statLabel}>{track.difficulty}</Text>
                   </View>
-                  <Text style={styles.trackTitle}>{track.title}</Text>
-                  <Text style={styles.trackDesc}>{track.description}</Text>
-                  
-                  {/* STATS ROW */}
-                  <View style={styles.statsRow}>
-                    <View style={styles.statItem}>
-                      <BarChart3 size={16} color="rgba(255,255,255,0.7)" />
-                      <Text style={styles.statText}>{track.difficulty}</Text>
-                    </View>
-                    <View style={styles.divider} />
-                    <View style={styles.statItem}>
-                      <Trophy size={16} color="rgba(255,255,255,0.7)" />
-                      <Text style={styles.statText}>{totalXp} Total XP</Text>
-                    </View>
-                    <View style={styles.divider} />
-                    <View style={styles.statItem}>
-                      <Clock size={16} color="rgba(255,255,255,0.7)" />
-                      <Text style={styles.statText}>{track.lessons?.length || 0} Lessons</Text>
-                    </View>
+                  <View style={styles.statBox}>
+                    <Trophy size={16} color={THEME.textSecondary} />
+                    <Text style={styles.statLabel}>{totalXp} XP</Text>
                   </View>
-                </LinearGradient>
-              </View>
-              <Text style={styles.sectionTitle}>Curriculum</Text>
-            </Animated.View>
-          }
-          renderItem={({ item, index }) => (
-            <Animated.View entering={FadeInDown.delay(200 + (index * 50)).duration(400)}>
-              <TouchableOpacity style={styles.lessonCard} activeOpacity={0.8}>
-                <View style={styles.lessonLeft}>
-                  <View style={styles.indexContainer}>
-                    <Text style={styles.lessonIndex}>{String(index + 1).padStart(2, '0')}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.lessonTitle} numberOfLines={1}>{item.title}</Text>
-                    <Text style={styles.lessonSubtitle}>+{item.xp_reward} XP Reward</Text>
+                  <View style={styles.statBox}>
+                    <Clock size={16} color={THEME.textSecondary} />
+                    <Text style={styles.statLabel}>
+                      {track.lessons?.length} Levels
+                    </Text>
                   </View>
                 </View>
-                <View style={styles.playButton}>
-                  <PlayCircle size={20} color={THEME.indigo} fill={THEME.indigo} stroke="white" />
+              </View>
+            </View>
+          </Animated.View>
+
+          <Text style={styles.sectionTitle}>Mission Roadmap</Text>
+
+          {track.lessons?.map((lesson: any, index: number) => (
+            <Animated.View
+              key={lesson.id}
+              entering={FadeInDown.delay(200 + index * 30).duration(300)} // Lower delay for speed
+              style={{ marginBottom: 12 }}
+            >
+              <TouchableOpacity
+                style={styles.lessonCard}
+                activeOpacity={0.7}
+                onPress={() => handleLessonPress(lesson.id)}
+              >
+                <View style={styles.lessonLeft}>
+                  <View style={styles.iconBox}>{getLessonIcon(index)}</View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.lessonTitle} numberOfLines={1}>
+                      {lesson.title}
+                    </Text>
+                    <View style={styles.lessonMeta}>
+                      <Text style={styles.lessonXp}>
+                        +{lesson.xp_reward} XP
+                      </Text>
+                      {index % 2 === 0 && (
+                        <Text style={styles.tag}>INTERACTIVE</Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+                <View style={styles.playBtn}>
+                  <PlayCircle
+                    size={24}
+                    color={THEME.textPrimary}
+                    fill={THEME.indigo}
+                  />
                 </View>
               </TouchableOpacity>
             </Animated.View>
-          )}
-        />
+          ))}
+
+          <View style={{ height: 100 }} />
+        </Animated.ScrollView>
       </SafeAreaView>
     </View>
   );
@@ -185,78 +307,159 @@ export default function TrackDetailsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: THEME.obsidian },
-  errorContainer: { flex: 1, backgroundColor: THEME.obsidian, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  
-  // Skeleton
-  skeleton: { backgroundColor: 'rgba(255,255,255,0.05)', marginBottom: 12 },
-
-  // Header
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 10 },
-  headerTitle: { color: 'white', fontSize: 16, fontWeight: '600', letterSpacing: 0.5 },
-  backBtn: {
-    width: 40, height: 40, borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1, borderColor: THEME.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-
-  // Hero Card
-  heroCard: { 
-    marginBottom: 32, 
-    borderRadius: 32, 
+  headerBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: HEADER_HEIGHT,
     overflow: 'hidden',
+  },
+  circle: { position: 'absolute', borderRadius: 999 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 10,
+    zIndex: 50,
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 120 },
+  heroCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+    borderRadius: 32,
+    padding: 24,
+    marginBottom: 32,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
     shadowColor: THEME.indigo,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
     shadowRadius: 20,
-    elevation: 10,
   },
-  heroGradient: { padding: 24, alignItems: 'center' },
+  heroContent: { alignItems: 'center' },
   iconCircle: {
-    width: 64, height: 64, borderRadius: 32,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center', justifyContent: 'center',
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 16,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1,
+    borderColor: THEME.indigo,
   },
-  trackTitle: { fontSize: 24, fontWeight: '800', color: 'white', textAlign: 'center', marginBottom: 8 },
-  trackDesc: { fontSize: 14, color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 22, marginBottom: 24 },
-  
-  // Stats
-  statsRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: 16, padding: 4 },
-  statItem: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8 },
-  statText: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '600' },
-  divider: { width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.1)' },
-
-  // List
-  listContent: { padding: 20, paddingBottom: 100 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: 'white', marginBottom: 16, marginLeft: 4 },
-  
-  // Lesson Card
+  trackTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: 'white',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  trackDesc: {
+    fontSize: 15,
+    color: THEME.textSecondary,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 24,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: 20,
+    padding: 6,
+    width: '100%',
+    justifyContent: 'space-between',
+  },
+  statBox: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+  },
+  statLabel: { color: 'white', fontSize: 13, fontWeight: '600' },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: 'white',
+    marginBottom: 16,
+    marginLeft: 4,
+  },
   lessonCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: THEME.charcoal,
-    padding: 16, borderRadius: 20,
-    marginBottom: 12,
-    borderWidth: 1, borderColor: THEME.border,
+    padding: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: THEME.border,
   },
   lessonLeft: { flexDirection: 'row', alignItems: 'center', gap: 16, flex: 1 },
-  indexContainer: { 
-    width: 40, height: 40, borderRadius: 12, 
-    backgroundColor: 'rgba(255,255,255,0.03)', 
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)'
+  iconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
-  lessonIndex: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace' },
-  lessonTitle: { color: 'white', fontSize: 16, fontWeight: '600', marginBottom: 2 },
-  lessonSubtitle: { color: THEME.indigo, fontSize: 12, fontWeight: '600' },
-  playButton: { opacity: 0.8 },
-
-  // Error
-  errorTitle: { color: 'white', fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  errorText: { color: THEME.textSecondary, marginBottom: 24 },
-  primaryBtn: { backgroundColor: THEME.indigo, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
-  primaryBtnText: { color: 'white', fontWeight: '700' },
+  lessonTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  lessonMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  lessonXp: { color: THEME.indigo, fontSize: 12, fontWeight: '700' },
+  tag: {
+    color: THEME.success,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  playBtn: { opacity: 0.9 },
+  skeleton: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginBottom: 16,
+    borderRadius: 12,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  errorText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  primaryBtn: {
+    backgroundColor: THEME.indigo,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 16,
+  },
+  primaryBtnText: { color: 'white', fontWeight: '700', fontSize: 16 },
 });

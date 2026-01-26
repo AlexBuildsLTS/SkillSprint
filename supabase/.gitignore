@@ -63,3 +63,11 @@ expo-env.d.ts
 
 expo-env.d.ts
 # @end expo-cli
+# Supabase
+.branches
+.temp
+
+# dotenvx
+.env.keys
+.env.local
+.env.*.local

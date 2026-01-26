@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 
+
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -8,23 +10,46 @@ const corsHeaders = {
 };
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
-const SPRINTS_TABLE = 'daily_sprints';
 
-const SPRINT_SCHEMA: Schema = {
-  type: Type.ARRAY,
-  items: {
-    type: Type.OBJECT,
-    properties: {
-      type: { type: Type.STRING, enum: ['info', 'mcq', 'true_false'] },
-      title: { type: Type.STRING },
-      content: { type: Type.STRING },
-      xp_reward: { type: Type.INTEGER },
-      correctAnswer: { type: Type.INTEGER },
-      options: { type: Type.ARRAY, items: { type: Type.STRING } },
-      explanation: { type: Type.STRING },
+const TRACK_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    track: {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        description: { type: Type.STRING },
+        difficulty: {
+          type: Type.STRING,
+          enum: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'],
+        },
+        icon: { type: Type.STRING },
+        slug: { type: Type.STRING },
+      },
+      required: ['title', 'description', 'difficulty', 'slug'],
     },
-    required: ['type', 'title', 'content', 'xp_reward'],
+    lessons: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          order: { type: Type.INTEGER },
+          xp_reward: { type: Type.INTEGER },
+          content: {
+            type: Type.OBJECT,
+            properties: {
+              type: { type: Type.STRING },
+              text: { type: Type.STRING },
+              code: { type: Type.STRING },
+            },
+          },
+        },
+        required: ['title', 'order', 'xp_reward', 'content'],
+      },
+    },
   },
+  required: ['track', 'lessons'],
 };
 
 Deno.serve(async (req) => {
@@ -32,80 +57,70 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
 
   try {
+    const { topic } = await req.json();
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const geminiApiKey = Deno.env.get('GEMINI_API_KEY')!;
 
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error('Missing Authorization header');
-
-    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabaseAuth.auth.getUser();
-    if (userError || !user) throw new Error('Unauthorized');
+    if (!geminiApiKey) throw new Error('Missing GEMINI_API_KEY');
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-    const today = new Date().toISOString().split('T')[0];
-
-    const { data: existing } = await supabaseAdmin
-      .from(SPRINTS_TABLE)
-      .select('content')
-      .eq('user_id', user.id)
-      .eq('date', today)
-      .maybeSingle();
-
-    if (existing?.content) {
-      return new Response(JSON.stringify(existing.content), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
     const client = new GoogleGenAI({ apiKey: geminiApiKey });
-    const prompt = `Generate 5 learning cards about React Native. Technical and accurate.`;
+
+    console.log(`Generating track for: ${topic}`);
 
     const result = await client.models.generateContent({
       model: GEMINI_MODEL,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: `Create a coding course on: ${topic}.` }],
+        },
+      ],
       config: {
         responseMimeType: 'application/json',
-        responseSchema: SPRINT_SCHEMA,
-        temperature: 0.4,
+        responseSchema: TRACK_SCHEMA,
       },
     });
 
-    // Extract the text response from the result object
-    let rawText = '';
-    if (result?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      rawText = result.candidates[0].content.parts[0].text;
-    } else {
-      throw new Error('AI did not return a valid response');
-    }
-    const content = JSON.parse(rawText);
+    const rawText = result.response.text();
+    if (!rawText)
+      throw new Error('AI returned empty response (Possible Rate Limit)');
 
-    if (!Array.isArray(content)) throw new Error('AI returned invalid JSON');
+    const output = JSON.parse(rawText);
 
-    const { error: insertError } = await supabaseAdmin
-      .from(SPRINTS_TABLE)
-      .upsert(
-        { user_id: user.id, date: today, content: content },
-        { onConflict: 'user_id,date' },
-      );
+    // Database Insert
+    const { data: track, error: trackError } = await supabaseAdmin
+      .from('tracks')
+      .insert({ ...output.track, is_published: true })
+      .select()
+      .single();
 
-    if (insertError) throw insertError;
+    if (trackError) throw trackError;
 
-    return new Response(JSON.stringify(content), {
+    const lessonsData = output.lessons.map((l: any) => ({
+      ...l,
+      track_id: track.id,
+    }));
+
+    const { error: lessonError } = await supabaseAdmin
+      .from('lessons')
+      .insert(lessonsData);
+    if (lessonError) throw lessonError;
+
+    return new Response(JSON.stringify({ success: true, trackId: track.id }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('Function Error:', err);
+    // Return actual error to client for debugging
+    return new Response(
+      JSON.stringify({ error: err.message, details: err.toString() }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      },
+    );
   }
 });

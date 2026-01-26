@@ -1,4 +1,3 @@
-// @ts-ignore
 import { GoogleGenAI, Part } from '@google/genai';
 import { corsHeaders } from '../_shared/cors.ts';
 
