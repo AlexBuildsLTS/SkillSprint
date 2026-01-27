@@ -6,31 +6,34 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   ScrollView,
-  StatusBar,
-  Dimensions,
+  TextInput,
+  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, SlideInUp } from 'react-native-reanimated';
-import { ChevronLeft, Award } from 'lucide-react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import {
+  ChevronLeft,
+  Zap,
+  Terminal,
+  Code2,
+  AlertTriangle,
+  Play,
+} from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { CodeEmulator } from '@/components/lesson/CodeEmulator';
 import * as Haptics from 'expo-haptics';
 
-// Fix unused vars warning
-const { width } = Dimensions.get('window');
-
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
   success: '#10b981',
-  text: '#f8fafc',
-  dim: '#94a3b8',
-  gold: '#fbbf24'
+  surface: '#0f172a',
+  border: 'rgba(255, 255, 255, 0.08)',
 };
 
 export default function LessonScreen() {
@@ -38,180 +41,218 @@ export default function LessonScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-
   const lessonId = Array.isArray(id) ? id[0] : id;
-  const [step, setStep] = useState<'LEARN' | 'COMPLETE'>('LEARN');
 
-  // 1. Fetch Lesson Data
-  const { data: lesson, isLoading, error } = useQuery({
+  const [step, setStep] = useState<'LEARN' | 'PRACTICE'>('LEARN');
+  const [userCode, setUserCode] = useState('');
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+
+  const { data: lesson, isLoading } = useQuery({
     queryKey: ['lesson', lessonId],
     queryFn: async () => {
-      if (!lessonId) return null;
-      
       const { data, error } = await supabase
         .from('lessons')
-        .select('*, tracks(title)')
+        .select('*, tracks(*)')
         .eq('id', lessonId)
         .single();
-      
       if (error) throw error;
       return data;
     },
     enabled: !!lessonId,
-    staleTime: 1000 * 60 * 60 
   });
 
-  // 2. Completion Logic
-  const completeLesson = useMutation({
-    mutationFn: async () => {
-      if (!user || !lesson) return;
-      
-      const { error } = await supabase.from('user_progress').insert({
-        user_id: user.id,
-        lesson_id: lesson.id,
-        is_completed: true,
-        score: 100,
-        completed_at: new Date().toISOString()
-      });
-
-      if (error && error.code !== '23505') throw error;
-    },
-    onSuccess: () => {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      queryClient.invalidateQueries({ queryKey: ['track'] });
-      setStep('COMPLETE');
-    },
-  });
-
-  // 3. SMART CONTENT ADAPTER
-  const interactiveContent = useMemo(() => {
+  const context = useMemo(() => {
     if (!lesson) return null;
-
-    let contentText = "Complete the coding challenge.";
-    let mockCode = "";
-    let isVisual = false;
-
-    // TypeScript Fix: Optional chaining ?. for safe access
-    const title = lesson.title?.toLowerCase() || "";
-    // TypeScript Fix: Handle nested relation safely
-    const trackTitle = lesson.tracks?.title?.toLowerCase() || "";
-    
-    isVisual = title.includes('react') || title.includes('native') || trackTitle.includes('react');
-
-    try {
-      const raw = lesson.content;
-      if (typeof raw === 'string') {
-        const parsed = JSON.parse(raw);
-        contentText = parsed.text || contentText;
-        mockCode = parsed.code || "";
-      } else if (typeof raw === 'object' && raw !== null) {
-        // @ts-ignore
-        contentText = raw.text || contentText;
-        // @ts-ignore
-        mockCode = raw.code || "";
-      }
-    } catch {
-      if (typeof lesson.content === 'string') contentText = lesson.content;
-    }
-
-    if (!mockCode) {
-      if (isVisual) {
-        mockCode = `import React from 'react';\nimport { View } from 'react-native';\n\nexport default function App() {\n  return <View style={{ width: 100, height: 100, backgroundColor: '#6366f1' }} />;\n}`;
-      } else if (trackTitle.includes('python')) {
-        mockCode = `def system_check():\n    print("Core Online")\n    return True\n\nsystem_check()`;
-      } else {
-        mockCode = `fn main() {\n    println!("Ready");\n}`;
-      }
-    }
-
-    return { 
-      text: contentText, 
-      code: mockCode, 
-      isVisual, 
-      language: isVisual ? 'javascript' : (trackTitle.includes('python') ? 'python' : 'rust') 
+    const content =
+      typeof lesson.content === 'string'
+        ? JSON.parse(lesson.content)
+        : (lesson.content as any);
+    const trackT = lesson.tracks?.title?.toLowerCase() || '';
+    let lang = 'python';
+    if (trackT.includes('java')) lang = 'java';
+    else if (trackT.includes('kotlin')) lang = 'kotlin';
+    return {
+      lang,
+      code: content?.code || '',
+      text: content?.text || lesson.title,
+      questions: content?.questions || [],
     };
   }, [lesson]);
 
-  if (isLoading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={THEME.indigo} /></View>;
-  }
-
-  // TypeScript Fix: Ensure lesson is not null before rendering
-  if (error || !interactiveContent || !lesson) {
+  if (isLoading)
     return (
       <View style={styles.center}>
-        <Text style={{color: 'white'}}>Error loading lesson.</Text>
-        <TouchableOpacity onPress={() => router.back()}><Text style={{color: THEME.indigo, marginTop: 10}}>Go Back</Text></TouchableOpacity>
+        <ActivityIndicator color={THEME.indigo} size="large" />
       </View>
     );
-  }
-
-  // Use variables after null check
-  const title = lesson.title;
-  const order = lesson.order;
-  const reward = lesson.xp_reward;
+  if (!lesson || !context) return null;
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      <LinearGradient colors={[THEME.obsidian, '#111827']} style={StyleSheet.absoluteFill} />
-
-      <SafeAreaView style={{ flex: 1 }}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}
+    >
+      <LinearGradient
+        colors={[THEME.obsidian, '#0f172a']}
+        style={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backBtn}
+          >
             <ChevronLeft size={24} color="white" />
           </TouchableOpacity>
-          <Text style={styles.headerText}>LESSON {order}</Text>
+          <Text style={styles.headerT}>{lesson.title}</Text>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
-          <Animated.Text entering={FadeInDown} style={styles.title}>
-            {title}
-          </Animated.Text>
-
-          <Animated.Text entering={FadeInDown.delay(100)} style={styles.body}>
-            {interactiveContent.text}
-          </Animated.Text>
-
-          {step === 'LEARN' && (
-            <Animated.View entering={FadeInDown.delay(200)} style={{ flex: 1, minHeight: 400 }}>
-              <CodeEmulator
-                language={interactiveContent.language}
-                code={interactiveContent.code}
-                visualMode={interactiveContent.isVisual}
-                onComplete={() => completeLesson.mutate()}
-              />
-            </Animated.View>
-          )}
-
-          {step === 'COMPLETE' && (
-            <Animated.View entering={SlideInUp.springify()} style={styles.success}>
-              <Award size={64} color={THEME.gold} />
-              <Text style={styles.successTitle}>Mission Accomplished!</Text>
-              <Text style={styles.xp}>+{reward} XP</Text>
-              <TouchableOpacity style={styles.finishBtn} onPress={() => router.back()}>
-                <Text style={styles.finishText}>Continue</Text>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          {step === 'LEARN' ? (
+            <Animated.View entering={FadeInDown}>
+              <Text style={styles.bodyText}>{context.text}</Text>
+              {/* KNOWLEDGE CHECK MODULE */}
+              {context.questions.length > 0 && (
+                <View style={styles.quizCard}>
+                  <Text style={styles.qTitle}>KNOWLEDGE_CHECK</Text>
+                  <Text style={styles.qText}>
+                    {context.questions[0].question}
+                  </Text>
+                  {context.questions[0].options.map(
+                    (opt: string, i: number) => (
+                      <TouchableOpacity
+                        key={i}
+                        style={[
+                          styles.optBtn,
+                          selectedOption === i && { borderColor: THEME.indigo },
+                        ]}
+                        onPress={() => setSelectedOption(i)}
+                      >
+                        <Text style={{ color: 'white' }}>{opt}</Text>
+                      </TouchableOpacity>
+                    ),
+                  )}
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => setStep('PRACTICE')}
+              >
+                <Text style={styles.actionBtnT}>
+                  INITIALIZE PRACTICE TERMINALS
+                </Text>
               </TouchableOpacity>
             </Animated.View>
+          ) : (
+            <View style={styles.ideContainer}>
+              {/* TERMINAL 1: SOURCE EDITOR */}
+              <View style={styles.panelHead}>
+                <Code2 size={14} color={THEME.indigo} />
+                <Text style={styles.panelTitle}>SOURCE_EDITOR v2.1</Text>
+              </View>
+              <TextInput
+                multiline
+                style={styles.editor}
+                defaultValue={userCode || context.code}
+                onChangeText={setUserCode}
+                spellCheck={false}
+                autoCapitalize="none"
+              />
+
+              {/* TERMINAL 2: EXECUTION KERNEL */}
+              <View style={styles.panelHead}>
+                <Terminal size={14} color={THEME.success} />
+                <Text style={styles.panelTitle}>LIVE_RUNTIME_FEED</Text>
+              </View>
+              <CodeEmulator
+                language={context.lang}
+                code={userCode || context.code}
+                onComplete={() => router.back()}
+              />
+            </View>
           )}
         </ScrollView>
       </SafeAreaView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: THEME.obsidian },
-  center: { flex: 1, backgroundColor: THEME.obsidian, justifyContent: 'center', alignItems: 'center' },
-  header: { padding: 20, flexDirection: 'row', alignItems: 'center', gap: 16 },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
-  headerText: { color: THEME.indigo, fontWeight: '900', letterSpacing: 1, textTransform: 'uppercase' },
-  content: { padding: 20, paddingBottom: 100 },
-  title: { fontSize: 28, fontWeight: '800', color: 'white', marginBottom: 16 },
-  body: { fontSize: 16, color: THEME.dim, lineHeight: 26, marginBottom: 20 },
-  success: { backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: 30, borderRadius: 24, alignItems: 'center', marginTop: 20, borderWidth: 1, borderColor: THEME.success },
-  successTitle: { color: 'white', fontSize: 22, fontWeight: '800', marginTop: 16 },
-  xp: { color: THEME.gold, fontSize: 32, fontWeight: '700', marginVertical: 10 },
-  finishBtn: { backgroundColor: THEME.success, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 12, width: '100%', alignItems: 'center' },
-  finishText: { color: THEME.obsidian, fontWeight: 'bold' }
+  container: { flex: 1 },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#020617',
+  },
+  header: { padding: 20, flexDirection: 'row', alignItems: 'center', gap: 15 },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: THEME.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerT: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  scroll: { padding: 20 },
+  bodyText: {
+    color: '#94a3b8',
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 25,
+  },
+  quizCard: {
+    backgroundColor: THEME.surface,
+    padding: 20,
+    borderRadius: 24,
+    marginBottom: 25,
+    borderWidth: 1,
+    borderColor: THEME.border,
+  },
+  qTitle: {
+    color: THEME.indigo,
+    fontSize: 10,
+    fontWeight: '900',
+    marginBottom: 10,
+  },
+  qText: { color: 'white', fontSize: 16, fontWeight: 'bold', marginBottom: 15 },
+  optBtn: {
+    padding: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    marginBottom: 10,
+  },
+  actionBtn: {
+    backgroundColor: THEME.indigo,
+    padding: 20,
+    borderRadius: 20,
+    alignItems: 'center',
+  },
+  actionBtnT: { color: 'white', fontWeight: '900' },
+  ideContainer: { gap: 10 },
+  panelHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  panelTitle: {
+    color: '#64748b',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  editor: {
+    backgroundColor: '#050a18',
+    color: '#10b981',
+    padding: 20,
+    borderRadius: 20,
+    fontFamily: 'monospace',
+    minHeight: 180,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    textAlignVertical: 'top',
+  },
 });

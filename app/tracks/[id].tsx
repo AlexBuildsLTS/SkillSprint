@@ -1,13 +1,12 @@
-import React, { useCallback } from 'react';
+import React from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
   StatusBar,
-  Platform,
-  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -16,47 +15,33 @@ import {
   ChevronLeft,
   PlayCircle,
   Trophy,
-  Clock,
-  BarChart3,
-  Code2,
-  Gamepad2,
-  Globe,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  FadeInDown,
-  useAnimatedScrollHandler,
-  useSharedValue,
-  useAnimatedStyle,
-  interpolate,
-  Extrapolation,
-} from 'react-native-reanimated';
 import { supabase } from '@/lib/supabase';
+import { Tables } from '@/services/types'; // FIXED: Resolvable export
 import * as Haptics from 'expo-haptics';
-
-const { width } = Dimensions.get('window');
-const HEADER_HEIGHT = 300;
 
 const THEME = {
   obsidian: '#020617',
-  charcoal: '#0f172a',
-  surface: '#1e293b',
   indigo: '#6366f1',
-  indigoDark: '#4338ca',
-  accent: '#8b5cf6',
-  textPrimary: '#f8fafc',
-  textSecondary: '#94a3b8',
-  success: '#10b981',
-  border: 'rgba(255,255,255,0.08)',
+  surface: '#0f172a',
+  text: '#f8fafc',
+  dim: '#94a3b8',
+  border: 'rgba(255, 255, 255, 0.08)',
+  danger: '#ef4444',
 };
 
 export default function TrackDetailsScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const trackId = Array.isArray(id) ? id[0] : id;
-  const scrollY = useSharedValue(0);
 
-  // OPTIMIZED QUERY: Fixes "Signal Aborted" and Reflows
+  /**
+   * 📡 REAL-TIME REGISTRY FETCH
+   * Pulls the track node and joins all child lessons from the database.
+   */
   const {
     data: track,
     isLoading,
@@ -73,393 +58,180 @@ export default function TrackDetailsScreen() {
 
       if (error) throw error;
 
+      // Ensure lessons are sorted by the database 'order' column
       if (data.lessons) {
-        data.lessons.sort((a: any, b: any) => a.order - b.order);
+        (data.lessons as any[]).sort((a, b) => a.order - b.order);
       }
-      return data;
+
+      return data as Tables<'tracks'> & { lessons: Tables<'lessons'>[] };
     },
     enabled: !!trackId,
-    staleTime: 1000 * 60 * 5, // 5 Minutes Cache (CRITICAL FOR PERFORMANCE)
-    retry: 2, // Retry only twice to prevent loop
   });
 
-  const scrollHandler = useAnimatedScrollHandler((event) => {
-    scrollY.value = event.contentOffset.y;
-  });
-
-  const headerStyle = useAnimatedStyle(() => {
-    return {
-      transform: [
-        {
-          translateY: interpolate(
-            scrollY.value,
-            [-HEADER_HEIGHT, 0, HEADER_HEIGHT],
-            [-HEADER_HEIGHT / 2, 0, HEADER_HEIGHT * 0.75],
-            Extrapolation.CLAMP,
-          ),
-        },
-        {
-          scale: interpolate(
-            scrollY.value,
-            [-HEADER_HEIGHT, 0, HEADER_HEIGHT],
-            [2, 1, 1],
-            Extrapolation.CLAMP,
-          ),
-        },
-      ],
-    };
-  });
-
-  const getLessonIcon = (index: number) => {
-    if (index % 3 === 0) return <Code2 size={20} color={THEME.indigo} />;
-    if (index % 3 === 1) return <Globe size={20} color={THEME.accent} />;
-    return <Gamepad2 size={20} color={THEME.success} />;
-  };
-
-  const handleLessonPress = useCallback(
-    (lessonId: string) => {
-      Haptics.selectionAsync();
-      router.push(`/lesson/${lessonId}`);
-    },
-    [router],
-  );
-
-  if (isLoading) {
+  if (isLoading)
     return (
-      <View style={styles.container}>
-        <View
-          style={{ height: HEADER_HEIGHT, backgroundColor: THEME.charcoal }}
-        />
-        <View style={{ padding: 24, gap: 16 }}>
-          <View style={[styles.skeleton, { height: 40, width: '60%' }]} />
-          <View style={[styles.skeleton, { height: 200 }]} />
-        </View>
+      <View style={styles.center}>
+        <ActivityIndicator color={THEME.indigo} size="large" />
+      </View>
+    );
+
+  if (error || !track) {
+    return (
+      <View style={styles.center}>
+        <AlertTriangle color={THEME.danger} size={48} />
+        <Text style={styles.errorText}>TRACK_METADATA_SYNC_FAILED</Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={() => router.back()}>
+          <Text style={{ color: 'white', fontWeight: '900' }}>
+            RETURN TO HUD
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
-  if (error || !track) {
-    return (
-      <SafeAreaView style={styles.container}>
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      <LinearGradient
+        colors={[THEME.obsidian, '#0f172a']}
+        style={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView style={{ flex: 1 }}>
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.backBtn}
           >
-            <ChevronLeft size={24} color="white" />
+            <ChevronLeft color="white" />
           </TouchableOpacity>
-        </View>
-        <View style={styles.errorContainer}>
-          <Trophy
-            size={64}
-            color={THEME.textSecondary}
-            style={{ opacity: 0.2, marginBottom: 20 }}
-          />
-          <Text style={styles.errorText}>Track not found</Text>
-          <TouchableOpacity onPress={router.back} style={styles.primaryBtn}>
-            <Text style={styles.primaryBtnText}>Return to Base</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const totalXp =
-    track.lessons?.reduce(
-      (sum: number, l: any) => sum + (l.xp_reward || 0),
-      0,
-    ) || 0;
-
-  return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
-
-      <Animated.View style={[styles.headerBackground, headerStyle]}>
-        <LinearGradient
-          colors={[THEME.indigoDark, THEME.obsidian]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-        />
-        <View
-          style={[
-            styles.circle,
-            {
-              top: -50,
-              left: -50,
-              width: 300,
-              height: 300,
-              backgroundColor: THEME.indigo,
-              opacity: 0.15,
-            },
-          ]}
-        />
-        <View
-          style={[
-            styles.circle,
-            {
-              bottom: 50,
-              right: -100,
-              width: 400,
-              height: 400,
-              backgroundColor: THEME.accent,
-              opacity: 0.1,
-            },
-          ]}
-        />
-      </Animated.View>
-
-      <SafeAreaView style={{ flex: 1 }} edges={['top', 'left', 'right']}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.back();
-            }}
-            style={styles.backBtn}
-          >
-            <ChevronLeft size={24} color="white" />
-          </TouchableOpacity>
-          <View style={{ width: 40 }} />
+          <Text style={styles.headerTitle}>MISSION_ROADMAP</Text>
         </View>
 
-        <Animated.ScrollView
-          onScroll={scrollHandler}
-          scrollEventThrottle={16}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <Animated.View entering={FadeInDown.delay(100).duration(400)}>
-            <View style={styles.heroCard}>
-              <View style={styles.heroContent}>
-                <View style={styles.iconCircle}>
-                  <Trophy size={36} color={THEME.indigo} />
-                </View>
-                <Text style={styles.trackTitle}>{track.title}</Text>
-                <Text style={styles.trackDesc}>{track.description}</Text>
-
-                <View style={styles.statsContainer}>
-                  <View style={styles.statBox}>
-                    <BarChart3 size={16} color={THEME.textSecondary} />
-                    <Text style={styles.statLabel}>{track.difficulty}</Text>
-                  </View>
-                  <View style={styles.statBox}>
-                    <Trophy size={16} color={THEME.textSecondary} />
-                    <Text style={styles.statLabel}>{totalXp} XP</Text>
-                  </View>
-                  <View style={styles.statBox}>
-                    <Clock size={16} color={THEME.textSecondary} />
-                    <Text style={styles.statLabel}>
-                      {track.lessons?.length} Levels
-                    </Text>
-                  </View>
+        <FlatList
+          data={track.lessons}
+          keyExtractor={(item) => item.id}
+          ListHeaderComponent={() => (
+            <View style={styles.hero}>
+              <View style={styles.trophyCircle}>
+                <Trophy size={40} color={THEME.indigo} />
+              </View>
+              <Text style={styles.title}>{track.title}</Text>
+              <Text style={styles.desc}>{track.description}</Text>
+            </View>
+          )}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.card}
+              activeOpacity={0.8}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push(`/lesson/${item.id}`);
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>{item.title}</Text>
+                <View style={styles.xpBadge}>
+                  <Zap size={10} color="#fbbf24" fill="#fbbf24" />
+                  <Text style={styles.xpText}>{item.xp_reward} XP</Text>
                 </View>
               </View>
-            </View>
-          </Animated.View>
-
-          <Text style={styles.sectionTitle}>Mission Roadmap</Text>
-
-          {track.lessons?.map((lesson: any, index: number) => (
-            <Animated.View
-              key={lesson.id}
-              entering={FadeInDown.delay(200 + index * 30).duration(300)} // Lower delay for speed
-              style={{ marginBottom: 12 }}
-            >
-              <TouchableOpacity
-                style={styles.lessonCard}
-                activeOpacity={0.7}
-                onPress={() => handleLessonPress(lesson.id)}
-              >
-                <View style={styles.lessonLeft}>
-                  <View style={styles.iconBox}>{getLessonIcon(index)}</View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.lessonTitle} numberOfLines={1}>
-                      {lesson.title}
-                    </Text>
-                    <View style={styles.lessonMeta}>
-                      <Text style={styles.lessonXp}>
-                        +{lesson.xp_reward} XP
-                      </Text>
-                      {index % 2 === 0 && (
-                        <Text style={styles.tag}>INTERACTIVE</Text>
-                      )}
-                    </View>
-                  </View>
-                </View>
-                <View style={styles.playBtn}>
-                  <PlayCircle
-                    size={24}
-                    color={THEME.textPrimary}
-                    fill={THEME.indigo}
-                  />
-                </View>
-              </TouchableOpacity>
-            </Animated.View>
-          ))}
-
-          <View style={{ height: 100 }} />
-        </Animated.ScrollView>
+              <PlayCircle
+                size={28}
+                color={THEME.indigo}
+                fill="rgba(99, 102, 241, 0.1)"
+              />
+            </TouchableOpacity>
+          )}
+          contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
+        />
       </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: THEME.obsidian },
-  headerBackground: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: HEADER_HEIGHT,
-    overflow: 'hidden',
+  container: { flex: 1, backgroundColor: '#020617' },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#020617',
   },
-  circle: { position: 'absolute', borderRadius: 999 },
   header: {
+    padding: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 10,
-    zIndex: 50,
+    gap: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.border,
+  },
+  headerTitle: {
+    color: THEME.dim,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
   },
   backBtn: {
     width: 44,
     height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 12,
+    backgroundColor: THEME.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 120 },
-  heroCard: {
-    backgroundColor: 'rgba(30, 41, 59, 0.6)',
-    borderRadius: 32,
-    padding: 24,
-    marginBottom: 32,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    shadowColor: THEME.indigo,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-  },
-  heroContent: { alignItems: 'center' },
-  iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: THEME.indigo,
-  },
-  trackTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: 'white',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  trackDesc: {
-    fontSize: 15,
-    color: THEME.textSecondary,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 24,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderRadius: 20,
-    padding: 6,
-    width: '100%',
-    justifyContent: 'space-between',
-  },
-  statBox: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 10,
-  },
-  statLabel: { color: 'white', fontSize: 13, fontWeight: '600' },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: 'white',
-    marginBottom: 16,
-    marginLeft: 4,
-  },
-  lessonCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: THEME.charcoal,
-    padding: 16,
-    borderRadius: 24,
     borderWidth: 1,
     borderColor: THEME.border,
   },
-  lessonLeft: { flexDirection: 'row', alignItems: 'center', gap: 16, flex: 1 },
-  iconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+  hero: { alignItems: 'center', marginBottom: 40, marginTop: 20 },
+  trophyCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: THEME.indigo,
   },
-  lessonTitle: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  lessonMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  lessonXp: { color: THEME.indigo, fontSize: 12, fontWeight: '700' },
-  tag: {
-    color: THEME.success,
-    fontSize: 10,
+  title: {
+    fontSize: 32,
     fontWeight: '900',
-    letterSpacing: 0.5,
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  playBtn: { opacity: 0.9 },
-  skeleton: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    marginBottom: 16,
-    borderRadius: 12,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  errorText: {
     color: 'white',
-    fontSize: 20,
-    fontWeight: '700',
+    marginTop: 24,
+    textAlign: 'center',
+    letterSpacing: -1,
+  },
+  desc: {
+    fontSize: 15,
+    color: THEME.dim,
+    textAlign: 'center',
+    marginTop: 12,
+    lineHeight: 24,
+    paddingHorizontal: 20,
+  },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.surface,
+    padding: 22,
+    borderRadius: 24,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: THEME.border,
   },
-  primaryBtn: {
+  cardTitle: {
+    color: 'white',
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  xpBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  xpText: { color: '#fbbf24', fontSize: 12, fontWeight: '900' },
+  errorText: { color: 'white', marginTop: 15, fontWeight: 'bold' },
+  retryBtn: {
+    marginTop: 25,
+    paddingHorizontal: 30,
+    paddingVertical: 15,
     backgroundColor: THEME.indigo,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 16,
+    borderRadius: 15,
   },
-  primaryBtnText: { color: 'white', fontWeight: '700', fontSize: 16 },
 });

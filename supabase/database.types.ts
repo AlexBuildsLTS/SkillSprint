@@ -41,6 +41,30 @@ export type Database = {
         };
         Relationships: [];
       };
+      chat_history: {
+        Row: {
+          content: string;
+          created_at: string | null;
+          id: string;
+          role: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          content: string;
+          created_at?: string | null;
+          id?: string;
+          role?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          content?: string;
+          created_at?: string | null;
+          id?: string;
+          role?: string | null;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
       daily_sprints: {
         Row: {
           content: Json;

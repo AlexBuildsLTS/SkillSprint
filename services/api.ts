@@ -41,20 +41,11 @@ export const api = {
     return data as SprintResult;
   },
 
-  /**
-   * 📚 GENERATE TRACK FUNCTION (ADMIN)
-   * Calls 'generate-track' to create a full course (Track + Lessons) from a topic string.
-   */
-  generateTrack: async (topic: string): Promise<any> => {
+  generateTrack: async (topic: string) => {
     const { data, error } = await supabase.functions.invoke('generate-track', {
-      body: { topic },
+      body: { topic }, // MUST match the 'topic' destructuring in the Deno function
     });
-
-    if (error) {
-      console.error('Edge Function (generate-track) Error:', error);
-      throw error;
-    }
-
+    if (error) throw error;
     return data;
   },
 };

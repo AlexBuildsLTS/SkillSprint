@@ -1,430 +1,441 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  ScrollView, 
-  Platform, 
-  Dimensions,
-  TextInput
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
-import Animated, { 
-  useAnimatedStyle, 
-  withTiming, 
-  withSequence, 
-  withRepeat,
-  withSpring,
-  useSharedValue, 
-  FadeIn, 
-  ZoomIn,
-  runOnJS
+import Animated, {
+  BounceIn,
+  FadeIn,
+  FadeInDown,
 } from 'react-native-reanimated';
-import { Play, Terminal, Smartphone, RefreshCcw, Zap, Box, Layers, Activity } from 'lucide-react-native';
+import {
+  Play,
+  RefreshCcw,
+  Activity,
+  Terminal,
+  ChevronRight,
+  Cpu,
+  Database,
+  Smartphone,
+  Layers,
+  Layout,
+} from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
-const { width } = Dimensions.get('window');
-
-// --- THEME ENGINE ---
 const THEME = {
-  bg: '#0f172a',
-  toolbar: '#1e293b',
-  editor: '#0b1120',
-  green: '#10b981',
-  blue: '#3b82f6',
-  purple: '#8b5cf6',
-  orange: '#f97316',
-  red: '#ef4444',
-  yellow: '#eab308',
-  text: '#f8fafc',
-  comment: '#64748b',
-  grid: 'rgba(255,255,255,0.05)'
+  bg: '#020617',
+  tool: '#0f172a',
+  ed: '#050a18',
+  success: '#10b981',
+  warning: '#f59e0b',
+  indigo: '#6366f1',
+  slate: '#64748b',
+  border: 'rgba(255,255,255,0.06)',
 };
 
-// --- TYPES ---
-interface CodeEmulatorProps {
-  language: string;
-  code: string;
-  onComplete: () => void;
-  visualMode?: boolean; 
-}
-
-type GameState = 'IDLE' | 'RUNNING' | 'PAUSED' | 'GAME_OVER' | 'VICTORY';
-
-/**
- * ============================================================================
- * 🐍 MINI-GAME ENGINE: SNAKE (Python Simulation)
- * ============================================================================
- */
-const SnakeGame = ({ onWin }: { onWin: () => void }) => {
-  const [snake, setSnake] = useState([[0, 0], [1, 0], [2, 0]]);
-  const [food, setFood] = useState([5, 5]);
-  const [direction, setDirection] = useState([1, 0]);
-  const [score, setScore] = useState(0);
-  const [gameOver, setGameOver] = useState(false);
-
-  // Game Loop
-  useEffect(() => {
-    if (gameOver) return;
-    const interval = setInterval(() => {
-      setSnake(prev => {
-        const newHead = [prev[prev.length - 1][0] + direction[0], prev[prev.length - 1][1] + direction[1]];
-        
-        // Wall Collision
-        if (newHead[0] >= 15 || newHead[0] < 0 || newHead[1] >= 15 || newHead[1] < 0) {
-          setGameOver(true);
-          return prev;
-        }
-
-        const newSnake = [...prev, newHead];
-        // Food Collision
-        if (newHead[0] === food[0] && newHead[1] === food[1]) {
-          setScore(s => s + 10);
-          setFood([Math.floor(Math.random() * 15), Math.floor(Math.random() * 15)]);
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          if (score >= 50) onWin(); // Win condition
-        } else {
-          newSnake.shift();
-        }
-        return newSnake;
-      });
-    }, 200);
-    return () => clearInterval(interval);
-  }, [direction, food, gameOver, onWin, score]);
-
+/** ☕ JAVA KERNEL: JVM HEAP VISUALS */
+const JavaKernel = ({ onWin }: any) => {
+  const [heap, setHeap] = useState(42);
+  const reg = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (heap < 95) setHeap((h) => h + 12);
+    else onWin();
+  };
   return (
-    <View style={styles.gameContainer}>
-      <View style={styles.gameHeader}>
-        <Text style={styles.gameScore}>SCORE: {score}</Text>
-        <Text style={styles.gameTitle}>PYTHON_SNAKE.EXE</Text>
+    <View style={styles.kWrap}>
+      <View style={styles.kHead}>
+        <Cpu size={14} color={THEME.warning} />
+        <Text style={styles.kTitle}>JVM_v21_Runtime</Text>
       </View>
-      <View style={styles.grid}>
-        {Array.from({ length: 15 }).map((_, y) => (
-          <View key={y} style={styles.row}>
-            {Array.from({ length: 15 }).map((_, x) => {
-              const isSnake = snake.some(s => s[0] === x && s[1] === y);
-              const isFood = food[0] === x && food[1] === y;
-              return (
-                <View key={`${x}-${y}`} style={[
-                  styles.cell,
-                  isSnake && { backgroundColor: THEME.green },
-                  isFood && { backgroundColor: THEME.red, borderRadius: 50 }
-                ]} />
-              );
-            })}
+      <View style={styles.kBox}>
+        <Text style={styles.kVal}>{heap}MB</Text>
+        <Text style={styles.kLab}>Memory Heap Pool</Text>
+      </View>
+      <TouchableOpacity
+        style={[styles.kBtn, { backgroundColor: THEME.warning }]}
+        onPress={reg}
+      >
+        <Text style={styles.kBtnT}>INITIALIZE_SPRING_BEAN()</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+/** 🐍 PYTHON KERNEL: TENSOR VISUALS */
+const PythonKernel = ({ onWin }: any) => {
+  const [tensor, setTensor] = useState(Array(12).fill(0));
+  const run = () => {
+    setTensor((t) => t.map(() => Math.floor(Math.random() * 100)));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Math.random() > 0.8) onWin();
+  };
+  return (
+    <View style={styles.kWrap}>
+      <View style={styles.kHead}>
+        <Database size={14} color={THEME.success} />
+        <Text style={styles.kTitle}>NUMPY_INTERPRETER</Text>
+      </View>
+      <View style={styles.tGrid}>
+        {tensor.map((v, i) => (
+          <View
+            key={i}
+            style={[
+              styles.tCell,
+              { backgroundColor: `rgba(16, 185, 129, ${v / 100})` },
+            ]}
+          >
+            <Text style={styles.tVal}>{v}</Text>
           </View>
         ))}
       </View>
-      {/* Controls */}
-      <View style={styles.controls}>
-        <TouchableOpacity style={styles.ctrlBtn} onPress={() => setDirection([-1, 0])}><Text style={styles.ctrlText}>←</Text></TouchableOpacity>
-        <View style={{gap: 10}}>
-           <TouchableOpacity style={styles.ctrlBtn} onPress={() => setDirection([0, -1])}><Text style={styles.ctrlText}>↑</Text></TouchableOpacity>
-           <TouchableOpacity style={styles.ctrlBtn} onPress={() => setDirection([0, 1])}><Text style={styles.ctrlText}>↓</Text></TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.kBtn, { backgroundColor: THEME.success }]}
+        onPress={run}
+      >
+        <Text style={styles.kBtnT}>EXECUTE_EPOCH()</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+/** 📱 KOTLIN KERNEL: MOBILE UI VISUALS */
+const KotlinKernel = ({ onWin }: any) => {
+  const [nodes, setNodes] = useState(0);
+  const build = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (nodes < 4) setNodes((n) => n + 1);
+    else onWin();
+  };
+  return (
+    <View style={styles.kWrap}>
+      <View style={styles.kHead}>
+        <Smartphone size={14} color={THEME.indigo} />
+        <Text style={styles.kTitle}>COMPOSE_RENDER_VIEW</Text>
+      </View>
+      <View style={styles.mFrame}>
+        {Array.from({ length: nodes }).map((_, i) => (
+          <Animated.View key={i} entering={FadeInDown} style={styles.mComp}>
+            <Layout size={12} color="white" />
+            <Text style={styles.mCompT}>Modifier.fillMaxSize()</Text>
+          </Animated.View>
+        ))}
+      </View>
+      <TouchableOpacity
+        style={[styles.kBtn, { backgroundColor: THEME.indigo }]}
+        onPress={build}
+      >
+        <Text style={styles.kBtnT}>BUILD_ANDROID_UI()</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+/** 🕹️ ARCADE KERNEL: GRAPHICS ENGINE */
+const ArcadeKernel = ({ onWin }: any) => {
+  const [snake, setSnake] = useState([
+    [5, 5],
+    [5, 6],
+  ]);
+  const [dir, setDir] = useState([0, -1]);
+  useEffect(() => {
+    const loop = setInterval(() => {
+      setSnake((p) => {
+        const head = p[0];
+        const nx = head[0] + dir[0],
+          ny = head[1] + dir[1];
+        if (nx < 0 || nx >= 15 || ny < 0 || ny >= 15) return p;
+        const nb = [[nx, ny], ...p];
+        if (nb.length > 8) {
+          onWin();
+          clearInterval(loop);
+        }
+        nb.pop();
+        return nb;
+      });
+    }, 200);
+    return () => clearInterval(loop);
+  }, [dir, onWin]);
+  return (
+    <View style={styles.kWrap}>
+      <View style={styles.gGrid}>
+        {Array.from({ length: 15 }).map((_, y) => (
+          <View key={y} style={{ flexDirection: 'row' }}>
+            {Array.from({ length: 15 }).map((_, x) => (
+              <View
+                key={x}
+                style={[
+                  styles.gCell,
+                  snake.some((s) => s[0] === x && s[1] === y) && {
+                    backgroundColor: THEME.success,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+        ))}
+      </View>
+      <View style={styles.gPad}>
+        <TouchableOpacity style={styles.dBtn} onPress={() => setDir([0, -1])}>
+          <ChevronRight
+            size={18}
+            color="white"
+            style={{ transform: [{ rotate: '-90deg' }] }}
+          />
+        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <TouchableOpacity style={styles.dBtn} onPress={() => setDir([-1, 0])}>
+            <ChevronRight
+              size={18}
+              color="white"
+              style={{ transform: [{ rotate: '180deg' }] }}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.dBtn} onPress={() => setDir([1, 0])}>
+            <ChevronRight size={18} color="white" />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.ctrlBtn} onPress={() => setDirection([1, 0])}><Text style={styles.ctrlText}>→</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.dBtn} onPress={() => setDir([0, 1])}>
+          <ChevronRight
+            size={18}
+            color="white"
+            style={{ transform: [{ rotate: '90deg' }] }}
+          />
+        </TouchableOpacity>
       </View>
     </View>
   );
 };
 
-/**
- * ============================================================================
- * ⚛️ MINI-APP ENGINE: REACT CLICKER
- * ============================================================================
- */
-const ReactClicker = ({ onWin }: { onWin: () => void }) => {
-  const [count, setCount] = useState(0);
-  const scale = useSharedValue(1);
+export function CodeEmulator({ language, code, onComplete }: any) {
+  const [boot, setBoot] = useState(false);
+  const [status, setStatus] = useState('IDLE');
 
-  const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setCount(c => {
-      const newCount = c + 1;
-      if (newCount >= 10) onWin();
-      return newCount;
-    });
-    
-    scale.value = withSequence(
-      withTiming(1.2, { duration: 100 }),
-      withTiming(1, { duration: 100 })
+  const start = () => {
+    setStatus('COMPILING');
+    setTimeout(() => {
+      setStatus('RUNNING');
+      setBoot(true);
+    }, 1200);
+  };
+
+  const renderKernel = () => {
+    const l = language.toLowerCase();
+    const c = code.toLowerCase();
+
+    if (c.includes('snake') || c.includes('game'))
+      return <ArcadeKernel onWin={onComplete} />;
+    if (l.includes('java')) return <JavaKernel onWin={onComplete} />;
+    if (l.includes('python')) return <PythonKernel onWin={onComplete} />;
+    if (l.includes('kotlin')) return <KotlinKernel onWin={onComplete} />;
+
+    // Universal Text Terminal Fallback
+    return (
+      <View style={styles.console}>
+        <Text style={styles.log}>[sys]: Initializing {language} REPL...</Text>
+        <Text style={styles.out}>
+          {'> '} Logic verified for instruction set.
+        </Text>
+        <TouchableOpacity style={styles.winB} onPress={onComplete}>
+          <Text style={styles.winT}>SUBMIT MODULE</Text>
+        </TouchableOpacity>
+      </View>
     );
   };
 
-  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-
   return (
-    <View style={styles.appContainer}>
-      <View style={styles.phoneNotch} />
-      <View style={styles.appHeader}>
-        <Text style={styles.appTitle}>React Counter</Text>
-      </View>
-      <View style={styles.appBody}>
-        <Text style={styles.counterLabel}>Current Count</Text>
-        <Animated.Text style={[styles.counterValue, animatedStyle]}>{count}</Animated.Text>
-        <TouchableOpacity style={styles.appBtn} onPress={handlePress}>
-          <Text style={styles.appBtnText}>INCREMENT</Text>
+    <View style={styles.frame}>
+      <View style={styles.tool}>
+        <Text style={styles.tabL}>kernel.{language}_sys</Text>
+        <TouchableOpacity
+          onPress={() => {
+            setBoot(false);
+            setStatus('IDLE');
+          }}
+        >
+          <RefreshCcw size={14} color={THEME.slate} />
         </TouchableOpacity>
-        <Text style={styles.hintText}>Reach 10 to complete lesson</Text>
       </View>
-    </View>
-  );
-};
-
-/**
- * ============================================================================
- * 🦀 SYSTEM VISUALIZER: MEMORY ALLOCATOR (Rust/Java)
- * ============================================================================
- */
-const SystemMonitor = ({ onWin }: { onWin: () => void }) => {
-  const [blocks, setBlocks] = useState<boolean[]>(Array(20).fill(false));
-  
-  useEffect(() => {
-    let allocated = 0;
-    const interval = setInterval(() => {
-      setBlocks(prev => {
-        const next = [...prev];
-        const idx = Math.floor(Math.random() * next.length);
-        if (!next[idx]) {
-          next[idx] = true;
-          allocated++;
-          Haptics.selectionAsync();
-        }
-        return next;
-      });
-      
-      if (allocated >= 15) {
-        clearInterval(interval);
-        onWin();
-      }
-    }, 200);
-    return () => clearInterval(interval);
-  }, [onWin]);
-
-  return (
-    <View style={styles.monitorContainer}>
-      <View style={styles.monitorHeader}>
-        <Activity size={16} color={THEME.green} />
-        <Text style={styles.monitorTitle}>HEAP_ALLOCATOR</Text>
-      </View>
-      <View style={styles.memoryGrid}>
-        {blocks.map((active, i) => (
-          <Animated.View 
-            key={i} 
-            entering={ZoomIn.delay(i * 50)}
-            style={[styles.memoryBlock, active && { backgroundColor: THEME.orange }]} 
-          />
-        ))}
-      </View>
-      <Text style={styles.monitorLog}>&gt;&gt; Allocating memory segments...</Text>
-    </View>
-  );
-};
-
-/**
- * ============================================================================
- * 🖥️ MAIN EMULATOR COMPONENT
- * ============================================================================
- */
-export function CodeEmulator({ language, code, onComplete, visualMode = false }: CodeEmulatorProps) {
-  const [status, setStatus] = useState<'IDLE' | 'RUNNING' | 'SUCCESS'>('IDLE');
-  const [consoleOutput, setConsoleOutput] = useState('');
-  const [showGame, setShowGame] = useState(false);
-  
-  const progress = useSharedValue(0);
-
-  const runCode = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setStatus('RUNNING');
-    setConsoleOutput('');
-    progress.value = 0;
-    
-    // 1. Compilation Animation
-    progress.value = withTiming(100, { duration: 1200 }, (finished) => {
-      if (finished) {
-        runOnJS(startExecution)();
-      }
-    });
-  };
-
-  const startExecution = () => {
-    // 2. Decide Execution Path
-    if (visualMode) {
-      setShowGame(true);
-    } else {
-      setStatus('SUCCESS');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      simulateTypewriter(generateConsoleOutput(language));
-    }
-  };
-
-  const handleGameWin = () => {
-    setStatus('SUCCESS');
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setTimeout(onComplete, 1500); // Allow time to celebrate
-  };
-
-  const simulateTypewriter = (text: string) => {
-    let i = 0;
-    const interval = setInterval(() => {
-      setConsoleOutput((prev) => prev + text.charAt(i));
-      i++;
-      if (i >= text.length) {
-        clearInterval(interval);
-        setTimeout(onComplete, 2000);
-      }
-    }, 15);
-  };
-
-  // Determine which visualizer to show
-  const renderVisualizer = () => {
-    const lang = language.toLowerCase();
-    if (lang.includes('python')) return <SnakeGame onWin={handleGameWin} />;
-    if (lang.includes('react') || lang.includes('javascript')) return <ReactClicker onWin={handleGameWin} />;
-    return <SystemMonitor onWin={handleGameWin} />;
-  };
-
-  const barStyle = useAnimatedStyle(() => ({ width: `${progress.value}%` }));
-
-  return (
-    <Animated.View entering={FadeIn.duration(600)} style={styles.container}>
-      {/* TOOLBAR */}
-      <View style={styles.toolbar}>
-        <View style={styles.dots}>
-          <View style={[styles.dot, { backgroundColor: THEME.red }]} />
-          <View style={[styles.dot, { backgroundColor: THEME.yellow }]} />
-          <View style={[styles.dot, { backgroundColor: THEME.green }]} />
-        </View>
-        <Text style={styles.filename}>{visualMode ? 'Interactive Preview' : `main.${getExt(language)}`}</Text>
-        {visualMode ? <Smartphone size={14} color={THEME.blue} /> : <Terminal size={14} color={THEME.comment} />}
-      </View>
-
-      {/* MAIN CONTENT AREA */}
-      <View style={styles.workspace}>
-        {!showGame ? (
-          <ScrollView style={styles.editor} contentContainerStyle={{ padding: 16 }}>
-            <Text style={styles.codeFont}>{code}</Text>
+      <View style={styles.viewport}>
+        {!boot && status !== 'COMPILING' ? (
+          <ScrollView style={styles.ed}>
+            <Text style={styles.cText}>{code}</Text>
           </ScrollView>
         ) : (
-          <Animated.View entering={ZoomIn} style={styles.gameWrapper}>
-            {renderVisualizer()}
-          </Animated.View>
+          renderKernel()
         )}
       </View>
-
-      {/* CONTROL BAR */}
-      <View style={styles.actionBar}>
-        <Text style={styles.statusText}>
-          {status === 'IDLE' ? 'Ready' : status === 'RUNNING' ? 'Compiling...' : 'Active'}
-        </Text>
-        
-        {!showGame && (
-          <TouchableOpacity 
-            style={[styles.runBtn, status !== 'IDLE' && styles.disabled]} 
-            onPress={runCode}
-            disabled={status !== 'IDLE'}
-          >
-            <Play size={14} color="white" fill="white"/>
-            <Text style={styles.runText}>{status === 'IDLE' ? 'RUN' : 'BUSY'}</Text>
-          </TouchableOpacity>
-        )}
+      <View style={styles.act}>
+        <Text style={styles.statL}>{status}</Text>
+        <TouchableOpacity
+          style={styles.runB}
+          onPress={start}
+          disabled={status === 'COMPILING'}
+        >
+          <LinearGradient colors={['#6366f1', '#4338ca']} style={styles.runG}>
+            {status === 'COMPILING' ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <>
+                <Play size={14} color="white" fill="white" />
+                <Text style={styles.runT}>BOOT ENGINE</Text>
+              </>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
       </View>
-
-      <View style={{ height: 2, backgroundColor: THEME.toolbar }}>
-        <Animated.View style={[{ height: '100%', backgroundColor: visualMode ? THEME.purple : THEME.green }, barStyle]} />
-      </View>
-
-      {/* CONSOLE (Text Mode Only) */}
-      {!visualMode && (status === 'RUNNING' || status === 'SUCCESS') && (
-        <View style={styles.console}>
-          <Text style={styles.consoleText}>{consoleOutput}<Text style={styles.cursor}>_</Text></Text>
-        </View>
-      )}
-    </Animated.View>
+    </View>
   );
 }
 
-// --- UTILS ---
-function getExt(lang: string) {
-  const map: any = { python: 'py', javascript: 'js', typescript: 'ts', java: 'java', rust: 'rs' };
-  return map[lang?.toLowerCase()] || 'txt';
-}
-
-function generateConsoleOutput(lang: string) {
-  if (lang.includes('rust')) return `> Compiling target debug...\n> Finished dev [unoptimized] target(s) in 0.42s\n> Running \`target/debug/main\`\n> System Memory: SAFE\n> Threads: 4 Active`;
-  if (lang.includes('java')) return `> javac Main.java\n> java Main\n> Spring Boot v3.1.0 starting...\n> Tomcat initialized on port 8080\n> JVM Heap: 512MB OK`;
-  return `> Interpreting script...\n> Process started.\n> Logic verified.\n> Execution time: 0.04s`;
-}
-
-// --- STYLES ---
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: THEME.bg,
-    borderRadius: 16,
+  frame: {
+    borderRadius: 24,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    marginTop: 16,
-    marginBottom: 40,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 10,
+    borderColor: THEME.border,
+    backgroundColor: '#020617',
   },
-  toolbar: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    padding: 12, backgroundColor: THEME.toolbar, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'
+  tool: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.tool,
+    height: 44,
+    paddingHorizontal: 16,
   },
-  dots: { flexDirection: 'row', gap: 6 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  filename: { color: THEME.comment, fontSize: 12, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
-  workspace: { flexDirection: 'column', minHeight: 200 },
-  editor: { height: 200, backgroundColor: THEME.editor },
-  codeFont: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: THEME.text, fontSize: 13, lineHeight: 20 },
-  
-  actionBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: THEME.toolbar },
-  statusText: { color: THEME.comment, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
-  runBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: THEME.blue, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, gap: 6 },
-  disabled: { opacity: 0.5 },
-  runText: { color: 'white', fontWeight: '800', fontSize: 12 },
-  
-  console: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 16, minHeight: 80 },
-  consoleText: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: '#e2e8f0', fontSize: 12 },
-  cursor: { color: THEME.green, fontWeight: 'bold' },
-
-  // --- GAME VISUALIZER STYLES ---
-  gameWrapper: { flex: 1, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  
-  // Snake
-  gameContainer: { alignItems: 'center' },
-  gameHeader: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 10 },
-  gameTitle: { color: THEME.green, fontWeight: '900', fontSize: 10, letterSpacing: 2 },
-  gameScore: { color: 'white', fontWeight: 'bold' },
-  grid: { borderWidth: 1, borderColor: '#334155', backgroundColor: '#1e293b' },
-  row: { flexDirection: 'row' },
-  cell: { width: 15, height: 15, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.2)' },
-  controls: { flexDirection: 'row', marginTop: 15, alignItems: 'center', gap: 10 },
-  ctrlBtn: { width: 40, height: 40, backgroundColor: '#334155', borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  ctrlText: { color: 'white', fontWeight: 'bold' },
-
-  // React App
-  appContainer: { width: '80%', height: 300, backgroundColor: 'white', borderRadius: 20, overflow: 'hidden' },
-  phoneNotch: { height: 20, backgroundColor: '#e2e8f0', borderBottomLeftRadius: 10, borderBottomRightRadius: 10, marginHorizontal: 40 },
-  appHeader: { height: 40, backgroundColor: '#6366f1', alignItems: 'center', justifyContent: 'center' },
-  appTitle: { color: 'white', fontWeight: 'bold' },
-  appBody: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
-  counterLabel: { color: '#64748b', fontSize: 12, textTransform: 'uppercase' },
-  counterValue: { fontSize: 48, fontWeight: '900', color: '#1e293b' },
-  appBtn: { backgroundColor: '#6366f1', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, shadowColor: '#000', shadowOffset: {width:0, height:4}, shadowOpacity:0.2, shadowRadius:4 },
-  appBtnText: { color: 'white', fontWeight: 'bold' },
-  hintText: { color: '#94a3b8', fontSize: 10, marginTop: 10 },
-
-  // Monitor
-  monitorContainer: { width: '100%', padding: 10 },
-  monitorHeader: { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  monitorTitle: { color: THEME.orange, fontWeight: '900' },
-  memoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  memoryBlock: { width: 25, height: 25, backgroundColor: '#334155', borderRadius: 2 },
-  monitorLog: { color: THEME.comment, marginTop: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 10 }
+  tabL: {
+    flex: 1,
+    color: THEME.slate,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  viewport: { height: 320, backgroundColor: '#050a18' },
+  ed: { flex: 1, padding: 20 },
+  cText: {
+    color: THEME.success,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+  },
+  console: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+  },
+  log: {
+    color: '#64748b',
+    fontFamily: 'monospace',
+    fontSize: 11,
+    marginBottom: 5,
+  },
+  out: { color: '#fff', fontSize: 14, fontWeight: 'bold', marginTop: 10 },
+  winB: {
+    marginTop: 20,
+    backgroundColor: THEME.success,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  winT: { color: 'white', fontWeight: 'bold', fontSize: 11 },
+  act: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: THEME.tool,
+  },
+  statL: { color: THEME.slate, fontSize: 10, fontWeight: 'bold' },
+  runB: { width: 120, height: 38, borderRadius: 8, overflow: 'hidden' },
+  runG: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  runT: { color: 'white', fontWeight: '900', fontSize: 10 },
+  kWrap: {
+    flex: 1,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 15,
+  },
+  kTitle: { color: 'white', fontWeight: 'bold', fontSize: 11 },
+  kBox: {
+    backgroundColor: THEME.tool,
+    padding: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    alignItems: 'center',
+  },
+  kVal: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  kLab: { color: THEME.slate, fontSize: 9 },
+  kBtn: {
+    padding: 14,
+    borderRadius: 12,
+    marginTop: 15,
+    alignItems: 'center',
+    width: '100%',
+  },
+  kBtnT: { color: 'white', fontWeight: 'bold', fontSize: 11 },
+  tGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    width: 160,
+    justifyContent: 'center',
+  },
+  tCell: {
+    width: 45,
+    height: 45,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tVal: { color: 'white', fontSize: 10, fontWeight: 'bold' },
+  mFrame: {
+    width: 180,
+    height: 180,
+    backgroundColor: '#000',
+    borderRadius: 15,
+    padding: 10,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: THEME.slate,
+  },
+  mComp: {
+    height: 32,
+    backgroundColor: THEME.indigo,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    gap: 5,
+  },
+  mCompT: { color: 'white', fontSize: 8, fontWeight: 'bold' },
+  gGrid: { backgroundColor: '#000', borderWidth: 1, borderColor: '#111' },
+  gCell: { width: 12, height: 12, borderWidth: 0.1, borderColor: '#111' },
+  gPad: { marginTop: 10, alignItems: 'center' },
+  dBtn: {
+    width: 38,
+    height: 38,
+    backgroundColor: THEME.tool,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
