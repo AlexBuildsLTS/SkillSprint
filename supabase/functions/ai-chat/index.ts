@@ -1,95 +1,143 @@
-import { GoogleGenAI, Part } from '@google/genai';
-import { corsHeaders } from '../_shared/cors.ts';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { createClient } from '@supabase/supabase-js';
 
-/**
- * --- CONFIGURATION ---
- * Using Gemini 2.0 Flash for its speed and efficiency in technical tutoring.
- */
-const GEMINI_MODEL = 'gemini-2.5-flash';
 
-/**
- * System Instruction:
- * This guides the AI's overall behavior and tone.
- */
-const SYSTEM_INSTRUCTION = `You are 'SprintBot', the AI tutor for SkillSprint. 
-Your goal is to help users learn coding, React Native, and system design. 
-Keep answers concise, technical, and educational. 
-If asked about code, provide clean snippets.`;
+const API_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
 
-Deno.serve(async (req) => {
-  // 1. Handle CORS Preflight
-  if (req.method === 'OPTIONS') {
+const supabaseAdmin = createClient(
+  Deno.env.get('SUPABASE_URL') ?? '',
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+);
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+};
+
+interface GeminiPart {
+  text?: string;
+  inlineData?: {
+    mimeType: string;
+    data: string;
+  };
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS')
     return new Response('ok', { headers: corsHeaders });
-  }
 
   try {
-    // 2. Validate Environment
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) {
-      throw new Error('Server configuration error: Missing GEMINI_API_KEY');
+    const { prompt, image, userId } = await req.json();
+
+    // 1. Get API key: prefer user's key, fallback to global
+    let apiKey = Deno.env.get('GEMINI_API_KEY');
+
+    if (userId) {
+      try {
+        const { data: userSecret } = await supabaseAdmin
+          .from('user_secrets')
+          .select('api_key_encrypted')
+          .eq('user_id', userId)
+          .eq('service', 'gemini')
+          .maybeSingle();
+
+        if (userSecret?.api_key_encrypted) {
+          apiKey = decryptMessage(userSecret.api_key_encrypted);
+        }
+      } catch (error) {
+        console.warn('Failed to fetch user API key, using global key:', error);
+      }
     }
 
-    // 3. Request Parsing & Validation
-    const { prompt, image } = await req.json().catch(() => ({}));
+    if (!apiKey) throw new Error('No API key available');
+    if (!prompt) throw new Error('Prompt is missing');
 
-    if (!prompt || typeof prompt !== 'string') {
-      return Response.json(
-        { text: "I need a prompt to help you! What's on your mind?" },
-        { status: 400, headers: corsHeaders },
-      );
-    }
-
-    // 4. Initialize Client (New SDK)
-    // Note: The new SDK accepts the key in the constructor object
-    const client = new GoogleGenAI({ apiKey });
-
-    // 5. Build Content Parts
-    const parts: Part[] = [{ text: prompt }];
+    // 2. Build the Content Parts
+    const parts: GeminiPart[] = [{ text: prompt }];
 
     if (image) {
       parts.push({
         inlineData: {
           mimeType: 'image/jpeg',
-          data: image,
+          data: image, // Base64 string without prefix
         },
       });
     }
 
-    // 6. Generate Content
-    const result = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [{ role: 'user', parts }],
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        temperature: 0.4, // Balanced for technical accuracy
-        maxOutputTokens: 1024,
-      },
+    // 3. Call Gemini v1beta
+    const response = await fetch(`${API_URL}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: {
+          parts: [
+            {
+              text: 'You are NorthFinance CFO AI. Analyze financial data objectively. You are a tool, not a regulated financial advisor. Provide concise, professional, and actionable insights.',
+            },
+          ],
+        },
+        contents: [{ role: 'user', parts }],
+        safetySettings: [
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+          {
+            category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+            threshold: 'BLOCK_NONE',
+          },
+          {
+            category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+            threshold: 'BLOCK_NONE',
+          },
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 2048,
+          topP: 0.8,
+          topK: 40,
+        },
+      }),
     });
 
-    console.log(`[AI Chat]: Generated response for prompt: "${prompt.substring(0, 20)}..."`);
+    const data = await response.json();
 
-    // 7. Extract Text (New SDK Method)
-    const aiText = result.response.text();
-
-    if (!aiText) {
-      throw new Error('AI returned empty response');
+    if (data.error) {
+      console.error('Gemini API Error:', data.error);
+      return new Response(
+        JSON.stringify({ text: `Google Error: ${data.error.message}` }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      );
     }
 
-    // 8. Successful Response
-    return Response.json({ text: aiText }, { headers: corsHeaders });
+    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-  } catch (error: any) {
-    console.error('[AI Chat Error]:', error);
+    if (!aiText) {
+      const reason = data.candidates?.[0]?.finishReason || 'UNKNOWN';
+      return new Response(
+        JSON.stringify({
+          text: `AI Output Restricted (${reason}). Please try rephrasing.`,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
 
-    // Friendly error message for the UI
-    const message = "I'm having trouble connecting right now. Please try again in a moment.";
-
-    return Response.json(
-      { text: message },
-      {
-        status: 200, // Keep 200 to prevent UI crashes
-        headers: corsHeaders,
-      },
-    );
+    return new Response(JSON.stringify({ text: aiText }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Internal Edge Error';
+    console.error('[Edge Function Error]:', msg);
+    return new Response(JSON.stringify({ text: `Edge Error: ${msg}` }), {
+      status: 200, // Return 200 so the UI can display the error message nicely
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });
+
+// deno-lint-ignore camelcase
+function decryptMessage(_api_key_encrypted: any): string | undefined {
+  throw new Error('Function not implemented.');
+}
