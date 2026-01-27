@@ -2,7 +2,11 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",
-    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
+    ],
     "allowJs": true,
     "jsx": "react-jsx",
     "noEmit": true,
@@ -12,11 +16,17 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     },
     "skipLibCheck": true
   },
-  "exclude": ["node_modules", ".expo", "supabase/functions"],
+  "exclude": [
+    "node_modules",
+    ".expo",
+    "supabase/functions"
+  ],
   "include": [
     "**/*.ts",
     "**/*.tsx",
