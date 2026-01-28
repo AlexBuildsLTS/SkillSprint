@@ -221,6 +221,47 @@ export type Database = {
           },
         ];
       };
+      sprint_tasks: {
+        Row: {
+          created_at: string | null;
+          difficulty: string;
+          id: string;
+          is_completed: boolean | null;
+          language: string;
+          task_content: Json;
+          task_hash: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string | null;
+          difficulty: string;
+          id?: string;
+          is_completed?: boolean | null;
+          language: string;
+          task_content: Json;
+          task_hash: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string | null;
+          difficulty?: string;
+          id?: string;
+          is_completed?: boolean | null;
+          language?: string;
+          task_content?: Json;
+          task_hash?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'sprint_tasks_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       ticket_messages: {
         Row: {
           created_at: string | null;
@@ -477,6 +518,21 @@ export type Database = {
       admin_update_user_status: {
         Args: { new_status: string; target_user_id: string };
         Returns: undefined;
+      };
+      get_user_track_xp: {
+        Args: { target_user_id: string };
+        Returns: {
+          lessons_completed: number;
+          total_xp: number;
+          track_title: string;
+        }[];
+      };
+      get_weekly_activity: {
+        Args: { target_user_id: string };
+        Returns: {
+          day_label: string;
+          sprint_count: number;
+        }[];
       };
     };
     Enums: {

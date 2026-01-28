@@ -1,41 +1,50 @@
 import { Database } from '@/supabase/database.types';
 
-/**
- * ============================================================================
- * 🛡️ CORE DATABASE TYPE HELPERS (Exported for Global Use)
- * ============================================================================
- */
-
-// FIXED: Explicitly exporting the generic Tables helper
+// --- DATABASE HELPERS ---
 export type Tables<T extends keyof Database['public']['Tables']> =
   Database['public']['Tables'][T]['Row'];
 
 export type Profile = Tables<'profiles'>;
 export type UserStats = Tables<'user_stats'>;
-export type TrackRow = Tables<'tracks'>;
-export type LessonRow = Tables<'lessons'>;
+export type Track = Tables<'tracks'>;
+export type Lesson = Tables<'lessons'>;
 
-/**
- * ============================================================================
- * 🏃 SPRINT & LESSON INTERFACE DEFINITIONS
- * ============================================================================
- */
-export type SprintCardType = 'info' | 'mcq' | 'true_false';
-
+// --- SPRINT & AI TYPES ---
 export interface SprintCard {
-  id?: string;
-  type: SprintCardType;
   title: string;
+  description?: string;
   content: string;
+  type: 'code' | 'quiz' | 'info';
+  codeSnippet?: string;
   options?: string[];
   correctAnswer?: number;
   explanation?: string;
-  xp_reward?: number;
 }
 
 export interface SprintResult {
   xpEarned: number;
   questionsCorrect: number;
-  totalQuestions?: number;
+  totalQuestions: number;
   newStreak: number;
+}
+
+// --- DASHBOARD ANALYTICS TYPES ---
+export interface TrackXPStats {
+  track_title: string;
+  total_xp: number;
+  lessons_completed: number;
+}
+
+export interface WeeklyActivity {
+  day_label: string;
+  sprint_count: number;
+}
+
+export interface UserDashboardStats {
+  xp: number;
+  streak_days: number;
+  level: number;
+  weekly_sprints: number;
+  track_breakdown: TrackXPStats[];
+  activity_chart: WeeklyActivity[];
 }

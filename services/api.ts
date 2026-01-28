@@ -1,33 +1,39 @@
-import { supabase } from '../lib/supabase';
-import { SprintCard, SprintResult } from './types';
+import { supabase } from '@/lib/supabase';
+import {
+  SprintCard,
+  SprintResult,
+  UserDashboardStats,
+  TrackXPStats,
+  WeeklyActivity,
+} from './types';
 
 export const api = {
   /**
-   * ⚡ GENERATES DAILY SPRINT
-   * Calls the 'generate-sprint' Edge Function
+   * 🧠 AI: Generate Daily Sprint
    */
-  generateDailySprint: async (): Promise<SprintCard[]> => {
+  generateDailySprint: async (language: string): Promise<SprintCard[]> => {
     const { data, error } = await supabase.functions.invoke('generate-sprint', {
-      method: 'POST',
+      body: { language, difficulty: 'INTERMEDIATE' },
     });
 
     if (error) {
-      console.error('Edge Function (generate-sprint) Error:', error);
-      throw error;
+      console.error('AI Gen Error:', error);
+      return [
+        {
+          title: 'System Offline',
+          content: 'Neural link unstable. Bypass security manually.',
+          type: 'code',
+          codeSnippet:
+            "# Override Protocol\ndef bypass():\n    return 'Access Granted'",
+          description: "Return 'Access Granted' to proceed.",
+        },
+      ];
     }
-
-    // Validation: Ensure the AI returned a valid array
-    if (!Array.isArray(data)) {
-      console.error('Invalid Data Received:', data);
-      throw new Error('Invalid sprint data structure received from AI.');
-    }
-
     return data as SprintCard[];
   },
 
   /**
-   * 🏆 COMPLETE SPRINT
-   * Sends results to 'complete-sprint' to update user XP, streaks, and stats
+   * 🏆 GAMIFICATION: Complete Sprint
    */
   completeSprint: async (xp: number, score: number): Promise<SprintResult> => {
     const { data, error } = await supabase.functions.invoke('complete-sprint', {
@@ -35,17 +41,67 @@ export const api = {
     });
 
     if (error) {
-      console.error('Edge Function (complete-sprint) Error:', error);
-      throw error;
+      // Optimistic fallback
+      return {
+        xpEarned: xp,
+        questionsCorrect: score,
+        totalQuestions: 5,
+        newStreak: 1,
+      };
     }
     return data as SprintResult;
   },
 
+  /**
+   * 🛠️ ADMIN: Generate Track (Restored)
+   */
   generateTrack: async (topic: string) => {
     const { data, error } = await supabase.functions.invoke('generate-track', {
-      body: { topic }, // MUST match the 'topic' destructuring in the Deno function
+      body: { topic },
     });
     if (error) throw error;
     return data;
+  },
+
+  /**
+   * 📊 DASHBOARD: Get Full User Stats
+   */
+  getDashboardStats: async (userId: string): Promise<UserDashboardStats> => {
+    // 1. Fetch Basic Stats
+    const { data: stats } = await supabase
+      .from('user_stats')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    // 2. Fetch Track Breakdown
+    const { data: trackData } = await supabase.rpc('get_user_track_xp', {
+      target_user_id: userId,
+    });
+
+    // 3. Fetch Weekly Activity Chart
+    const { data: activityData } = await supabase.rpc('get_weekly_activity', {
+      target_user_id: userId,
+    });
+
+    // 4. Weekly Sprints Count (Last 7 Days)
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    const { count } = await supabase
+      .from('daily_sprints')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', oneWeekAgo.toISOString());
+
+    return {
+      xp: stats?.xp || 0,
+      streak_days: stats?.streak_days || 0,
+      level: stats?.level || 1,
+      weekly_sprints: count || 0,
+      // Type casting safe-guards
+      track_breakdown: (trackData as unknown as TrackXPStats[]) || [],
+      activity_chart: (activityData as unknown as WeeklyActivity[]) || [],
+    };
   },
 };

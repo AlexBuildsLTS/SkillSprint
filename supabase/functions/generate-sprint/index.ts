@@ -1,113 +1,134 @@
 import { createClient } from '@supabase/supabase-js';
 import { corsHeaders } from '../_shared/cors.ts';
 
-const API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
-const supabaseAdmin = createClient(
-  Deno.env.get('SUPABASE_URL') ?? '',
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-);
-
-Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS')
+Deno.serve(async (req) => {
+  // 1. Handle CORS
+  if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
+  }
 
   try {
-    const { topic } = await req.json();
+    // 2. Auth & Setup
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      {
+        global: {
+          headers: { Authorization: req.headers.get('Authorization')! },
+        },
+      },
+    );
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseClient.auth.getUser();
+    if (authError || !user)
+      throw new Error('Unauthorized: ' + (authError?.message || 'No user'));
+
+    const { language = 'Python', difficulty = 'INTERMEDIATE' } =
+      await req.json();
     const apiKey = Deno.env.get('GEMINI_API_KEY');
-
     if (!apiKey) throw new Error('GEMINI_API_KEY is missing');
-    if (!topic) throw new Error('Topic identifier is required');
 
-    // 1. Technical Prompt ensuring specific schema compliance
-    const prompt = `Create a technical learning track for "${topic}".
-    Return ONLY RAW JSON. Schema:
-    {
-      "track": { "title": "...", "description": "...", "difficulty": "BEGINNER" },
-      "lessons": [{
-        "title": "...", "order": 1, "xp_reward": 50,
-        "content": { "text": "Technical breakdown...", "code": "Implementation..." },
-        "quiz": { "question": "...", "options": ["A", "B", "C"], "answer": 0, "explanation": "..." }
-      }]
-    }
-    Generate exactly 5 lessons.`;
+    console.log(`Generating sprint for: ${language} (${difficulty})`);
 
-    // 2. Fetch via working ai-chat model
+    // 3. Robust Prompt
+    const prompt = `
+      Generate 5 micro-learning coding tasks for ${language} (${difficulty}).
+      Return RAW JSON only. No Markdown.
+      
+      Structure:
+      {
+        "tasks": [
+          {
+            "title": "Task Title",
+            "content": "Question or Instruction",
+            "type": "code" (if coding needed) or "quiz",
+            "codeSnippet": "Initial code (include '# snake_game' if it's a game task, or 'import numpy' for data)",
+            "options": ["A", "B", "C", "D"],
+            "correctAnswer": 0
+          }
+        ]
+      }
+    `;
+
+    // 4. Call Gemini
     const response = await fetch(`${API_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 0.7,
+          temperature: 0.9,
           responseMimeType: 'application/json',
         },
       }),
     });
 
     const resultData = await response.json();
-    let aiText = resultData.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!aiText) throw new Error('AI synthesis failed.');
+    const aiText = resultData.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    aiText = aiText.replace(/```json|```/g, '').trim();
-    const data = JSON.parse(aiText);
-
-    /**
-     * 3. THE FIX: Generate a unique slug and set IS_PUBLISHED to TRUE
-     * This ensures the UI query (is_published=eq.true) finds the data immediately.
-     */
-    const uniqueSlug = `${topic.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
-
-    const { data: track, error: tErr } = await supabaseAdmin
-      .from('tracks')
-      .insert({
-        ...data.track,
-        slug: uniqueSlug,
-        is_published: true, // <--- EXPLICITLY TRUE
-        is_premium: false,
-        icon: 'book',
-        color_gradient: 'from-blue-600-to-indigo-700',
-      })
-      .select()
-      .single();
-
-    if (tErr) throw new Error(`Track Data Commit Failed: ${tErr.message}`);
-
-    // 4. Batch Processing for Lessons and Questions
-    for (const l of data.lessons) {
-      const { data: lesson, error: lErr } = await supabaseAdmin
-        .from('lessons')
-        .insert({
-          track_id: track.id,
-          title: l.title,
-          content: l.content,
-          order: l.order,
-          xp_reward: l.xp_reward,
-        })
-        .select()
-        .single();
-
-      if (lErr) throw new Error(`Lesson Node Failed: ${lErr.message}`);
-
-      await supabaseAdmin.from('questions').insert({
-        lesson_id: lesson.id,
-        type: 'mcq',
-        question: l.quiz.question,
-        options: l.quiz.options,
-        answer: l.quiz.answer,
-        explanation: l.quiz.explanation,
-      });
+    if (!aiText) {
+      console.error('Gemini Empty Response:', resultData);
+      throw new Error('AI returned empty response');
     }
 
-    return new Response(JSON.stringify({ success: true, trackId: track.id }), {
+    // 5. Parse & Sanitize
+    const cleanedText = aiText.replace(/```json|```/g, '').trim();
+    let generated;
+    try {
+      generated = JSON.parse(cleanedText);
+    } catch (e) {
+      console.error('JSON Parse Error:', e, cleanedText);
+      throw new Error('Invalid JSON from AI');
+    }
+
+    // 6. DB Log (Fire & Forget to prevent blocking)
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+
+    // We try to log, but don't fail the request if DB is locked/missing
+    try {
+      const tasksToInsert = generated.tasks.map((t: any) => ({
+        user_id: user.id,
+        language,
+        difficulty,
+        task_content: t,
+        task_hash: btoa(t.title + t.content).substring(0, 20), // Simple hash
+      }));
+      await supabaseAdmin.from('sprint_tasks').insert(tasksToInsert);
+    } catch (dbErr) {
+      console.warn('Failed to log sprint tasks:', dbErr);
+    }
+
+    // 7. Return Success
+    return new Response(JSON.stringify(generated.tasks), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Internal Synthesis Error';
-    console.error('[Track Generator Error]:', msg);
-    return new Response(JSON.stringify({ success: false, error: msg }), {
-      status: 200,
+  } catch (error: any) {
+    console.error('Sprint Generation Failed:', error.message);
+
+    // FALLBACK: Return a static sprint so the app doesn't crash
+    const fallbackTasks = [
+      {
+        title: 'Emergency Backup Protocol',
+        content:
+          'The AI is offline. Write a Python script to reboot the system.',
+        type: 'code',
+        codeSnippet:
+          '# snake_game_backup\nclass System:\n  def reboot(self):\n    pass',
+        options: ['Run', 'Debug', 'Exit', 'Help'],
+        correctAnswer: 0,
+      },
+    ];
+
+    return new Response(JSON.stringify(fallbackTasks), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
