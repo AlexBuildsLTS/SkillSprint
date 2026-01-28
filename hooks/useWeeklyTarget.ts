@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
-import { Database } from '../supabase/database.types';
 
 interface WeeklyTarget {
   completed: number;
@@ -14,7 +13,6 @@ export const useWeeklyTarget = (userId: string | undefined) => {
     queryFn: async () => {
       if (!userId) throw new Error('No user ID provided');
 
-      // Get current week (Monday to Sunday)
       const today = new Date();
       const dayOfWeek = today.getDay();
       const monday = new Date(today);
@@ -36,7 +34,7 @@ export const useWeeklyTarget = (userId: string | undefined) => {
       if (error) throw error;
 
       const completed = data?.length || 0;
-      const target = 5; // Weekly target of 5 sprints
+      const target = 5;
       const percentage = Math.min((completed / target) * 100, 100);
 
       return {
@@ -46,6 +44,6 @@ export const useWeeklyTarget = (userId: string | undefined) => {
       } as WeeklyTarget;
     },
     enabled: !!userId,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 5,
   });
 };

@@ -48,3 +48,24 @@ export interface UserDashboardStats {
   track_breakdown: TrackXPStats[];
   activity_chart: WeeklyActivity[];
 }
+
+export interface LessonRow {
+  
+  id: string;
+  title: string;
+  order: number;
+  content: any; // or better: { text?: string; code?: string; questions?: any[] }
+};
+
+ export interface GetLessonDetailsResult {
+    id: string;
+    question: string;
+    options?: any;
+    answer?: any;
+    type?: string;
+    explanation?: string;
+    lesson_id: string;
+    created_at: string;
+    updated_at: string;
+  }
+  

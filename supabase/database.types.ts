@@ -347,6 +347,7 @@ export type Database = {
       };
       tracks: {
         Row: {
+          category: string | null;
           color_gradient: string | null;
           created_at: string | null;
           description: string | null;
@@ -360,6 +361,7 @@ export type Database = {
           updated_at: string | null;
         };
         Insert: {
+          category?: string | null;
           color_gradient?: string | null;
           created_at?: string | null;
           description?: string | null;
@@ -373,6 +375,7 @@ export type Database = {
           updated_at?: string | null;
         };
         Update: {
+          category?: string | null;
           color_gradient?: string | null;
           created_at?: string | null;
           description?: string | null;
@@ -508,6 +511,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      add_xp: {
+        Args: { amount: number; target_user_id: string };
+        Returns: undefined;
+      };
       admin_update_user_role: {
         Args: {
           new_role: Database['public']['Enums']['user_role'];
@@ -519,6 +526,12 @@ export type Database = {
         Args: { new_status: string; target_user_id: string };
         Returns: undefined;
       };
+      calculate_level_from_xp: { Args: { xp_input: number }; Returns: number };
+      get_full_lesson_details: {
+        Args: { target_lesson_id: string };
+        Returns: Json;
+      };
+      get_lesson_details: { Args: { p_lesson_id: string }; Returns: Json };
       get_user_track_xp: {
         Args: { target_user_id: string };
         Returns: {
@@ -533,6 +546,14 @@ export type Database = {
           day_label: string;
           sprint_count: number;
         }[];
+      };
+      internal_add_xp_and_streak: {
+        Args: { target_user_id: string; xp_amount: number };
+        Returns: Json;
+      };
+      internal_distribute_reward: {
+        Args: { p_user_id: string; p_xp_reward: number };
+        Returns: Json;
       };
     };
     Enums: {

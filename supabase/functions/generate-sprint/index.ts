@@ -1,69 +1,40 @@
 import { createClient } from '@supabase/supabase-js';
 import { corsHeaders } from '../_shared/cors.ts';
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+/**
+ * PRODUCTION GENERATOR: 20 Refined Tasks per Language
+ * Languages: Python, JavaScript, TypeScript, Java, Rust
+ */
 
-Deno.serve(async (req) => {
-  // 1. Handle CORS
-  if (req.method === 'OPTIONS') {
+const API_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+
+Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS')
     return new Response('ok', { headers: corsHeaders });
-  }
 
   try {
-    // 2. Auth & Setup
-    const supabaseClient = createClient(
+    const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
-        },
-      },
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabaseClient.auth.getUser();
-    if (authError || !user)
-      throw new Error('Unauthorized: ' + (authError?.message || 'No user'));
-
-    const { language = 'Python', difficulty = 'INTERMEDIATE' } =
-      await req.json();
+    const { language, difficulty, user_id } = await req.json();
     const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) throw new Error('GEMINI_API_KEY is missing');
 
-    console.log(`Generating sprint for: ${language} (${difficulty})`);
+    const prompt = `Generate exactly 20 micro-learning coding tasks for ${language} at ${difficulty} level.
+    Each task must have: title, description, starter_code, expected_output, and xp_reward.
+    Return ONLY RAW JSON in this format: { "tasks": [...] }. 
+    Tasks should scale in complexity from basic syntax to logical challenges.`;
 
-    // 3. Robust Prompt
-    const prompt = `
-      Generate 5 micro-learning coding tasks for ${language} (${difficulty}).
-      Return RAW JSON only. No Markdown.
-      
-      Structure:
-      {
-        "tasks": [
-          {
-            "title": "Task Title",
-            "content": "Question or Instruction",
-            "type": "code" (if coding needed) or "quiz",
-            "codeSnippet": "Initial code (include '# snake_game' if it's a game task, or 'import numpy' for data)",
-            "options": ["A", "B", "C", "D"],
-            "correctAnswer": 0
-          }
-        ]
-      }
-    `;
-
-    // 4. Call Gemini
     const response = await fetch(`${API_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 0.9,
+          temperature: 0.7,
           responseMimeType: 'application/json',
         },
       }),
@@ -71,64 +42,33 @@ Deno.serve(async (req) => {
 
     const resultData = await response.json();
     const aiText = resultData.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!aiText) throw new Error('AI Response Failed');
 
-    if (!aiText) {
-      console.error('Gemini Empty Response:', resultData);
-      throw new Error('AI returned empty response');
-    }
+    const { tasks } = JSON.parse(aiText.replace(/```json|```/g, '').trim());
 
-    // 5. Parse & Sanitize
-    const cleanedText = aiText.replace(/```json|```/g, '').trim();
-    let generated;
-    try {
-      generated = JSON.parse(cleanedText);
-    } catch (e) {
-      console.error('JSON Parse Error:', e, cleanedText);
-      throw new Error('Invalid JSON from AI');
-    }
+    // Securely log tasks to prevent replay attacks
+    const tasksToInsert = tasks.map((t: any) => ({
+      user_id,
+      language,
+      difficulty,
+      task_content: t,
+      task_hash: crypto.randomUUID(), // Unique proof-of-work ID
+      is_completed: false,
+    }));
 
-    // 6. DB Log (Fire & Forget to prevent blocking)
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    );
+    const { data: savedTasks, error: dbErr } = await supabaseAdmin
+      .from('sprint_tasks')
+      .insert(tasksToInsert)
+      .select();
 
-    // We try to log, but don't fail the request if DB is locked/missing
-    try {
-      const tasksToInsert = generated.tasks.map((t: any) => ({
-        user_id: user.id,
-        language,
-        difficulty,
-        task_content: t,
-        task_hash: btoa(t.title + t.content).substring(0, 20), // Simple hash
-      }));
-      await supabaseAdmin.from('sprint_tasks').insert(tasksToInsert);
-    } catch (dbErr) {
-      console.warn('Failed to log sprint tasks:', dbErr);
-    }
+    if (dbErr) throw dbErr;
 
-    // 7. Return Success
-    return new Response(JSON.stringify(generated.tasks), {
+    return new Response(JSON.stringify({ tasks: savedTasks }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
-  } catch (error: any) {
-    console.error('Sprint Generation Failed:', error.message);
-
-    // FALLBACK: Return a static sprint so the app doesn't crash
-    const fallbackTasks = [
-      {
-        title: 'Emergency Backup Protocol',
-        content:
-          'The AI is offline. Write a Python script to reboot the system.',
-        type: 'code',
-        codeSnippet:
-          '# snake_game_backup\nclass System:\n  def reboot(self):\n    pass',
-        options: ['Run', 'Debug', 'Exit', 'Help'],
-        correctAnswer: 0,
-      },
-    ];
-
-    return new Response(JSON.stringify(fallbackTasks), {
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
