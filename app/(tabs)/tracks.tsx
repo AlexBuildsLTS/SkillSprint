@@ -481,6 +481,6 @@ const styles = StyleSheet.create({
   retryText: {
     color: 'white',
     fontWeight: 'bold',
-  },
+  },  
   safeArea: { flex: 1 },
 });

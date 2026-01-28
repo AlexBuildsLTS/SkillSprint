@@ -193,15 +193,13 @@ export default function AdminDashboard() {
     if (!topic.trim()) return;
     setIsGenerating(true);
     try {
-      const result = await api.generateTrack(topic.trim());
-      if (result.success) {
-        setTopic('');
-        loadStats(false);
-        Alert.alert(
-          'Synthesis Complete',
-          'The new architecture is in the Drafts section.',
-        );
-      }
+      await api.generateDailySprint(topic.trim());
+      setTopic('');
+      loadStats(false);
+      Alert.alert(
+        'Synthesis Complete',
+        'The new architecture is in the Drafts section.',
+      );
     } catch (error: any) {
       Alert.alert('Neural Pipeline Error', error.message);
     } finally {
