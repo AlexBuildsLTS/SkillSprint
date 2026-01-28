@@ -41,7 +41,6 @@ export const api = {
     });
 
     if (error) {
-      // Optimistic fallback
       return {
         xpEarned: xp,
         questionsCorrect: score,
@@ -53,7 +52,7 @@ export const api = {
   },
 
   /**
-   * 🛠️ ADMIN: Generate Track (Restored)
+   * 🛠️ ADMIN: Generate Track
    */
   generateTrack: async (topic: string) => {
     const { data, error } = await supabase.functions.invoke('generate-track', {
@@ -67,24 +66,20 @@ export const api = {
    * 📊 DASHBOARD: Get Full User Stats
    */
   getDashboardStats: async (userId: string): Promise<UserDashboardStats> => {
-    // 1. Fetch Basic Stats
     const { data: stats } = await supabase
       .from('user_stats')
       .select('*')
       .eq('user_id', userId)
       .single();
 
-    // 2. Fetch Track Breakdown
     const { data: trackData } = await supabase.rpc('get_user_track_xp', {
       target_user_id: userId,
     });
 
-    // 3. Fetch Weekly Activity Chart
     const { data: activityData } = await supabase.rpc('get_weekly_activity', {
       target_user_id: userId,
     });
 
-    // 4. Weekly Sprints Count (Last 7 Days)
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
@@ -99,7 +94,6 @@ export const api = {
       streak_days: stats?.streak_days || 0,
       level: stats?.level || 1,
       weekly_sprints: count || 0,
-      // Type casting safe-guards
       track_breakdown: (trackData as unknown as TrackXPStats[]) || [],
       activity_chart: (activityData as unknown as WeeklyActivity[]) || [],
     };

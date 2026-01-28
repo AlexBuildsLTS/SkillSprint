@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,184 +12,205 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
   Play,
   RefreshCcw,
-  Activity,
   Terminal,
   CheckCircle2,
   XCircle,
+  Activity,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const THEME = {
-  bg: '#020617',
-  tool: '#0f172a',
-  ed: '#050a18',
+  obsidian: '#020617',
+  indigo: '#6366f1',
   success: '#10b981',
   danger: '#ef4444',
-  warning: '#f59e0b',
-  indigo: '#6366f1',
   slate: '#64748b',
-  white: '#ffffff',
   border: 'rgba(255,255,255,0.06)',
 };
 
-interface EmulatorProps {
+interface CodeEmulatorProps {
   language: string;
   code: string;
-  expectedOutput?: string; // FROM DATABASE (e.g. "ARCADE_INITIALIZED")
+  expectedOutput?: string;
   onComplete: () => void;
 }
 
-export function CodeEmulator({ language = 'python', code = '', expectedOutput, onComplete }: EmulatorProps) {
-  const [boot, setBoot] = useState(false);
+export function CodeEmulator({
+  language,
+  code,
+  expectedOutput,
+  onComplete,
+}: CodeEmulatorProps) {
   const [status, setStatus] = useState('IDLE');
   const [logs, setLogs] = useState<string[]>([]);
   const [validation, setValidation] = useState<'success' | 'fail' | null>(null);
-  
-  const scrollViewRef = useRef<ScrollView>(null);
+  const [booted, setBooted] = useState(false);
 
-  // EXECUTION ENGINE
-  const runCode = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setStatus('RUNNING...');
-    setBoot(true);
+  const runCode = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setStatus('VIRTUALIZING...');
     setValidation(null);
+    setBooted(true);
 
-    // Simulate Execution Delay
     setTimeout(() => {
       const output: string[] = [];
-      const lang = language.toLowerCase();
-      
-      // 1. Language Header
-      if (lang.includes('python')) output.push('> python3 main.py');
-      else if (lang.includes('java')) output.push('> javac Main.java && java Main');
-      else output.push('> node index.js');
+      const lang = (language || '').toLowerCase();
 
-      // 2. PARSER: Extract Output from User Code
-      let actualOutput = "";
-      
-      // Heuristic 1: print("Value") or console.log("Value")
-      const printMatch = code.match(/(?:print|console\.log)\s*\(\s*["'](.*?)["']\s*\)/);
-      
-      // Heuristic 2: Variable printing (e.g. print(user.name))
-      const variableMatch = code.match(/(?:print|console\.log)\s*\(\s*(\w+\.?\w*)\s*\)/);
-
-      if (printMatch) {
-        actualOutput = printMatch[1];
-        output.push(actualOutput);
-      } else if (variableMatch) {
-         // Mock variable resolution for specific lesson cases
-         if (code.includes('User("Admin")')) actualOutput = "Admin";
-         else if (code.includes('ARCADE_INITIALIZED')) actualOutput = "ARCADE_INITIALIZED";
-         else actualOutput = "undefined";
-         
-         output.push(actualOutput);
+      // 1. DYNAMIC KERNEL SWITCHING
+      if (lang.includes('java')) {
+        output.push('> javac Main.java && java Main');
+      } else if (lang.includes('python')) {
+        output.push('> python3 main.py');
+      } else if (lang.includes('rust')) {
+        output.push('> cargo run --quiet');
       } else {
-        output.push("No standard output detected.");
+        output.push('> node index.js');
       }
 
-      output.push(`Process finished with exit code 0`);
+      // 2. UNIVERSAL VARIABLE PARSER
+      const varMap = new Map<string, string>();
+      code.split('\n').forEach((line) => {
+        const assignment = line.match(
+          /(?:let|const|var|int|String|float|bool)?\s*(\w+)\s*(?::=|=)\s*(.*);?$/,
+        );
+        if (assignment) {
+          const val = assignment[2].trim().replace(/['";]/g, '');
+          varMap.set(assignment[1], val);
+        }
+      });
+
+      // 3. MULTI-LANGUAGE OUTPUT PARSER
+      let actualOutput = '';
+      const patterns = [
+        /System\.out\.println\s*\(\s*(.*?)\s*\)/, // Java
+        /print\s*\(\s*f?["']?(.*?)["']?\s*\)/, // Python
+        /console\.log\s*\(\s*(.*?)\s*\)/, // JS
+        /println!\s*\(\s*["']?(.*?)["']?\s*\)/, // Rust
+      ];
+
+      for (const p of patterns) {
+        const m = code.match(p);
+        if (m) {
+          const content = m[1].trim();
+          // Resolve if content is a variable or a literal
+          if (content.startsWith('"') || content.startsWith("'")) {
+            actualOutput = content.replace(/['"]/g, '');
+          } else {
+            actualOutput = varMap.get(content) || content;
+          }
+          break;
+        }
+      }
+
+      output.push(actualOutput || 'Process finished with no output.');
       setLogs(output);
       setStatus('IDLE');
 
-      // 3. VALIDATION: Compare Actual vs Expected (from DB)
-      if (expectedOutput) {
-        // Normalize strings to avoid whitespace errors
-        const cleanExpected = expectedOutput.replace(/"/g, '').trim();
-        const cleanActual = actualOutput.trim();
+      // 4. VALIDATION
+      const cleanExp = (expectedOutput || '').trim();
+      const cleanAct = actualOutput.trim();
 
-        if (cleanActual === cleanExpected) {
-          setValidation('success');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          setTimeout(onComplete, 1200); // Trigger success after delay
-        } else {
-          setValidation('fail');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        }
-      } else {
-        // If no expectation, just pass (Playground mode)
+      if (cleanExp && cleanAct === cleanExp) {
         setValidation('success');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        onComplete();
+      } else {
+        setValidation('fail');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
-
-    }, 800);
-  };
-
-  const reset = () => {
-    setBoot(false);
-    setStatus('IDLE');
-    setValidation(null);
-  };
+    }, 1000);
+  }, [code, language, expectedOutput, onComplete]);
 
   return (
     <View style={styles.frame}>
-      {/* HEADER */}
       <View style={styles.tool}>
-        <View style={{flexDirection:'row', alignItems:'center', gap: 8}}>
-            <Terminal size={14} color={THEME.slate} />
-            <Text style={styles.tabL}>
-                {status === 'IDLE' ? `${language} @ env` : 'executing...'}
-            </Text>
+        <View style={styles.toolLeft}>
+          <Terminal size={14} color={THEME.slate} />
+          <Text style={styles.tabL}>{language?.toUpperCase()} V-RUNTIME</Text>
         </View>
-        <TouchableOpacity onPress={reset} style={{ padding: 4 }}>
+        <TouchableOpacity
+          onPress={() => {
+            setBooted(false);
+            setValidation(null);
+          }}
+        >
           <RefreshCcw size={14} color={THEME.slate} />
         </TouchableOpacity>
       </View>
 
-      {/* TERMINAL / EDITOR */}
       <View style={styles.viewport}>
-        {!boot ? (
-          <ScrollView style={styles.ed} contentContainerStyle={{ paddingBottom: 20 }}>
-            <Text style={styles.cText}>{code || '// No code provided'}</Text>
+        {!booted ? (
+          <ScrollView style={styles.ed}>
+            <Text style={styles.cText}>{code}</Text>
           </ScrollView>
         ) : (
-          <Animated.View entering={FadeInDown} style={{ flex: 1, padding: 16 }}>
+          <Animated.View entering={FadeInDown} style={{ padding: 20 }}>
             {logs.map((line, i) => (
-              <Text key={i} style={[
-                styles.logText, 
-                i === 0 ? { color: THEME.success } : { color: THEME.white }
-              ]}>
+              <Text
+                key={i}
+                style={[
+                  styles.logText,
+                  i > 0 && { color: 'white', fontWeight: '700' },
+                ]}
+              >
                 {line}
               </Text>
             ))}
-            
-            {/* VALIDATION STATUS BAR */}
-            {validation === 'success' && (
-                <View style={[styles.statusBox, { borderColor: THEME.success, backgroundColor: 'rgba(16,185,129,0.1)' }]}>
-                    <CheckCircle2 size={16} color={THEME.success} />
-                    <Text style={{color: THEME.success, fontWeight:'900', fontSize:12}}>PASSED: Output matches expectation.</Text>
-                </View>
-            )}
-            {validation === 'fail' && (
-                <View style={[styles.statusBox, { borderColor: THEME.danger, backgroundColor: 'rgba(239,68,68,0.1)' }]}>
-                    <XCircle size={16} color={THEME.danger} />
-                    <Text style={{color: THEME.danger, fontWeight:'900', fontSize:12}}>FAILED: Expected &ldquo;{expectedOutput}&ldquo;</Text>
-                </View>
+            {validation && (
+              <View
+                style={[
+                  styles.badge,
+                  validation === 'success'
+                    ? styles.successBadge
+                    : styles.failBadge,
+                ]}
+              >
+                {validation === 'success' ? (
+                  <CheckCircle2 size={14} color={THEME.success} />
+                ) : (
+                  <XCircle size={14} color={THEME.danger} />
+                )}
+                <Text
+                  style={
+                    validation === 'success'
+                      ? styles.successText
+                      : styles.failText
+                  }
+                >
+                  {validation === 'success'
+                    ? 'SYSTEM_MATCH_SUCCESS'
+                    : 'OUTPUT_MISMATCH'}
+                </Text>
+              </View>
             )}
           </Animated.View>
         )}
       </View>
 
-      {/* FOOTER CONTROLS */}
-      <View style={styles.act}>
-        <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
-            <Activity size={12} color={status !== 'IDLE' ? THEME.success : THEME.slate} />
-            <Text style={styles.statL}>{status}</Text>
+      <View style={styles.footer}>
+        <View style={styles.statusRow}>
+          <Activity
+            size={12}
+            color={status === 'IDLE' ? THEME.slate : THEME.success}
+          />
+          <Text style={styles.statText}>{status}</Text>
         </View>
         <TouchableOpacity
-          style={[styles.runB, status !== 'IDLE' && { opacity: 0.5 }]}
+          style={styles.runBtn}
           onPress={runCode}
           disabled={status !== 'IDLE'}
         >
           <LinearGradient
-            colors={status === 'IDLE' ? ['#6366f1', '#4338ca'] : ['#1e293b', '#0f172a']}
-            style={styles.runG}
+            colors={['#6366f1', '#4338ca']}
+            style={styles.runGradient}
           >
             {status !== 'IDLE' ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
               <>
                 <Play size={12} color="white" fill="white" />
-                <Text style={styles.runT}>EXECUTE</Text>
+                <Text style={styles.runText}>EXECUTE</Text>
               </>
             )}
           </LinearGradient>
@@ -200,17 +221,80 @@ export function CodeEmulator({ language = 'python', code = '', expectedOutput, o
 }
 
 const styles = StyleSheet.create({
-  frame: { borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: THEME.border, backgroundColor: '#020617', marginTop: 10, height: 350 },
-  tool: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: THEME.tool, height: 36, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: THEME.border },
-  tabL: { color: THEME.slate, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'lowercase' },
+  frame: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#020617',
+    borderWidth: 1,
+    borderColor: THEME.border,
+    height: 280,
+    marginTop: 15,
+  },
+  tool: {
+    height: 40,
+    backgroundColor: '#0f172a',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  toolLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  tabL: {
+    color: THEME.slate,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
   viewport: { flex: 1, backgroundColor: '#050a18' },
-  ed: { flex: 1, padding: 16 },
-  cText: { color: '#a5b4fc', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 13, lineHeight: 22 },
-  logText: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12, marginBottom: 6 },
-  act: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: THEME.tool, borderTopWidth: 1, borderTopColor: THEME.border },
-  statL: { color: THEME.slate, fontSize: 10, fontWeight: '900' },
-  runB: { width: 90, height: 32, borderRadius: 6, overflow: 'hidden' },
-  runG: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  runT: { color: 'white', fontWeight: '900', fontSize: 10 },
-  statusBox: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: 8, borderWidth: 1, marginTop: 15 },
+  ed: { padding: 20 },
+  cText: {
+    color: '#a5b4fc',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 13,
+  },
+  logText: {
+    color: THEME.slate,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  footer: {
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: THEME.border,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
+  },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  statText: { color: THEME.slate, fontSize: 10, fontWeight: 'bold' },
+  runBtn: { width: 100, height: 34, borderRadius: 8, overflow: 'hidden' },
+  runGradient: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  runText: { color: 'white', fontWeight: 'bold', fontSize: 11 },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 15,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  successBadge: {
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    borderColor: THEME.success,
+  },
+  failBadge: {
+    backgroundColor: 'rgba(239,68,68,0.1)',
+    borderColor: THEME.danger,
+  },
+  successText: { color: THEME.success, fontSize: 10, fontWeight: '900' },
+  failText: { color: THEME.danger, fontSize: 10, fontWeight: '900' },
 });

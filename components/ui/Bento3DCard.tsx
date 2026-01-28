@@ -34,7 +34,7 @@ export function Bento3DCard({
   // Entrance Animation
   React.useEffect(() => {
     opacity.value = withDelay(delay, withTiming(1, { duration: 500 }));
-  }, []);
+  }, [delay, opacity]);
 
   const gesture = Gesture.Pan()
     .onBegin(() => {
