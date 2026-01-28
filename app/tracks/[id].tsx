@@ -1,156 +1,244 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
-  TouchableOpacity,
   ActivityIndicator,
-  StatusBar,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  ChevronLeft,
-  PlayCircle,
-  Trophy,
-  Zap,
-  AlertTriangle,
-} from 'lucide-react-native';
+import { useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { ChevronLeft, Code2, Terminal } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
-import { Tables } from '@/services/types'; // FIXED: Resolvable export
-import * as Haptics from 'expo-haptics';
+import { CodeEmulator } from '@/components/lesson/CodeEmulator';
 
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
+  success: '#10b981',
   surface: '#0f172a',
-  text: '#f8fafc',
-  dim: '#94a3b8',
   border: 'rgba(255, 255, 255, 0.08)',
-  danger: '#ef4444',
 };
 
-export default function TrackDetailsScreen() {
+export default function LessonScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
-  const trackId = Array.isArray(id) ? id[0] : id;
+  const lessonId = Array.isArray(id) ? id[0] : id;
 
-  /**
-   * 📡 REAL-TIME REGISTRY FETCH
-   * Pulls the track node and joins all child lessons from the database.
-   */
+  const [step, setStep] = useState<'LEARN' | 'PRACTICE'>('LEARN');
+  const [userCode, setUserCode] = useState('');
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [quizResult, setQuizResult] = useState<'correct' | 'wrong' | null>(
+    null,
+  );
+
+  // 1. ROBUST DATA FETCHING
+  // Explicitly join the 'questions' table!
   const {
-    data: track,
+    data: lesson,
     isLoading,
     error,
   } = useQuery({
-    queryKey: ['track', trackId],
+    queryKey: ['lesson-full', lessonId],
     queryFn: async () => {
-      if (!trackId) return null;
       const { data, error } = await supabase
-        .from('tracks')
-        .select('*, lessons(*)')
-        .eq('id', trackId)
+        .from('lessons')
+        .select(
+          `
+          *,
+          questions (*),
+          tracks (title, difficulty)
+        `,
+        )
+        .eq('id', lessonId)
         .single();
 
       if (error) throw error;
-
-      // Ensure lessons are sorted by the database 'order' column
-      if (data.lessons) {
-        (data.lessons as any[]).sort((a, b) => a.order - b.order);
-      }
-
-      return data as Tables<'tracks'> & { lessons: Tables<'lessons'>[] };
+      return data;
     },
-    enabled: !!trackId,
+    enabled: !!lessonId,
   });
+
+  // 2. DATA TRANSFORMATION
+  const context = useMemo(() => {
+    if (!lesson) return null;
+
+    // Use the explicit table data first, fallback to JSON content if needed
+    const dbQuestion = lesson.questions?.[0];
+    const contentJson =
+      typeof lesson.content === 'string'
+        ? JSON.parse(lesson.content)
+        : lesson.content;
+
+    return {
+      title: lesson.title,
+      text: contentJson?.text || 'No content available.',
+      code: contentJson?.code || '// Write your code here',
+      trackTitle: lesson.tracks?.title,
+      // Priority: DB Table -> JSON Content
+      question: dbQuestion?.question || contentJson?.questions?.[0]?.question,
+      options:
+        dbQuestion?.options || contentJson?.questions?.[0]?.options || [],
+      correctIndex:
+        dbQuestion?.answer ?? contentJson?.questions?.[0]?.answer_index ?? 0,
+      explanation: dbQuestion?.explanation,
+    };
+  }, [lesson]);
+
+  const handleQuizCheck = () => {
+    if (selectedOption === null || !context) return;
+    const isCorrect = selectedOption === context.correctIndex;
+    setQuizResult(isCorrect ? 'correct' : 'wrong');
+    if (isCorrect) {
+      Alert.alert('Correct!', context.explanation || 'Great job!');
+    } else {
+      Alert.alert('Incorrect', 'Try reading the lesson text again.');
+    }
+  };
 
   if (isLoading)
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={THEME.indigo} size="large" />
+        <ActivityIndicator color={THEME.indigo} />
       </View>
     );
-
-  if (error || !track) {
+  if (error || !context)
     return (
       <View style={styles.center}>
-        <AlertTriangle color={THEME.danger} size={48} />
-        <Text style={styles.errorText}>TRACK_METADATA_SYNC_FAILED</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={() => router.back()}>
-          <Text style={{ color: 'white', fontWeight: '900' }}>
-            RETURN TO HUD
-          </Text>
-        </TouchableOpacity>
+        <Text style={{ color: 'white' }}>Error loading lesson.</Text>
       </View>
     );
-  }
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}
+    >
       <LinearGradient
         colors={[THEME.obsidian, '#0f172a']}
         style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container}>
+        {/* HEADER */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.backBtn}
           >
-            <ChevronLeft color="white" />
+            <ChevronLeft size={24} color="white" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>MISSION_ROADMAP</Text>
+          <View>
+            <Text style={styles.trackLabel}>{context.trackTitle}</Text>
+            <Text style={styles.headerT}>{context.title}</Text>
+          </View>
         </View>
 
-        <FlatList
-          data={track.lessons}
-          keyExtractor={(item) => item.id}
-          ListHeaderComponent={() => (
-            <View style={styles.hero}>
-              <View style={styles.trophyCircle}>
-                <Trophy size={40} color={THEME.indigo} />
+        <ScrollView contentContainerStyle={styles.scroll}>
+          {step === 'LEARN' ? (
+            <Animated.View entering={FadeInDown}>
+              {/* LESSON TEXT */}
+              <Text style={styles.bodyText}>{context.text}</Text>
+
+              {/* QUIZ SECTION (FROM DB) */}
+              {context.question && (
+                <View style={styles.quizCard}>
+                  <Text style={styles.qTitle}>KNOWLEDGE CHECK</Text>
+                  <Text style={styles.qText}>{context.question}</Text>
+
+                  {context.options.map((opt: string, i: number) => (
+                    <TouchableOpacity
+                      key={i}
+                      style={[
+                        styles.optBtn,
+                        selectedOption === i && {
+                          borderColor: THEME.indigo,
+                          backgroundColor: 'rgba(99,102,241,0.1)',
+                        },
+                        quizResult === 'correct' &&
+                          i === context.correctIndex && {
+                            borderColor: THEME.success,
+                            backgroundColor: 'rgba(16,185,129,0.1)',
+                          },
+                      ]}
+                      onPress={() => setSelectedOption(i)}
+                      disabled={quizResult === 'correct'}
+                    >
+                      <Text style={{ color: 'white' }}>{opt}</Text>
+                    </TouchableOpacity>
+                  ))}
+
+                  {quizResult !== 'correct' && (
+                    <TouchableOpacity
+                      style={styles.checkBtn}
+                      onPress={handleQuizCheck}
+                    >
+                      <Text style={styles.checkBtnT}>CHECK ANSWER</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
+              {/* NEXT BUTTON */}
+              <TouchableOpacity
+                style={[
+                  styles.actionBtn,
+                  !context.question || quizResult === 'correct'
+                    ? {}
+                    : { opacity: 0.5 },
+                ]}
+                onPress={() => setStep('PRACTICE')}
+                disabled={context.question && quizResult !== 'correct'}
+              >
+                <Text style={styles.actionBtnT}>INITIALIZE TERMINAL</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          ) : (
+            <View style={styles.ideContainer}>
+              <View style={styles.panelHead}>
+                <Code2 size={14} color={THEME.indigo} />
+                <Text style={styles.panelTitle}>SOURCE_EDITOR</Text>
               </View>
-              <Text style={styles.title}>{track.title}</Text>
-              <Text style={styles.desc}>{track.description}</Text>
+
+              <TextInput
+                multiline
+                style={styles.editor}
+                defaultValue={context.code} // Pre-filled with "Emulator Trigger" code
+                onChangeText={setUserCode}
+                spellCheck={false}
+                autoCapitalize="none"
+              />
+
+              <View style={styles.panelHead}>
+                <Terminal size={14} color={THEME.success} />
+                <Text style={styles.panelTitle}>RUNTIME_PREVIEW</Text>
+              </View>
+
+              <CodeEmulator
+                language={context.trackTitle?.toLowerCase() || 'python'}
+                code={userCode || context.code}
+                onComplete={() => {
+                  Alert.alert('Lesson Complete', '+100 XP');
+                  router.back();
+                }}
+              />
             </View>
           )}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.card}
-              activeOpacity={0.8}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push(`/lesson/${item.id}`);
-              }}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>{item.title}</Text>
-                <View style={styles.xpBadge}>
-                  <Zap size={10} color="#fbbf24" fill="#fbbf24" />
-                  <Text style={styles.xpText}>{item.xp_reward} XP</Text>
-                </View>
-              </View>
-              <PlayCircle
-                size={28}
-                color={THEME.indigo}
-                fill="rgba(99, 102, 241, 0.1)"
-              />
-            </TouchableOpacity>
-          )}
-          contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
-        />
+        </ScrollView>
       </SafeAreaView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#020617' },
+  container: { flex: 1 },
   center: {
     flex: 1,
     justifyContent: 'center',
@@ -163,17 +251,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 15,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.border,
-  },
-  headerTitle: {
-    color: THEME.dim,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 2,
+    borderColor: THEME.border,
   },
   backBtn: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     borderRadius: 12,
     backgroundColor: THEME.surface,
     alignItems: 'center',
@@ -181,57 +263,78 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: THEME.border,
   },
-  hero: { alignItems: 'center', marginBottom: 40, marginTop: 20 },
-  trophyCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: THEME.indigo,
-  },
-  title: {
-    fontSize: 32,
+  trackLabel: {
+    color: THEME.indigo,
+    fontSize: 10,
     fontWeight: '900',
-    color: 'white',
-    marginTop: 24,
-    textAlign: 'center',
-    letterSpacing: -1,
+    textTransform: 'uppercase',
   },
-  desc: {
-    fontSize: 15,
-    color: THEME.dim,
-    textAlign: 'center',
-    marginTop: 12,
-    lineHeight: 24,
-    paddingHorizontal: 20,
+  headerT: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+  scroll: { padding: 20, paddingBottom: 50 },
+  bodyText: {
+    color: '#94a3b8',
+    fontSize: 16,
+    lineHeight: 26,
+    marginBottom: 30,
   },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  quizCard: {
     backgroundColor: THEME.surface,
-    padding: 22,
-    borderRadius: 24,
-    marginBottom: 16,
+    padding: 20,
+    borderRadius: 20,
+    marginBottom: 30,
     borderWidth: 1,
     borderColor: THEME.border,
   },
-  cardTitle: {
-    color: 'white',
-    fontSize: 17,
-    fontWeight: '700',
-    marginBottom: 6,
+  qTitle: {
+    color: THEME.indigo,
+    fontSize: 10,
+    fontWeight: '900',
+    marginBottom: 10,
+    letterSpacing: 1,
   },
-  xpBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  xpText: { color: '#fbbf24', fontSize: 12, fontWeight: '900' },
-  errorText: { color: 'white', marginTop: 15, fontWeight: 'bold' },
-  retryBtn: {
-    marginTop: 25,
-    paddingHorizontal: 30,
-    paddingVertical: 15,
+  qText: { color: 'white', fontSize: 16, fontWeight: 'bold', marginBottom: 20 },
+  optBtn: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    marginBottom: 10,
+  },
+  checkBtn: { alignItems: 'center', padding: 12, marginTop: 10 },
+  checkBtnT: { color: THEME.indigo, fontWeight: 'bold', fontSize: 12 },
+  actionBtn: {
     backgroundColor: THEME.indigo,
-    borderRadius: 15,
+    padding: 20,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: THEME.indigo,
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  actionBtnT: { color: 'white', fontWeight: '900', letterSpacing: 1 },
+  ideContainer: { gap: 10 },
+  panelHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  panelTitle: {
+    color: '#64748b',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  editor: {
+    backgroundColor: '#050a18',
+    color: '#e2e8f0',
+    padding: 20,
+    borderRadius: 16,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    minHeight: 150,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    textAlignVertical: 'top',
   },
 });

@@ -1,99 +1,90 @@
 import React from 'react';
-import { View, Text, Pressable, Platform, StyleSheet } from 'react-native';
-import Animated, { 
-  useSharedValue, 
-  useAnimatedStyle, 
-  withSpring, 
-  withTiming, 
-  interpolate, 
-  interpolateColor, 
+import { View, StyleSheet, Pressable, ViewStyle } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  interpolate,
   Extrapolation,
-  FadeInDown
+  withTiming,
+  withDelay,
 } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
-const SPRING_CONFIG = { damping: 15, stiffness: 120, mass: 1 };
-
-interface Bento3DProps {
-  children?: React.ReactNode;
+interface Bento3DCardProps {
+  children: React.ReactNode;
+  style?: ViewStyle;
   className?: string;
   onPress?: () => void;
   delay?: number;
-  style?: any;
 }
 
-export const Bento3DCard = ({ children, className, onPress, delay = 0, style }: Bento3DProps) => {
+export function Bento3DCard({
+  children,
+  style,
+  onPress,
+  delay = 0,
+}: Bento3DCardProps) {
+  // Shared Values for 3D Transform
   const rotateX = useSharedValue(0);
   const rotateY = useSharedValue(0);
-  const scale = useSharedValue(1);
-  const glowOpacity = useSharedValue(0);
+  const scale = useSharedValue(1); // Start visible
+  const opacity = useSharedValue(0); // Fade in on mount
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { perspective: 1000 },
-      { rotateX: `${rotateX.value}deg` },
-      { rotateY: `${rotateY.value}deg` },
-      { scale: withSpring(scale.value) },
-    ],
-    borderColor: interpolateColor(
-      glowOpacity.value,
-      [0, 1],
-      ['rgba(255,255,255,0.05)', 'rgba(99, 102, 241, 0.4)']
-    ),
-    backgroundColor: interpolateColor(
-      glowOpacity.value,
-      [0, 1],
-      ['rgba(15, 23, 42, 0.3)', 'rgba(99, 102, 241, 0.08)']
-    ),
-  }));
+  // Entrance Animation
+  React.useEffect(() => {
+    opacity.value = withDelay(delay, withTiming(1, { duration: 500 }));
+  }, []);
 
-  const onPointerMove = (e: any) => {
-    if (Platform.OS === 'web') {
-      const { nativeEvent } = e;
-      // 3D Tilt Logic from Login Screen
-      rotateY.value = interpolate(nativeEvent.offsetX, [0, 300], [-10, 10], Extrapolation.CLAMP);
-      rotateX.value = interpolate(nativeEvent.offsetY, [0, 200], [10, -10], Extrapolation.CLAMP);
-    }
-  };
+  const gesture = Gesture.Pan()
+    .onBegin(() => {
+      scale.value = withSpring(0.98);
+    })
+    .onUpdate((e) => {
+      // ⚡ DIALED DOWN INTENSITY:
+      // Dividing by larger numbers (e.g. 200/100) to make movement subtle
+      rotateX.value = interpolate(e.y, [0, 200], [5, -5], Extrapolation.CLAMP);
+      rotateY.value = interpolate(e.x, [0, 200], [-5, 5], Extrapolation.CLAMP);
+    })
+    .onFinalize(() => {
+      rotateX.value = withSpring(0);
+      rotateY.value = withSpring(0);
+      scale.value = withSpring(1);
+    });
 
-  const onEnter = () => {
-    scale.value = withSpring(1.05, SPRING_CONFIG);
-    glowOpacity.value = withTiming(1, { duration: 300 });
-  };
-
-  const onLeave = () => {
-    scale.value = withSpring(1, SPRING_CONFIG);
-    glowOpacity.value = withTiming(0, { duration: 300 });
-    rotateX.value = withSpring(0);
-    rotateY.value = withSpring(0);
-  };
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: opacity.value,
+      transform: [
+        { perspective: 1000 },
+        { rotateX: `${rotateX.value}deg` },
+        { rotateY: `${rotateY.value}deg` },
+        { scale: scale.value },
+      ],
+    };
+  });
 
   return (
-    <Animated.View
-      entering={FadeInDown.delay(delay).springify()}
-      style={[styles.cardBase, animatedStyle, style]}
-    >
-      <Pressable
-        onPress={onPress}
-        onPointerEnter={onEnter}
-        onPointerLeave={onLeave}
-        onPointerMove={onPointerMove}
-        style={styles.innerContent}
-      >
-        {children}
+    <GestureDetector gesture={gesture}>
+      <Pressable onPress={onPress} style={[{ flex: 1 }, style]}>
+        <Animated.View style={[styles.card, animatedStyle]}>
+          {children}
+        </Animated.View>
       </Pressable>
-    </Animated.View>
+    </GestureDetector>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  cardBase: {
-    borderRadius: 32,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  innerContent: {
-    padding: 24,
+  card: {
     flex: 1,
-    justifyContent: 'space-between',
-  }
+    borderRadius: 24,
+    // Provide a subtle base shadow, remove if NativeWind handles it
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 5,
+    overflow: 'hidden', // Ensures inner content clips to border
+  },
 });
