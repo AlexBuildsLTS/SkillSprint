@@ -20,7 +20,12 @@ import {
   Target,
   BarChart2,
 } from 'lucide-react-native';
-import Animated, { FadeInDown, FadeIn, Layout, LinearTransition } from 'react-native-reanimated';
+import Animated, {
+  FadeInDown,
+  FadeIn,
+  Layout,
+  LinearTransition,
+} from 'react-native-reanimated';
 import { useQuery } from '@tanstack/react-query';
 
 import { Bento3DCard } from '@/components/ui/Bento3DCard';
@@ -112,6 +117,7 @@ export default function Dashboard() {
   const onRefresh = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await refetch();
+    await refreshUserData();
   }, [refetch, refreshUserData]);
 
   const getGreeting = () => {
