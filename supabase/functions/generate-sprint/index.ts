@@ -128,6 +128,8 @@ Deno.serve(async (req) => {
         user_id: userId,
         date: today,
         tasks: tasks,
+        language: language,
+        difficulty: difficulty,
         is_completed: false,
         xp_earned: 0,
         // created_at is handled by default now()
