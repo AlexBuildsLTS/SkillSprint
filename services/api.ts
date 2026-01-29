@@ -9,7 +9,7 @@ import {
 
 export const api = {
   /**
-   * 🧠 AI: Generate Daily Sprint
+   * 🧠 AI: Generate Daily Sprint via Supabase Edge Function
    */
   generateDailySprint: async (language: string): Promise<SprintCard[]> => {
     const { data, error } = await supabase.functions.invoke('generate-sprint', {
@@ -33,7 +33,7 @@ export const api = {
   },
 
   /**
-   * 🏆 GAMIFICATION: Complete Sprint
+   * 🏆 GAMIFICATION: Complete Sprint & Update Database
    */
   completeSprint: async (xp: number, score: number): Promise<SprintResult> => {
     const { data, error } = await supabase.functions.invoke('complete-sprint', {
@@ -52,7 +52,7 @@ export const api = {
   },
 
   /**
-   * 🛠️ ADMIN: Generate Track
+   * 🛠️ ADMIN: Generate a new learning Track via AI
    */
   generateTrack: async (topic: string) => {
     const { data, error } = await supabase.functions.invoke('generate-track', {
@@ -63,37 +63,43 @@ export const api = {
   },
 
   /**
-   * 📊 DASHBOARD: Get Full User Stats
-   * Integrates Leveling Math and Badge Data
+   * 📊 DASHBOARD: Unified Statistics Fetch
+   * Syncs Frontend Leveling Math with PostgreSQL Formula: Floor((XP/100)^0.6) + 1
    */
   getDashboardStats: async (userId: string): Promise<UserDashboardStats> => {
-    // 1. Fetch Core Stats
+    // 1. Core User Stats (XP, Level, Streak)
     const { data: stats } = await supabase
       .from('user_stats')
       .select('*')
       .eq('user_id', userId)
       .single();
 
-    // 2. Fetch Track Breakdown (RPC)
+    // 2. Track Breakdown by Language (via Postgres RPC)
     const { data: trackData } = await supabase.rpc('get_user_track_xp', {
       target_user_id: userId,
     });
 
-    // 3. Fetch Weekly Activity (RPC)
+    // 3. Weekly Activity Data for Charting (via Postgres RPC)
     const { data: activityData } = await supabase.rpc('get_weekly_activity', {
       target_user_id: userId,
     });
 
-    // 4. Leveling Mathematics (Matching SQL Formula: Level = Floor((XP/100)^0.6) + 1)
     const currentXp = stats?.xp || 0;
     const currentLevel = stats?.level || 1;
 
-    // Inverse Formula to find XP needed for a specific level
-    const calculateXpForLevel = (lvl: number) =>
-      lvl <= 1 ? 0 : Math.floor(100 * Math.pow(lvl - 1, 1 / 0.6));
+    /**
+     * 📐 MATHEMATICAL ALIGNMENT
+     * To find the XP threshold for a specific level based on our curve:
+     * XP = 100 * (Level - 1)^(1/0.6)
+     */
+    const getXpThreshold = (lvl: number) => {
+      if (lvl <= 1) return 0;
+      // We use 1.6667 as an approximation of 1/0.6
+      return Math.floor(100 * Math.pow(lvl - 1, 1.6667));
+    };
 
-    const currentLevelBaseXP = calculateXpForLevel(currentLevel);
-    const nextLevelThresholdXP = calculateXpForLevel(currentLevel + 1);
+    const currentLevelBaseXP = getXpThreshold(currentLevel);
+    const nextLevelThresholdXP = getXpThreshold(currentLevel + 1);
 
     return {
       xp: currentXp,
@@ -108,7 +114,7 @@ export const api = {
   },
 
   /**
-   * 🎖️ BADGES: Get User Badges
+   * 🎖️ BADGES: Retrieve all earned badges for the user
    */
   getUserBadges: async (userId: string) => {
     const { data, error } = await supabase
@@ -116,7 +122,10 @@ export const api = {
       .select('*, badges(*)')
       .eq('user_id', userId);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Badge Fetch Error:', error);
+      throw error;
+    }
     return data;
   },
 };
