@@ -526,6 +526,7 @@ export type Database = {
         Args: { new_status: string; target_user_id: string };
         Returns: undefined;
       };
+      calculate_level: { Args: { xp_input: number }; Returns: number };
       calculate_level_from_xp: { Args: { xp_input: number }; Returns: number };
       get_full_lesson_details: {
         Args: { target_lesson_id: string };

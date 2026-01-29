@@ -47,25 +47,25 @@ export interface UserDashboardStats {
   weekly_sprints: number;
   track_breakdown: TrackXPStats[];
   activity_chart: WeeklyActivity[];
+  next_level_xp: number;
+  current_level_base_xp: number;
 }
 
 export interface LessonRow {
-  
   id: string;
   title: string;
   order: number;
   content: any; // or better: { text?: string; code?: string; questions?: any[] }
-};
+}
 
- export interface GetLessonDetailsResult {
-    id: string;
-    question: string;
-    options?: any;
-    answer?: any;
-    type?: string;
-    explanation?: string;
-    lesson_id: string;
-    created_at: string;
-    updated_at: string;
-  }
-  
+export interface GetLessonDetailsResult {
+  id: string;
+  question: string;
+  options?: any;
+  answer?: any;
+  type?: string;
+  explanation?: string;
+  lesson_id: string;
+  created_at: string;
+  updated_at: string;
+}

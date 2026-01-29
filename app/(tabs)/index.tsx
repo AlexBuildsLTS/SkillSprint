@@ -210,25 +210,30 @@ export default function Dashboard() {
               </Bento3DCard>
 
               <Bento3DCard style={{ flex: 1 }}>
-                <View
-                  style={[
-                    styles.cardContent,
-                    styles.glassEffect,
-                    { borderColor: THEME.purple + '40', minHeight: 140 },
-                  ]}
-                >
-                  <View style={styles.cardHeader}>
-                    <Award size={18} color={THEME.purple} />
-                    <Text style={[styles.cardLabel, { color: THEME.purple }]}>
-                      LEVEL
-                    </Text>
-                  </View>
-                  <View>
-                    <Text style={styles.statValue}>{stats?.level || 1}</Text>
-                    <Text style={styles.statSub}>Current Rank</Text>
-                  </View>
-                </View>
-              </Bento3DCard>
+  <View style={[styles.cardContent, styles.glassEffect, { borderColor: THEME.purple + '40', minHeight: 140 }]}>
+    <View style={styles.cardHeader}>
+      <Award size={18} color={THEME.purple} />
+      <Text style={[styles.cardLabel, { color: THEME.purple }]}>LEVEL {stats?.level}</Text>
+    </View>
+    <View>
+      <Text style={styles.statValue}>{stats?.level || 1}</Text>
+      <Text style={styles.statSub}>
+        {stats ? `${(stats.xp - stats.current_level_base_xp)} / ${(stats.next_level_xp - stats.current_level_base_xp)} XP` : 'Loading...'}
+      </Text>
+      
+      {/* REAL PROGRESS BAR */}
+      <View style={{ height: 6, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, marginTop: 10, overflow: 'hidden' }}>
+        <Animated.View 
+          style={{ 
+            height: '100%', 
+            width: stats ? `${Math.max(5, ((stats.xp - stats.current_level_base_xp) / (stats.next_level_xp - stats.current_level_base_xp)) * 100)}%` : '0%',
+            backgroundColor: THEME.purple,
+          }} 
+        />
+      </View>
+    </View>
+  </View>
+</Bento3DCard>
             </View>
 
             {/* ROW 2: DAILY SPRINT & WEEKLY TARGET */}
