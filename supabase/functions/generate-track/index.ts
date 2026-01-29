@@ -1,190 +1,159 @@
 import { createClient } from '@supabase/supabase-js';
-import { corsHeaders } from '../_shared/cors.ts';
 
-// 1. CONFIGURATION
-const GEMINI_MODEL = 'gemini-2.0-flash';
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+};
 
-// 2. TYPES
-interface LessonContent {
-  text: string;
-  code: string;
-}
+const GEMINI_API_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-interface Quiz {
-  question: string;
-  options: string[];
-  answer: number;
-  explanation: string;
-}
-
-interface GeneratedLesson {
-  title: string;
-  order: number;
-  xp_reward: number;
-  content: LessonContent;
-  quiz: Quiz;
-}
-
-interface GeneratedTrack {
-  track: {
-    title: string;
-    description: string;
-    difficulty: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
-    icon: string;
-    color_gradient: string;
-  };
-  lessons: GeneratedLesson[];
-}
-
-// 3. SERVER INITIALIZATION
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS')
+  if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
+  }
 
   try {
     const { topic } = await req.json();
     const apiKey = Deno.env.get('GEMINI_API_KEY');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-    if (!apiKey) throw new Error('GEMINI_API_KEY is missing');
-    if (!topic) throw new Error('Topic is required');
+    if (!apiKey || !supabaseUrl || !supabaseKey) {
+      throw new Error('Missing environment variables');
+    }
 
-    // 4. EMULATOR-AWARE PROMPT
-    // We strictly instruct Gemini to include keywords that trigger your specific Emulator visuals.
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // 1. Strict Prompt Engineering for Structured Data
     const prompt = `
-      You are the Curriculum Architect for "SkillSprint", a gamified coding app.
-      Create a 5-lesson micro-learning track for: "${topic}".
+      You are a Senior Curriculum Architect for a coding platform.
+      Create a comprehensive learning track for: "${topic}".
       
-      CRITICAL EMULATOR RULES (Must apply to Code Snippets):
-      - If Python (Data/Math): Include 'import numpy' or 'tensor' to trigger Data Visualizer.
-      - If Python (Logic/Game): Include comments like '# snake_game' or 'class Snake' to trigger the Arcade Game Engine.
-      - If Java: Include 'SpringApplication' or 'Bean' to trigger the JVM Heap Visualizer.
-      - If Kotlin: Include 'Composable', 'Modifier', or 'Column' to trigger the Mobile UI Renderer.
-      - If Web/JS: Include 'console.log' or 'function' for the Standard Terminal.
+      REQUIREMENTS:
+      1. Determine the category based on the topic: 'FRONTEND', 'BACKEND', 'SYSTEMS', or 'DATA'.
+      2. Difficulty should be 'BEGINNER' unless the topic is inherently complex.
+      3. Generate exactly 5 progressive lessons.
+      4. Each lesson MUST have a 'content' object with 'text' and 'starter_code'.
+      5. Each lesson MUST have a 'quiz' object with 'question', 'options' (4 items), 'answer' (index 0-3), and 'explanation'.
+      6. Code snippets must be valid and educational.
 
-      OUTPUT FORMAT:
-      Return ONLY RAW JSON. No Markdown.
-      Structure:
+      OUTPUT FORMAT (Strict JSON, no markdown):
       {
-        "track": { 
-          "title": "Short catchy title", 
-          "description": "2 sentence summary", 
+        "track": {
+          "title": "Title Case Name",
+          "description": "Engaging description under 150 chars.",
+          "category": "BACKEND",
           "difficulty": "BEGINNER",
-          "icon": "code",
-          "color_gradient": "from-indigo-500-to-purple-500"
+          "icon": "code", 
+          "color_gradient": "from-blue-500-to-cyan-500"
         },
         "lessons": [
           {
-            "title": "Lesson Title", 
-            "order": 1, 
+            "title": "Lesson 1 Title",
+            "order": 1,
             "xp_reward": 100,
-            "content": { 
-              "text": "Educational explanation (max 3 sentences).", 
-              "code": "The code snippet following the Emulator Rules above." 
+            "content": {
+              "text": "Clear, concise explanation of the concept.",
+              "starter_code": "print('Hello')"
             },
-            "quiz": { 
-              "question": "Challenging question", 
-              "options": ["A", "B", "C", "D"], 
-              "answer": 0, 
-              "explanation": "Why A is correct" 
+            "quiz": {
+              "question": "Test understanding",
+              "options": ["Correct", "Wrong 1", "Wrong 2", "Wrong 3"],
+              "answer": 0,
+              "explanation": "Why correct is correct."
             }
           }
         ]
       }
     `;
 
-    // 5. CALL GEMINI
-    const response = await fetch(`${API_URL}?key=${apiKey}`, {
+    // 2. Call Gemini API
+    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 0.7,
+          temperature: 0.2, // Low temp for strict JSON adherence
           responseMimeType: 'application/json',
         },
       }),
     });
 
-    const resultData = await response.json();
-    let aiText = resultData.candidates?.[0]?.content?.parts?.[0]?.text;
+    const data = await response.json();
+    let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!aiText) {
-      console.error('Gemini Error:', JSON.stringify(resultData));
-      throw new Error('AI synthesis failed.');
-    }
+    if (!rawText) throw new Error('AI returned empty response');
 
-    // 6. CLEAN & PARSE
-    aiText = aiText.replace(/```json|```/g, '').trim();
-    const data: GeneratedTrack = JSON.parse(aiText);
+    // Clean potential markdown wrappers
+    rawText = rawText
+      .replace(/```json/g, '')
+      .replace(/```/g, '')
+      .trim();
+    const result = JSON.parse(rawText);
 
-    // 7. DB SYNC: Track -> Lessons -> Questions
+    // 3. Database Insertion Transaction
+    // A. Insert Track
+    const slug =
+      result.track.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') +
+      '-' +
+      Date.now().toString().slice(-4);
 
-    // Initialize Admin Client
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    );
-
-    // Generate Slug
-    const uniqueSlug = `${data.track.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString().slice(-4)}`;
-
-    // Insert Track
-    const { data: track, error: tErr } = await supabaseAdmin
+    const { data: trackData, error: trackError } = await supabase
       .from('tracks')
       .insert({
-        ...data.track,
-        slug: uniqueSlug,
-        is_published: true, // Auto-publish so it appears in the app immediately
-        is_premium: false,
+        title: result.track.title,
+        slug: slug,
+        description: result.track.description,
+        category: result.track.category,
+        difficulty: result.track.difficulty,
+        icon: result.track.icon,
+        color_gradient: result.track.color_gradient,
+        is_published: false, // Draft mode by default for safety
       })
       .select()
       .single();
 
-    if (tErr) throw new Error(`Track Insert Error: ${tErr.message}`);
+    if (trackError) throw trackError;
 
-    // Insert Lessons & Questions Loop
-    for (const l of data.lessons) {
-      const { data: lesson, error: lErr } = await supabaseAdmin
+    // B. Insert Lessons and Questions
+    for (const lesson of result.lessons) {
+      const { data: lessonData, error: lessonError } = await supabase
         .from('lessons')
         .insert({
-          track_id: track.id,
-          title: l.title,
-          content: l.content, // JSONB content
-          order: l.order,
-          xp_reward: l.xp_reward,
+          track_id: trackData.id,
+          title: lesson.title,
+          order: lesson.order,
+          xp_reward: lesson.xp_reward,
+          content: lesson.content, // helper to ensure jsonb compatibility
         })
         .select()
         .single();
 
-      if (lErr) throw new Error(`Lesson Insert Error: ${lErr.message}`);
+      if (lessonError) throw lessonError;
 
-      // Insert Quiz
-      const { error: qErr } = await supabaseAdmin.from('questions').insert({
-        lesson_id: lesson.id,
+      // C. Insert Quiz Question
+      const { error: quizError } = await supabase.from('questions').insert({
+        lesson_id: lessonData.id,
         type: 'mcq',
-        question: l.quiz.question,
-        options: l.quiz.options,
-        answer: l.quiz.answer,
-        explanation: l.quiz.explanation,
+        question: lesson.quiz.question,
+        options: lesson.quiz.options,
+        answer: lesson.quiz.answer, // Storing index or value depending on your DB constraint, assumed JSONB or text match
+        explanation: lesson.quiz.explanation,
       });
 
-      if (qErr) throw new Error(`Question Insert Error: ${qErr.message}`);
+      if (quizError) throw quizError;
     }
 
-    // 8. SUCCESS RESPONSE
-    return new Response(JSON.stringify({ success: true, trackId: track.id }), {
+    return new Response(JSON.stringify({ success: true, track: trackData }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Internal Synthesis Error';
-    console.error('[Generate Track Error]:', msg);
-
-    // Return 200 so the UI can display the error message gracefully
-    return new Response(JSON.stringify({ success: false, error: msg }), {
-      status: 200,
+  } catch (error) {
+    console.error('Error generating track:', error);
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
+      status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

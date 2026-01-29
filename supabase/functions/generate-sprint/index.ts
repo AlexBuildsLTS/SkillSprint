@@ -1,75 +1,108 @@
 import { createClient } from '@supabase/supabase-js';
-import { corsHeaders } from '../_shared/cors.ts';
 
-/**
- * PRODUCTION GENERATOR: 20 Refined Tasks per Language
- * Languages: Python, JavaScript, TypeScript, Java, Rust
- */
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+};
 
-const API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const GEMINI_API_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
 
-Deno.serve(async (req: Request) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS')
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: CORS_HEADERS });
 
   try {
-    const supabaseAdmin = createClient(
+    const { language, difficulty, userId } = await req.json();
+    const apiKey = Deno.env.get('GEMINI_API_KEY');
+    if (!apiKey) throw new Error('Missing GEMINI_API_KEY');
+
+    // 1. Check if a sprint already exists for today
+    const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
+    const today = new Date().toISOString().split('T')[0];
 
-    const { language, difficulty, user_id } = await req.json();
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) throw new Error('GEMINI_API_KEY is missing');
+    const { data: existingSprint } = await supabase
+      .from('daily_sprints')
+      .select('tasks')
+      .eq('user_id', userId)
+      .eq('date', today)
+      .maybeSingle();
 
-    const prompt = `Generate exactly 20 micro-learning coding tasks for ${language} at ${difficulty} level.
-    Each task must have: title, description, starter_code, expected_output, and xp_reward.
-    Return ONLY RAW JSON in this format: { "tasks": [...] }. 
-    Tasks should scale in complexity from basic syntax to logical challenges.`;
+    if (existingSprint) {
+      return new Response(JSON.stringify(existingSprint.tasks), {
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      });
+    }
 
-    const response = await fetch(`${API_URL}?key=${apiKey}`, {
+    // 2. Prompt Gemini for JSON Structure
+    const prompt = `
+      Generate 5 distinct coding tasks for ${language} at ${difficulty} level.
+      Return ONLY valid JSON array. No markdown. No comments.
+      Format:
+      [
+        {
+          "id": 1,
+          "type": "quiz",
+          "title": "Topic Name",
+          "content": "Question text",
+          "options": ["A", "B", "C", "D"],
+          "correctAnswer": 0,
+          "explanation": "Why A is correct."
+        },
+        {
+          "id": 2,
+          "type": "code",
+          "title": "Coding Challenge",
+          "content": "Problem description",
+          "codeSnippet": "def buggy_function():\\n  pass", 
+          "answer": "Correct output or fixed code",
+          "explanation": "Fix explanation"
+        }
+      ]
+      Ensure a mix of 'quiz' and 'code' types.
+    `;
+
+    const geminiResp = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          responseMimeType: 'application/json',
-        },
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
       }),
     });
 
-    const resultData = await response.json();
-    const aiText = resultData.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!aiText) throw new Error('AI Response Failed');
+    const geminiData = await geminiResp.json();
+    let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
 
-    const { tasks } = JSON.parse(aiText.replace(/```json|```/g, '').trim());
+    // Clean markdown if Gemini adds it
+    rawText = rawText
+      .replace(/```json/g, '')
+      .replace(/```/g, '')
+      .trim();
 
-    // Securely log tasks to prevent replay attacks
-    const tasksToInsert = tasks.map((t: any) => ({
-      user_id,
-      language,
-      difficulty,
-      task_content: t,
-      task_hash: crypto.randomUUID(), // Unique proof-of-work ID
+    const tasks = JSON.parse(rawText);
+
+    // 3. Store in Database
+    await supabase.from('daily_sprints').insert({
+      user_id: userId,
+      date: today,
+      tasks: tasks,
       is_completed: false,
-    }));
-
-    const { data: savedTasks, error: dbErr } = await supabaseAdmin
-      .from('sprint_tasks')
-      .insert(tasksToInsert)
-      .select();
-
-    if (dbErr) throw dbErr;
-
-    return new Response(JSON.stringify({ tasks: savedTasks }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      xp_earned: 0,
     });
-  } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+
+    return new Response(JSON.stringify(tasks), {
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.warn('Sprint Gen Error:', error);
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
+      status: 500,
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   }
 });

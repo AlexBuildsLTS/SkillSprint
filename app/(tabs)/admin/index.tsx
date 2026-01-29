@@ -10,8 +10,6 @@ import {
   TextInput,
   Alert,
   Dimensions,
-  Platform,
-  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -20,8 +18,6 @@ import {
   TrendingUp,
   ShieldCheck,
   Activity,
-  Zap,
-  BookOpen,
   Cpu,
   Search,
   ChevronRight,
@@ -33,14 +29,17 @@ import {
   BarChart3,
   EyeOff,
   CheckCircle2,
+  FileCode,
 } from 'lucide-react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Bento3DCard } from '@/components/ui/Bento3DCard';
-import { api } from '@/services/api';
+import { api } from '@/services/api'; // Ensure this api service has generateTrack exposed
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// Consistent Theme with Main Dashboard
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
@@ -49,8 +48,8 @@ const THEME = {
   danger: '#ef4444',
   warning: '#f59e0b',
   white: '#ffffff',
-  surface: '#0f172a',
-  border: 'rgba(255, 255, 255, 0.08)',
+  surface: 'rgba(30, 41, 59, 0.5)', // Glassy
+  border: 'rgba(255, 255, 255, 0.1)',
   accent: '#facc15',
 };
 
@@ -69,6 +68,7 @@ type DraftTrack = {
   title: string;
   created_at: string;
   difficulty: string;
+  category: string;
 };
 
 type SystemStatus = 'OPERATIONAL' | 'DEGRADED' | 'MAINTENANCE' | 'SYNCING';
@@ -93,10 +93,6 @@ export default function AdminDashboard() {
     systemUptime: '99.9%',
   });
 
-  /**
-   * --- MODULE: TELEMETRY ENGINE ---
-   * Hoisted to top to prevent "used before declaration" errors.
-   */
   const loadStats = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     const start = Date.now();
@@ -123,7 +119,7 @@ export default function AdminDashboard() {
         supabase.from('lessons').select('*', { count: 'exact', head: true }),
         supabase
           .from('tracks')
-          .select('id, title, created_at, difficulty')
+          .select('id, title, created_at, difficulty, category')
           .eq('is_published', false)
           .order('created_at', { ascending: false }),
       ]);
@@ -151,29 +147,6 @@ export default function AdminDashboard() {
     }
   }, []);
 
-  /**
-   * --- MODULE: REAL-TIME ENGINE ---
-   */
-  useEffect(() => {
-    const channel = supabase
-      .channel('admin-master-stream')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tracks' },
-        () => loadStats(false),
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tickets' },
-        () => loadStats(false),
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [loadStats]);
-
   useFocusEffect(
     useCallback(() => {
       loadStats();
@@ -186,28 +159,35 @@ export default function AdminDashboard() {
       .update({ is_published: true })
       .eq('id', id);
     if (error) Alert.alert('Error', error.message);
-    else loadStats(false);
+    else {
+      Alert.alert('Success', 'Track is now live for all users.');
+      loadStats(false);
+    }
   };
 
   const handleGenerateTrack = useCallback(async () => {
     if (!topic.trim()) return;
     setIsGenerating(true);
     try {
-      await api.generateDailySprint(topic.trim());
+      // Call the API service which hits the edge function
+      await api.generateTrack(topic.trim());
       setTopic('');
-      loadStats(false);
+      loadStats(false); // Refresh drafts list
       Alert.alert(
         'Synthesis Complete',
-        'The new architecture is in the Drafts section.',
+        'The new learning architecture has been compiled and is waiting in Drafts.',
       );
     } catch (error: any) {
-      Alert.alert('Neural Pipeline Error', error.message);
+      Alert.alert(
+        'Neural Pipeline Error',
+        error.message || 'Generation failed.',
+      );
     } finally {
       setIsGenerating(false);
     }
   }, [topic, loadStats]);
 
-  const gridWidth = useMemo(() => (SCREEN_WIDTH - 52) / 2, []);
+  const gridWidth = (SCREEN_WIDTH - 48) / 2; // Adjusted for padding
 
   return (
     <View style={styles.mainContainer}>
@@ -224,14 +204,15 @@ export default function AdminDashboard() {
           }
         >
           {/* HEADER SECTION */}
-          <View style={styles.header}>
+          <Animated.View
+            entering={FadeInDown.duration(600)}
+            style={styles.header}
+          >
             <View>
               <Text style={styles.headerTitle}>Command Center</Text>
               <View style={styles.infraBadge}>
-                <Globe size={10} color={THEME.slate} />
-                <Text style={styles.headerSub}>
-                  Infrastructure v2.43 • Root
-                </Text>
+                <Globe size={12} color={THEME.slate} />
+                <Text style={styles.headerSub}>Admin Root Access • v3.0</Text>
               </View>
             </View>
             <View
@@ -262,10 +243,13 @@ export default function AdminDashboard() {
                 {systemStatus}
               </Text>
             </View>
-          </View>
+          </Animated.View>
 
           {/* DIAGNOSTICS BAR */}
-          <View style={styles.diagnosticBar}>
+          <Animated.View
+            entering={FadeInDown.delay(100).duration(600)}
+            style={styles.diagnosticBar}
+          >
             <View style={styles.diagItem}>
               <Server size={14} color={THEME.indigo} />
               <Text style={styles.diagText}>
@@ -274,17 +258,13 @@ export default function AdminDashboard() {
             </View>
             <View style={styles.diagItem}>
               <Lock size={14} color={THEME.success} />
-              <Text style={styles.diagText}>
-                SSL: <Text style={styles.white}>Active</Text>
-              </Text>
+              <Text style={styles.diagText}>SSL: Secure</Text>
             </View>
             <View style={styles.diagItem}>
               <BarChart3 size={14} color={THEME.accent} />
-              <Text style={styles.diagText}>
-                Uptime: <Text style={styles.white}>{stats.systemUptime}</Text>
-              </Text>
+              <Text style={styles.diagText}>Uptime: {stats.systemUptime}</Text>
             </View>
-          </View>
+          </Animated.View>
 
           {/* STATS BENTO GRID */}
           <View style={styles.sectionHeader}>
@@ -326,21 +306,26 @@ export default function AdminDashboard() {
           {/* NEURAL PIPELINE (GENERATOR) */}
           <View style={styles.sectionHeader}>
             <Cpu size={18} color={THEME.accent} />
-            <Text style={styles.sectionLabel}>Neural Pipeline Engine</Text>
+            <Text style={styles.sectionLabel}>Neural Track Synthesis</Text>
           </View>
           <View style={styles.aiCard}>
-            <Text style={styles.aiStatus}>KERNEL: ONLINE</Text>
+            <View style={styles.aiHeader}>
+              <Text style={styles.aiStatus}>AI KERNEL: ONLINE</Text>
+              <Activity size={14} color={THEME.success} />
+            </View>
+
             <View style={styles.inputBox}>
               <Search size={18} color={THEME.slate} />
               <TextInput
                 style={styles.input}
-                placeholder="Specify topic architecture..."
-                placeholderTextColor="#475569"
+                placeholder="e.g. 'Advanced Kotlin Coroutines'..."
+                placeholderTextColor="#64748b"
                 value={topic}
                 onChangeText={setTopic}
                 editable={!isGenerating}
               />
             </View>
+
             <TouchableOpacity
               style={[
                 styles.genBtn,
@@ -350,9 +335,14 @@ export default function AdminDashboard() {
               disabled={isGenerating || !topic}
             >
               {isGenerating ? (
-                <ActivityIndicator color="white" />
+                <View
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                >
+                  <ActivityIndicator color="white" size="small" />
+                  <Text style={styles.btnText}>SYNTHESIZING...</Text>
+                </View>
               ) : (
-                <Text style={styles.btnText}>INITIATE SYNTHESIS</Text>
+                <Text style={styles.btnText}>INITIATE GENERATION</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -360,60 +350,63 @@ export default function AdminDashboard() {
           {/* DRAFT INVENTORY MODULE */}
           <View style={styles.sectionHeader}>
             <EyeOff size={18} color={THEME.warning} />
-            <Text style={styles.sectionLabel}>Draft Inventory</Text>
+            <Text style={styles.sectionLabel}>
+              Draft Inventory ({drafts.length})
+            </Text>
           </View>
+
           <View style={styles.draftContainer}>
             {drafts.length === 0 ? (
-              <Text style={styles.emptyText}>No pending architectures.</Text>
+              <View style={styles.emptyState}>
+                <FileCode size={32} color={THEME.slate} opacity={0.5} />
+                <Text style={styles.emptyText}>No pending architectures.</Text>
+              </View>
             ) : (
-              drafts.map((item) => (
-                <View key={item.id} style={styles.draftCard}>
+              drafts.map((item, index) => (
+                <Animated.View
+                  key={item.id}
+                  entering={FadeInUp.delay(index * 100)}
+                  style={styles.draftCard}
+                >
                   <View style={{ flex: 1 }}>
+                    <View
+                      style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}
+                    >
+                      <Text style={styles.draftTag}>{item.difficulty}</Text>
+                      <Text
+                        style={[
+                          styles.draftTag,
+                          {
+                            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                            color: THEME.indigo,
+                          },
+                        ]}
+                      >
+                        {item.category || 'GENERAL'}
+                      </Text>
+                    </View>
                     <Text style={styles.draftTitle}>{item.title}</Text>
                     <Text style={styles.draftSub}>
-                      {item.difficulty} • Created{' '}
-                      {new Date(item.created_at).toLocaleDateString()}
+                      Created {new Date(item.created_at).toLocaleDateString()}
                     </Text>
                   </View>
                   <TouchableOpacity
                     style={styles.publishBtn}
                     onPress={() => handlePublish(item.id)}
                   >
-                    <CheckCircle2 size={20} color={THEME.success} />
+                    <CheckCircle2 size={24} color={THEME.success} />
                   </TouchableOpacity>
-                </View>
+                </Animated.View>
               ))
             )}
           </View>
 
-          {/* MANAGEMENT NAVIGATION */}
-          <View style={styles.sectionHeader}>
-            <ShieldCheck size={18} color={THEME.success} />
-            <Text style={styles.sectionLabel}>Management Interface</Text>
-          </View>
-          <View style={styles.navStack}>
-            <NavRow
-              icon={<Users size={20} color={THEME.indigo} />}
-              label="Identity & Access"
-              sub="Roles & Security"
-              onPress={() => router.push('/(tabs)/admin/users')}
-            />
-            <NavRow
-              icon={<BookOpen size={20} color={THEME.success} />}
-              label="Repository"
-              sub={`${stats.totalTracks} Tracks Active`}
-              onPress={() => router.push('/(tabs)/tracks')}
-            />
-            <NavRow
-              icon={<MessageSquare size={20} color={THEME.warning} />}
-              label="Support Hub"
-              sub="Priority Tickets"
-              onPress={() => router.push('/(tabs)/support')}
-            />
-          </View>
-
+          {/* FOOTER */}
           <View style={styles.footer}>
-            <Text style={styles.footerText}>SECURE CORE ACCESS ONLY</Text>
+            <ShieldCheck size={12} color={THEME.slate} />
+            <Text style={styles.footerText}>
+              SECURE ROOT ACCESS • ENCRYPTED
+            </Text>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -421,43 +414,44 @@ export default function AdminDashboard() {
   );
 }
 
-function NavRow({ icon, label, sub, onPress }: any) {
-  return (
-    <TouchableOpacity onPress={onPress} style={styles.navRow}>
-      <View style={styles.navLeft}>
-        <View style={styles.navIconBg}>{icon}</View>
-        <View>
-          <Text style={styles.navLabel}>{label}</Text>
-          <Text style={styles.navSub}>{sub}</Text>
-        </View>
-      </View>
-      <ChevronRight size={18} color="#334155" />
-    </TouchableOpacity>
-  );
-}
-
+// ... styles remain mostly consistent but polished for alignment
 const styles = StyleSheet.create({
   mainContainer: { flex: 1, backgroundColor: THEME.obsidian },
-  scrollWrapper: { padding: 20, paddingBottom: 120 },
+  scrollWrapper: { padding: 16, paddingBottom: 100 },
+
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 24,
   },
-  headerTitle: { fontSize: 32, fontWeight: '900', color: THEME.white },
-  headerSub: { fontSize: 11, color: THEME.slate, fontWeight: 'bold' },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: THEME.white,
+    letterSpacing: -0.5,
+  },
+  headerSub: {
+    fontSize: 11,
+    color: THEME.slate,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
   infraBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginTop: 4,
   },
+
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
+    gap: 6,
   },
   statusOp: {
     backgroundColor: 'rgba(16, 185, 129, 0.1)',
@@ -467,128 +461,159 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 158, 11, 0.1)',
     borderColor: THEME.warning,
   },
-  statusText: { fontSize: 10, fontWeight: '900', marginLeft: 6 },
+  statusText: { fontSize: 10, fontWeight: '900' },
+
   diagnosticBar: {
     flexDirection: 'row',
     backgroundColor: THEME.surface,
     padding: 16,
     borderRadius: 20,
     marginBottom: 32,
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: THEME.border,
   },
   diagItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  diagText: { fontSize: 11, color: THEME.slate, fontWeight: 'bold' },
+  diagText: { fontSize: 11, color: THEME.slate, fontWeight: '700' },
   white: { color: 'white' },
+
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 12,
+    marginTop: 8,
   },
   sectionLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
     color: THEME.white,
     textTransform: 'uppercase',
+    letterSpacing: 1,
   },
+
   bentoGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
     marginBottom: 32,
   },
-  bentoInner: { padding: 4, gap: 12 },
+  bentoInner: { padding: 4, gap: 8 },
   bentoValue: { fontSize: 28, fontWeight: '900', color: THEME.white },
-  bentoLabel: { fontSize: 10, fontWeight: '800', color: THEME.slate },
-  fullBento: { width: '100%', padding: 20 },
+  bentoLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.slate,
+    textTransform: 'uppercase',
+  },
+  fullBento: { width: '100%', padding: 16 },
   revenueRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+
   aiCard: {
-    backgroundColor: '#0f172a',
-    padding: 24,
-    borderRadius: 28,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    padding: 20,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: THEME.border,
+    borderColor: 'rgba(250, 204, 21, 0.2)', // Accent border
     marginBottom: 32,
   },
-  aiStatus: {
-    color: THEME.slate,
-    fontSize: 10,
-    fontWeight: 'bold',
+  aiHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
+  aiStatus: {
+    color: THEME.accent,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(2,6,23,0.8)',
-    borderRadius: 16,
-    paddingHorizontal: 16,
+    backgroundColor: 'rgba(2, 6, 23, 0.5)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: THEME.border,
   },
-  input: { flex: 1, height: 56, color: THEME.white, fontSize: 15 },
+  input: {
+    flex: 1,
+    height: 50,
+    color: THEME.white,
+    fontSize: 14,
+    marginLeft: 10,
+  },
+
   genBtn: {
     backgroundColor: THEME.indigo,
-    height: 56,
-    borderRadius: 16,
+    height: 50,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: THEME.indigo,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  btnText: { color: 'white', fontWeight: '900' },
-  disabled: { opacity: 0.3 },
-  draftContainer: {
-    backgroundColor: THEME.surface,
-    borderRadius: 24,
-    padding: 16,
-    marginBottom: 32,
+  btnText: {
+    color: 'white',
+    fontWeight: '900',
+    fontSize: 13,
+    letterSpacing: 0.5,
   },
+  disabled: { opacity: 0.5 },
+
+  draftContainer: { gap: 10 },
   draftCard: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
     borderRadius: 16,
-    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: THEME.border,
   },
-  draftTitle: { color: 'white', fontSize: 16, fontWeight: 'bold' },
-  draftSub: { color: THEME.slate, fontSize: 12, marginTop: 2 },
+  draftTitle: { color: 'white', fontSize: 16, fontWeight: '700' },
+  draftSub: { color: THEME.slate, fontSize: 11, marginTop: 2 },
+  draftTag: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.slate,
+    backgroundColor: 'rgba(148, 163, 184, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+
   publishBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  emptyText: { color: THEME.slate, textAlign: 'center', padding: 20 },
-  navStack: { gap: 10 },
-  navRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: THEME.surface,
-    padding: 18,
-    borderRadius: 20,
-  },
-  navLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  navIconBg: {
-    width: 40,
-    height: 40,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginLeft: 12,
   },
-  navLabel: { fontSize: 16, fontWeight: 'bold', color: THEME.white },
-  navSub: { fontSize: 12, color: THEME.slate },
+
+  emptyState: { alignItems: 'center', padding: 30, gap: 10 },
+  emptyText: { color: THEME.slate, fontSize: 12 },
+
   footer: {
-    marginTop: 40,
     alignItems: 'center',
-    opacity: 0.3,
+    opacity: 0.4,
     paddingBottom: 40,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
   },
   footerText: {
-    color: 'white',
+    color: THEME.slate,
     fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 4,
+    fontWeight: '800',
+    letterSpacing: 2,
   },
 });

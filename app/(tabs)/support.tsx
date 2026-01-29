@@ -1,67 +1,78 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
+  ScrollView,
   TouchableOpacity,
-  FlatList,
-  SafeAreaView,
-  Alert,
-  Modal,
   TextInput,
+  FlatList,
+  Alert,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
+  StyleSheet,
+  Dimensions,
+  LayoutAnimation,
+  StatusBar,
   ActivityIndicator,
   RefreshControl,
-  StatusBar,
-  StyleSheet,
   ListRenderItemInfo,
   Image,
+  Modal,
 } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  Plus,
-  HelpCircle,
-  X,
-  Send,
-  Lock,
-  ShieldAlert,
-  ChevronDown,
-  Search,
   MessageSquare,
+  Plus,
+  ChevronRight,
+  Search,
+  Send,
+  LifeBuoy,
+  ChevronLeft,
+  ShieldAlert,
+  CheckCircle2,
   Clock,
-  CheckCircle,
-  AlertTriangle,
+  Zap,
+  Trophy,
+  Lock,
+  Trash2,
+  Code,
   User,
   Shield,
   ShieldCheck,
-  MoreVertical,
-  Filter,
+  ChevronDown,
+  X,
 } from 'lucide-react-native';
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+  FadeInRight,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 
-// INTERNAL SERVICES & CONTEXT
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { GlassCard } from '@/components/ui/GlassCard';
 import { Bento3DCard } from '@/components/ui/Bento3DCard';
+import { GlassCard } from '@/components/ui/GlassCard';
+import Button from '@/components/ui/Button';
 
-// --- CONSTANTS ---
-const STAFF_ROLES = ['ADMIN', 'MODERATOR'];
+const { width } = Dimensions.get('window');
+
+// --- THEME & CONSTANTS ---
 const THEME = {
   obsidian: '#020617',
-  slate: '#94a3b8',
   indigo: '#6366f1',
-  danger: '#ef4444',
+  slate: '#94a3b8',
+  white: '#ffffff',
   success: '#10b981',
   warning: '#f59e0b',
-  white: '#ffffff',
-  glassBorder: 'rgba(255,255,255,0.08)',
-  cardBg: 'rgba(15, 23, 42, 0.6)',
+  danger: '#ef4444',
+  glassBorder: 'rgba(255, 255, 255, 0.1)',
+  glassSurface: 'rgba(30, 41, 59, 0.4)',
 };
 
-// --- TYPES ---
+const STAFF_ROLES = ['ADMIN', 'MODERATOR'];
+
 type TicketStatus = 'open' | 'in_progress' | 'pending' | 'resolved' | 'closed';
 type UserRole = 'MEMBER' | 'PREMIUM' | 'MODERATOR' | 'ADMIN';
 
@@ -86,142 +97,155 @@ interface TicketUI {
 interface MessageUI {
   id: string;
   message: string;
-  created_at: string;
-  is_internal: boolean;
+  created_at: string | null;
+  is_internal: boolean | null;
   user_id: string;
   author?: {
-    full_name: string;
+    full_name: string | null;
     role: UserRole;
     avatar_url?: string;
   };
 }
 
-// --- HELPER COMPONENT: ROLE BADGE ---
+// --- FAQ DATA ---
+const FAQ_DATA = [
+  {
+    id: '1',
+    icon: Zap,
+    color: THEME.warning,
+    question: 'Daily Sprints?',
+    answer:
+      '5 AI-generated tasks generated daily based on your selected language. Completing them builds your streak.',
+  },
+  {
+    id: '2',
+    icon: Trophy,
+    color: THEME.success,
+    question: 'XP Calculation?',
+    answer: 'XP is based on task difficulty. Bonuses apply for 7-day streaks.',
+  },
+  {
+    id: '3',
+    icon: Code,
+    color: THEME.indigo,
+    question: 'New Tracks?',
+    answer:
+      'We release new AI-curated tracks weekly. Premium users can request specific language architectures.',
+  },
+  {
+    id: '4',
+    icon: Lock,
+    color: '#f43f5e',
+    question: 'Premium Access?',
+    answer:
+      'Unlocks advanced "System Architecture" tracks, unlimited history, and priority support queues.',
+  },
+];
+
+// --- HELPER: ROLE COLORS ---
+const getRoleColor = (role: UserRole | undefined) => {
+  switch (role) {
+    case 'ADMIN':
+      return THEME.danger;
+    case 'MODERATOR':
+      return THEME.success;
+    case 'PREMIUM':
+      return THEME.warning;
+    default:
+      return THEME.indigo; // Member
+  }
+};
+
+// --- HELPER: ROLE BADGE ---
 const RoleBadge = ({ role }: { role: UserRole }) => {
-  if (role === 'ADMIN')
-    return (
-      <View
-        style={[
-          styles.roleBadge,
-          {
-            backgroundColor: 'rgba(239, 68, 68, 0.15)',
-            borderColor: 'rgba(239, 68, 68, 0.3)',
-          },
-        ]}
-      >
-        <Shield size={10} color={THEME.danger} />
-        <Text style={[styles.roleText, { color: THEME.danger }]}>ADMIN</Text>
-      </View>
-    );
-  if (role === 'MODERATOR')
-    return (
-      <View
-        style={[
-          styles.roleBadge,
-          {
-            backgroundColor: 'rgba(16, 185, 129, 0.15)',
-            borderColor: 'rgba(16, 185, 129, 0.3)',
-          },
-        ]}
-      >
-        <ShieldCheck size={10} color={THEME.success} />
-        <Text style={[styles.roleText, { color: THEME.success }]}>MOD</Text>
-      </View>
-    );
-  if (role === 'PREMIUM')
-    return (
-      <View
-        style={[
-          styles.roleBadge,
-          {
-            backgroundColor: 'rgba(245, 158, 11, 0.15)',
-            borderColor: 'rgba(245, 158, 11, 0.3)',
-          },
-        ]}
-      >
-        <User size={10} color={THEME.warning} />
-        <Text style={[styles.roleText, { color: THEME.warning }]}>PRO</Text>
-      </View>
-    );
+  const color = getRoleColor(role);
+  let Icon = User;
+  let label = 'MEMBER';
+
+  if (role === 'ADMIN') {
+    Icon = Shield;
+    label = 'ADMIN';
+  } else if (role === 'MODERATOR') {
+    Icon = ShieldCheck;
+    label = 'MOD';
+  } else if (role === 'PREMIUM') {
+    Icon = Zap;
+    label = 'PRO';
+  }
+
   return (
     <View
       style={[
         styles.roleBadge,
-        {
-          backgroundColor: 'rgba(148, 163, 184, 0.1)',
-          borderColor: 'rgba(148, 163, 184, 0.2)',
-        },
+        { backgroundColor: `${color}15`, borderColor: `${color}40` },
       ]}
     >
-      <Text style={[styles.roleText, { color: THEME.slate }]}>MEMBER</Text>
+      <Icon size={10} color={color} />
+      <Text style={[styles.roleText, { color }]}>{label}</Text>
     </View>
   );
 };
 
-// --- HELPER COMPONENT: STATUS DOT ---
-const StatusDot = ({ status }: { status: TicketStatus }) => {
-  const colors = {
-    open: '#3b82f6',
-    in_progress: '#eab308',
-    pending: '#a855f7',
-    resolved: '#10b981',
-    closed: '#64748b',
-  };
-  return (
-    <View
-      style={{
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: colors[status] || colors.open,
-      }}
-    />
-  );
-};
-
-// ============================================================================
-// 🚀 MAIN COMPONENT
-// ============================================================================
 export default function SupportScreen() {
-  const router = useRouter();
   const { user } = useAuth();
 
-  // ROLE CHECK
-  const userRole = user?.profile?.role || 'MEMBER';
-  const isStaff = STAFF_ROLES.includes(userRole);
+  // --- REAL-TIME ROLE CHECK ---
+  const [realRole, setRealRole] = useState<UserRole>('MEMBER');
 
-  // STATE: TABS & DATA
+  useEffect(() => {
+    if (!user) return;
+    const fetchRole = async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      if (data?.role) setRealRole(data.role);
+    };
+    fetchRole();
+  }, [user]);
+
+  const isStaff = STAFF_ROLES.includes(realRole);
+  const isAdmin = realRole === 'ADMIN';
+
+  // --- STATE ---
   const [activeTab, setActiveTab] = useState<'my_tickets' | 'queue' | 'faq'>(
-    isStaff ? 'queue' : 'my_tickets',
+    'my_tickets',
   );
+
+  useEffect(() => {
+    if (isStaff) setActiveTab('queue');
+  }, [isStaff]);
+
   const [tickets, setTickets] = useState<TicketUI[]>([]);
   const [filteredTickets, setFilteredTickets] = useState<TicketUI[]>([]);
+  const [selectedTicket, setSelectedTicket] = useState<TicketUI | null>(null);
+
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // STATE: MODALS
-  const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  // View Modes
+  const [viewMode, setViewMode] = useState<'list' | 'detail' | 'create'>(
+    'list',
+  );
   const [statusModalVisible, setStatusModalVisible] = useState(false);
 
-  // STATE: SELECTED ITEM & FORMS
-  const [selectedTicket, setSelectedTicket] = useState<TicketUI | null>(null);
-  const [loadingDetails, setLoadingDetails] = useState(false);
-
-  const [subject, setSubject] = useState('');
-  const [message, setMessage] = useState('');
+  // Forms
+  const [newTitle, setNewTitle] = useState('');
+  const [newCategory, setNewCategory] = useState('Technical Issue');
+  const [newInitialMsg, setNewInitialMsg] = useState('');
+  const [newMessage, setNewMessage] = useState('');
   const [internalNote, setInternalNote] = useState('');
-  const [reply, setReply] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ==========================================================================
-  // 1. DATA LOADING LOGIC
-  // ==========================================================================
+  const flatListRef = useRef<FlatList>(null);
+
+  // --- DATA LOADING ---
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      // FIX: Removed 'email' from the select string because it doesn't exist on public.profiles
       let query = supabase
         .from('tickets')
         .select(
@@ -243,39 +267,25 @@ export default function SupportScreen() {
       const { data, error } = await query;
       if (error) throw error;
 
-      // Transform Data
       const safeData: TicketUI[] = (data || []).map((t: any) => ({
-        id: t.id,
-        subject: t.subject,
-        category: t.category,
-        status: t.status,
-        priority: t.priority,
-        created_at: t.created_at,
-        updated_at: t.updated_at,
-        user_id: t.user_id,
-        // Fallback for email since we aren't fetching it anymore
-        user: t.user
-          ? { ...t.user, email: 'Hidden' }
-          : { full_name: 'Unknown', email: '', role: 'MEMBER' },
+        ...t,
+        user: t.user || { full_name: 'Unknown', role: 'MEMBER' },
       }));
 
       setTickets(safeData);
       setFilteredTickets(safeData);
     } catch (e: any) {
-      console.error('Load Tickets Error:', e);
+      console.error('Load Error:', e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [user, activeTab, isStaff]);
 
-  // Load on focus and tab change
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData]),
-  );
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-  // Search Filter Effect
   useEffect(() => {
     if (!searchQuery.trim()) {
       setFilteredTickets(tickets);
@@ -284,120 +294,64 @@ export default function SupportScreen() {
       const filtered = tickets.filter(
         (t) =>
           t.subject.toLowerCase().includes(lower) ||
-          t.id.toLowerCase().includes(lower) ||
-          (t.user?.full_name && t.user.full_name.toLowerCase().includes(lower)),
+          t.id.toLowerCase().includes(lower),
       );
       setFilteredTickets(filtered);
     }
   }, [searchQuery, tickets]);
 
-  // ==========================================================================
-  // 2. ACTION HANDLERS
-  // ==========================================================================
+  // --- DETAIL LOADING (FIXED TYPESCRIPT ERROR) ---
+  const loadTicketDetails = async (ticket: TicketUI) => {
+    Haptics.selectionAsync();
+    setSelectedTicket(ticket);
+    setViewMode('detail');
 
-  // CREATE NEW TICKET
-  const handleCreate = async () => {
-    if (!subject.trim() || !message.trim()) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Required', 'Please fill in both subject and message.');
-      return;
-    }
-
-    setIsSubmitting(true);
     try {
-      // A. Insert Ticket
-      const { data: ticket, error: ticketError } = await supabase
-        .from('tickets')
-        .insert({
-          user_id: user!.id,
-          subject: subject,
-          category: 'General',
-          status: 'open',
-          priority: 'medium',
-        })
-        .select()
-        .single();
-
-      if (ticketError) throw ticketError;
-
-      // B. Insert Initial Message
-      const { error: msgError } = await supabase
-        .from('ticket_messages')
-        .insert({
-          ticket_id: ticket.id,
-          user_id: user!.id,
-          message: message,
-          is_internal: false,
-        });
-
-      if (msgError) throw msgError;
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setCreateModalVisible(false);
-      setSubject('');
-      setMessage('');
-      loadData(); // Refresh list
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // LOAD TICKET DETAILS (Includes Messages)
-  const loadTicketDetails = async (id: string) => {
-    setLoadingDetails(true);
-    try {
-      // FIX: Removed 'email' from user:profiles select
       const { data, error } = await supabase
-        .from('tickets')
+        .from('ticket_messages')
         .select(
           `
           *,
-          messages:ticket_messages(
-            *,
-            author:profiles!ticket_messages_user_id_fkey(full_name, role, avatar_url)
-          ),
-          user:profiles!tickets_user_id_fkey(full_name, role, avatar_url)
+          author:profiles!ticket_messages_user_id_fkey (full_name, role, avatar_url)
         `,
         )
-        .eq('id', id)
-        .order('created_at', {
-          foreignTable: 'ticket_messages',
-          ascending: true,
-        })
-        .single();
+        .eq('ticket_id', ticket.id)
+        .order('created_at', { ascending: true });
 
       if (error) throw error;
 
-      const messages = (data.messages || []).filter((msg: any) => {
-        if (!isStaff && msg.is_internal) return false;
-        return true;
-      });
+      // Transform & Filter messages
+      const transformedMessages: MessageUI[] = (data || [])
+        .filter((msg) => isStaff || !msg.is_internal)
+        .map((msg: any) => ({
+          ...msg,
+          author: msg.author
+            ? {
+                full_name: msg.author.full_name,
+                role: msg.author.role,
+                // FIX: Convert null to undefined to satisfy strict TS types
+                avatar_url: msg.author.avatar_url || undefined,
+              }
+            : undefined,
+        }));
 
-      // Mock email in the UI object since we can't fetch it from profiles
-      const ticketWithUser = {
-        ...data,
-        user: data.user ? { ...data.user, email: '' } : undefined,
-        messages,
-      };
+      setSelectedTicket((prev) =>
+        prev ? { ...prev, messages: transformedMessages } : null,
+      );
 
-      setSelectedTicket(ticketWithUser as any);
-      setDetailModalVisible(true);
-    } catch (e: any) {
-      console.error('Load Detail Error:', e);
-      Alert.alert('Error', 'Could not load ticket details.');
-    } finally {
-      setLoadingDetails(false);
+      setTimeout(
+        () => flatListRef.current?.scrollToEnd({ animated: true }),
+        500,
+      );
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  // SEND REPLY (Supports Internal Notes)
-  const handleReply = async (isInternal: boolean) => {
-    if (!selectedTicket || !user) return;
-    const content = isInternal ? internalNote : reply;
-
-    if (!content.trim()) return;
+  // --- ACTIONS ---
+  const handleSendMessage = async (isInternal: boolean = false) => {
+    const content = isInternal ? internalNote : newMessage;
+    if (!content.trim() || !selectedTicket || !user) return;
 
     setIsSubmitting(true);
     try {
@@ -411,10 +365,10 @@ export default function SupportScreen() {
       if (error) throw error;
 
       if (isInternal) setInternalNote('');
-      else setReply('');
+      else setNewMessage('');
 
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      await loadTicketDetails(selectedTicket.id); // Refresh conversation
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await loadTicketDetails(selectedTicket);
     } catch (e: any) {
       Alert.alert('Error', e.message);
     } finally {
@@ -422,115 +376,187 @@ export default function SupportScreen() {
     }
   };
 
-  // UPDATE STATUS
-  const handleStatusChange = async (newStatus: TicketStatus) => {
-    if (!selectedTicket) return;
-
+  const handleCreateTicket = async () => {
+    if (!newTitle.trim() || !newInitialMsg.trim()) return;
+    setIsSubmitting(true);
     try {
-      const { error } = await supabase
+      const { data: ticket, error: tErr } = await supabase
         .from('tickets')
-        .update({ status: newStatus })
-        .eq('id', selectedTicket.id);
+        .insert({
+          user_id: user!.id,
+          subject: newTitle,
+          category: newCategory,
+          status: 'open',
+        })
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (tErr) throw tErr;
 
-      setSelectedTicket((prev) =>
-        prev ? { ...prev, status: newStatus } : null,
-      );
-      setStatusModalVisible(false);
-      loadData(); // Refresh main list
+      const { error: mErr } = await supabase.from('ticket_messages').insert({
+        ticket_id: ticket.id,
+        user_id: user!.id,
+        message: newInitialMsg,
+        is_internal: false,
+      });
+
+      if (mErr) throw mErr;
+
+      setNewTitle('');
+      setNewInitialMsg('');
+      setViewMode('list');
+      loadData();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       Alert.alert('Error', e.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // ==========================================================================
-  // 3. RENDERERS
-  // ==========================================================================
+  const handleDeleteTicket = (id: string) => {
+    if (!isAdmin) return;
+    Alert.alert(
+      'Delete Ticket',
+      'Are you sure? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await supabase.from('tickets').delete().eq('id', id);
+            setViewMode('list');
+            loadData();
+          },
+        },
+      ],
+    );
+  };
 
-  const renderTicketItem = ({ item }: ListRenderItemInfo<TicketUI>) => {
-    const statusColor =
-      item.status === 'resolved'
-        ? THEME.success
-        : item.status === 'in_progress'
-          ? THEME.warning
-          : item.status === 'closed'
-            ? THEME.slate
-            : THEME.indigo;
+  const handleStatusChange = async (newStatus: TicketStatus) => {
+    if (!selectedTicket) return;
+    await supabase
+      .from('tickets')
+      .update({ status: newStatus })
+      .eq('id', selectedTicket.id);
+    setSelectedTicket((prev) => (prev ? { ...prev, status: newStatus } : null));
+    setStatusModalVisible(false);
+    loadData();
+  };
 
-    return (
-      <Animated.View entering={FadeInDown.duration(400)}>
-        <Bento3DCard
-          onPress={() => loadTicketDetails(item.id)}
-          className="mb-3 border bg-slate-900/50 border-white/5 active:bg-slate-800/80"
-        >
-          <View style={styles.cardRow}>
-            {/* LEFT: INFO */}
-            <View style={{ flex: 1, paddingRight: 12 }}>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  marginBottom: 6,
-                }}
-              >
-                <Text style={styles.ticketSubject} numberOfLines={1}>
-                  {item.subject}
-                </Text>
-                {item.priority === 'high' && (
-                  <AlertTriangle
-                    size={14}
-                    color={THEME.danger}
-                    style={{ marginLeft: 6 }}
-                  />
-                )}
-              </View>
+  // --- RENDERERS ---
 
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <Text style={styles.ticketMeta}>
-                  #{item.id.substring(0, 6)}
-                </Text>
-                <View style={styles.dotSeparator} />
-                <Text style={styles.ticketMeta}>
-                  {new Date(item.created_at).toLocaleDateString()}
-                </Text>
-
-                {/* Staff sees who created it */}
-                {isStaff && item.user && (
-                  <>
-                    <View style={styles.dotSeparator} />
-                    <View style={styles.miniUserBadge}>
-                      <User size={10} color="#94a3b8" />
-                      <Text style={styles.miniUserName}>
-                        {item.user.full_name}
-                      </Text>
-                      <RoleBadge role={item.user.role} />
-                    </View>
-                  </>
-                )}
-              </View>
-            </View>
-
-            {/* RIGHT: STATUS */}
-            <View
-              style={[
-                styles.statusPill,
-                {
-                  borderColor: statusColor + '40',
-                  backgroundColor: statusColor + '10',
-                },
-              ]}
+  // 1. FAQ Render 
+  const renderFAQ = () => (
+    <View style={styles.sectionContainer}>
+        {/* Added paddingHorizontal: 20 to push content inward from the edges */}
+        <View style={{ flexDirection: 'row', marginBottom: 16, paddingHorizontal: 20, alignItems: 'center', gap: 10 }}>
+          <LifeBuoy size={24} color={THEME.indigo} />
+          <Text style={styles.sectionTitle}>Knowledge Base</Text>
+        </View>
+      <View style={styles.faqList}>
+        {FAQ_DATA.map((item, index) => {
+          const Icon = item.icon;
+          return (
+            <Animated.View
+              key={item.id}
+              entering={FadeInUp.delay(index * 100).springify()}
             >
-              <StatusDot status={item.status} />
-              <Text style={[styles.statusText, { color: statusColor }]}>
-                {item.status.replace('_', ' ')}
+              <Bento3DCard style={{ marginBottom: 12, width: '100%' }}>
+                <View style={styles.faqContent}>
+                  <View
+                    style={[
+                      styles.faqIconBg,
+                      { backgroundColor: item.color + '20' },
+                    ]}
+                  >
+                    <Icon size={24} color={item.color} />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 24 }}>
+                    <Text style={styles.faqQuestion}>{item.question}</Text>
+                    <Text style={styles.faqAnswer}>{item.answer}</Text>
+                  </View>
+                </View>
+              </Bento3DCard>
+            </Animated.View>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  // 2. Ticket Item
+  const renderTicketItem = ({
+    item,
+    index,
+  }: {
+    item: TicketUI;
+    index: number;
+  }) => {
+    const statusColor =
+      item.status === 'open'
+        ? THEME.success
+        : item.status === 'closed'
+          ? THEME.slate
+          : THEME.warning;
+    return (
+      <Animated.View entering={FadeInUp.delay(index * 100).springify()}>
+        <Bento3DCard
+          onPress={() => loadTicketDetails(item)}
+          style={{ marginBottom: 12 }}
+        >
+          <View style={styles.ticketCardContent}>
+            <View style={styles.ticketCardTop}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  flex: 1,
+                }}
+              >
+                <MessageSquare
+                  size={18}
+                  color={THEME.indigo}
+                  style={{ opacity: 0.8 }}
+                />
+                <View>
+                  <Text style={styles.ticketTitle} numberOfLines={1}>
+                    {item.subject}
+                  </Text>
+                  <Text style={styles.ticketSub}>
+                    #{item.id.slice(0, 6)} • {item.category}
+                  </Text>
+                </View>
+              </View>
+              <ChevronRight size={18} color={THEME.slate} opacity={0.5} />
+            </View>
+            <View style={styles.ticketCardBottom}>
+              <View
+                style={[
+                  styles.statusBadge,
+                  {
+                    borderColor: statusColor,
+                    backgroundColor: statusColor + '10',
+                  },
+                ]}
+              >
+                <View
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: statusColor,
+                    marginRight: 6,
+                  }}
+                />
+                <Text style={[styles.statusText, { color: statusColor }]}>
+                  {item.status.toUpperCase().replace('_', ' ')}
+                </Text>
+              </View>
+              <Text style={styles.ticketDate}>
+                {new Date(item.created_at).toLocaleDateString()}
               </Text>
             </View>
           </View>
@@ -539,610 +565,781 @@ export default function SupportScreen() {
     );
   };
 
-  // ==========================================================================
-  // 4. MAIN LAYOUT
-  // ==========================================================================
-  return (
-    <SafeAreaView style={styles.root}>
-      <StatusBar barStyle="light-content" />
+  // 3. Chat Message (Dynamic Role Colors)
+  const renderChatMessage = ({
+    item,
+    index,
+  }: {
+    item: MessageUI;
+    index: number;
+  }) => {
+    const isMe = item.user_id === user?.id;
+    const isInternal = item.is_internal;
 
-      {/* HEADER */}
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>Support Center</Text>
-          {isStaff && (
-            <View style={styles.staffBadge}>
-              <ShieldAlert size={12} color="#818cf8" />
-              <Text style={styles.staffText}>STAFF MODE</Text>
-            </View>
-          )}
-        </View>
+    // Determine Color based on Role
+    const roleColor = getRoleColor(item.author?.role);
+    const bubbleColor = isMe
+      ? roleColor
+      : isInternal
+        ? 'rgba(234, 179, 8, 0.15)'
+        : '#1e293b';
+    const borderColor = isMe
+      ? roleColor
+      : isInternal
+        ? 'rgba(234, 179, 8, 0.4)'
+        : THEME.glassBorder;
 
-        {/* TABS */}
-        <View style={styles.tabContainer}>
-          {isStaff && (
-            <TabButton
-              title="Queue"
-              count={tickets.length}
-              isActive={activeTab === 'queue'}
-              onPress={() => setActiveTab('queue')}
-            />
-          )}
-          <TabButton
-            title="My Tickets"
-            isActive={activeTab === 'my_tickets'}
-            onPress={() => setActiveTab('my_tickets')}
-          />
-          <TabButton
-            title="FAQ"
-            isActive={activeTab === 'faq'}
-            onPress={() => setActiveTab('faq')}
-          />
-        </View>
-      </View>
-
-      {/* BODY CONTENT */}
-      <View style={styles.content}>
-        {/* SEARCH BAR (Only for ticket lists) */}
-        {activeTab !== 'faq' && (
-          <View style={styles.searchBar}>
-            <Search size={18} color="#94a3b8" />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search tickets..."
-              placeholderTextColor="#475569"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <X size={16} color="#64748b" />
-              </TouchableOpacity>
+    return (
+      <Animated.View
+        entering={FadeInUp.delay(index * 50)}
+        style={[
+          styles.msgRow,
+          isMe
+            ? { justifyContent: 'flex-end' }
+            : { justifyContent: 'flex-start' },
+        ]}
+      >
+        {!isMe && (
+          <View style={{ marginRight: 8, alignItems: 'center' }}>
+            {item.author?.avatar_url ? (
+              <Image
+                source={{ uri: item.author.avatar_url }}
+                style={styles.chatAvatar}
+              />
+            ) : (
+              <View
+                style={[
+                  styles.chatAvatarPlaceholder,
+                  { backgroundColor: roleColor },
+                ]}
+              >
+                <Text style={{ color: 'white', fontWeight: 'bold' }}>
+                  {item.author?.full_name?.[0] || '?'}
+                </Text>
+              </View>
             )}
           </View>
         )}
 
-        {/* FAQ VIEW */}
-        {activeTab === 'faq' ? (
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 100 }}
+        <View style={{ maxWidth: '75%' }}>
+          {item.author && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginBottom: 4,
+                justifyContent: isMe ? 'flex-end' : 'flex-start',
+              }}
+            >
+              {!isMe && (
+                <Text
+                  style={{
+                    color: THEME.slate,
+                    fontSize: 10,
+                    fontWeight: 'bold',
+                    marginRight: 6,
+                  }}
+                >
+                  {item.author.full_name}
+                </Text>
+              )}
+              <RoleBadge role={item.author.role} />
+              {isMe && (
+                <Text
+                  style={{
+                    color: THEME.slate,
+                    fontSize: 10,
+                    fontWeight: 'bold',
+                    marginLeft: 6,
+                  }}
+                >
+                  {item.author.full_name}
+                </Text>
+              )}
+            </View>
+          )}
+
+          <View
+            style={[
+              styles.msgBubble,
+              {
+                backgroundColor: isMe ? roleColor : bubbleColor,
+                borderColor: borderColor,
+                borderWidth: 1,
+                borderBottomRightRadius: isMe ? 4 : 20,
+                borderBottomLeftRadius: isMe ? 20 : 4,
+              },
+            ]}
           >
-            <GlassCard className="p-6 mb-4 bg-slate-900/40 border-white/5">
-              <View style={styles.faqHeader}>
-                <HelpCircle size={24} color={THEME.indigo} />
-                <Text style={styles.faqTitle}>How do sprints work?</Text>
-              </View>
-              <Text style={styles.faqText}>
-                Daily sprints are AI-generated tasks tailored to your skill
-                gaps. Completing them earns XP and maintains your streak.
+            {isInternal && (
+              <Text
+                style={{
+                  color: '#facc15',
+                  fontSize: 9,
+                  fontWeight: '900',
+                  marginBottom: 4,
+                }}
+              >
+                INTERNAL NOTE
               </Text>
-            </GlassCard>
-            <GlassCard className="p-6 bg-slate-900/40 border-white/5">
-              <View style={styles.faqHeader}>
-                <ShieldCheck size={24} color={THEME.success} />
-                <Text style={styles.faqTitle}>Data Privacy</Text>
-              </View>
-              <Text style={styles.faqText}>
-                We use AES-256 encryption. Your data is never sold to third
-                parties.
-              </Text>
-            </GlassCard>
-          </ScrollView>
-        ) : /* TICKET LIST VIEW */
-        loading ? (
-          <View style={styles.centerEmpty}>
-            <ActivityIndicator color={THEME.indigo} size="large" />
+            )}
+            <Text
+              style={{
+                fontSize: 15,
+                lineHeight: 22,
+                color: isInternal ? '#fef08a' : 'white',
+              }}
+            >
+              {item.message}
+            </Text>
           </View>
-        ) : (
-          <FlatList
-            data={filteredTickets}
-            keyExtractor={(i) => i.id}
-            renderItem={renderTicketItem}
-            contentContainerStyle={{ paddingBottom: 120 }}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={loading}
-                onRefresh={loadData}
-                tintColor={THEME.indigo}
+        </View>
+
+        {isMe && (
+          <View style={{ marginLeft: 8, alignItems: 'center' }}>
+            {item.author?.avatar_url ? (
+              <Image
+                source={{ uri: item.author.avatar_url }}
+                style={styles.chatAvatar}
               />
-            }
-            ListEmptyComponent={
-              <View style={styles.centerEmpty}>
-                <MessageSquare size={48} color="#334155" />
-                <Text style={styles.emptyText}>No tickets found.</Text>
-                <Text style={styles.emptySub}>Create one to get started.</Text>
+            ) : (
+              <View
+                style={[
+                  styles.chatAvatarPlaceholder,
+                  { backgroundColor: roleColor },
+                ]}
+              >
+                <Text style={{ color: 'white', fontWeight: 'bold' }}>
+                  {user?.email?.[0].toUpperCase() || 'U'}
+                </Text>
               </View>
-            }
-          />
+            )}
+          </View>
         )}
-      </View>
+      </Animated.View>
+    );
+  };
 
-      {/* FAB - CREATE TICKET */}
-      {(!isStaff || activeTab === 'my_tickets') && activeTab !== 'faq' && (
-        <TouchableOpacity
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setCreateModalVisible(true);
-          }}
-          style={styles.fab}
-        >
-          <Plus size={28} color="white" />
-        </TouchableOpacity>
-      )}
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'open':
+        return THEME.success;
+      case 'in_progress':
+        return THEME.warning;
+      case 'resolved':
+        return THEME.indigo;
+      case 'closed':
+        return THEME.slate;
+      default:
+        return THEME.slate;
+    }
+  };
 
-      {/* ===================================================================
-          MODALS SECTION
-         =================================================================== */}
-
-      {/* 1. CREATE TICKET MODAL */}
-      <Modal
-        visible={createModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setCreateModalVisible(false)}
-      >
+  return (
+    <View style={styles.root}>
+      <LinearGradient
+        colors={[THEME.obsidian, '#0f172a', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView style={{ flex: 1 }}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalSheet}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>New Request</Text>
-                <TouchableOpacity
-                  onPress={() => setCreateModalVisible(false)}
-                  style={styles.closeButton}
-                >
-                  <X size={24} color="#94a3b8" />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 40 }}
-              >
-                <Text style={styles.label}>Subject</Text>
-                <TextInput
-                  style={styles.inputField}
-                  placeholder="Brief summary..."
-                  placeholderTextColor="#475569"
-                  value={subject}
-                  onChangeText={setSubject}
-                />
-                <Text style={styles.label}>Message</Text>
-                <TextInput
-                  style={[
-                    styles.inputField,
-                    { height: 160, textAlignVertical: 'top' },
-                  ]}
-                  placeholder="Describe your issue..."
-                  placeholderTextColor="#475569"
-                  multiline
-                  value={message}
-                  onChangeText={setMessage}
-                />
-                <TouchableOpacity
-                  onPress={handleCreate}
-                  disabled={isSubmitting}
-                  style={styles.primaryButton}
-                >
-                  {isSubmitting ? (
-                    <ActivityIndicator color="#020617" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>SUBMIT TICKET</Text>
-                  )}
-                </TouchableOpacity>
-              </ScrollView>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* 2. TICKET DETAILS MODAL */}
-      <Modal
-        visible={detailModalVisible}
-        animationType="slide"
-        onRequestClose={() => setDetailModalVisible(false)}
-      >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#020617' }}>
-          {/* Modal Header */}
-          <View style={styles.detailHeader}>
-            <TouchableOpacity
-              onPress={() => setDetailModalVisible(false)}
-              style={styles.closeButton}
-            >
-              <X size={20} color="white" />
-            </TouchableOpacity>
-
-            {/* Status Changer (Staff Only) */}
-            {isStaff ? (
-              <TouchableOpacity
-                onPress={() => setStatusModalVisible(true)}
-                style={styles.statusDropdown}
-              >
-                <Text style={styles.statusDropdownText}>
-                  {selectedTicket?.status.replace('_', ' ')}
-                </Text>
-                <ChevronDown size={14} color="#818cf8" />
-              </TouchableOpacity>
-            ) : (
-              <View style={[styles.statusPill, { borderColor: THEME.indigo }]}>
-                <Text style={[styles.statusText, { color: THEME.indigo }]}>
-                  {selectedTicket?.status.replace('_', ' ')}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={{ flex: 1 }}
-          >
+          {/* TICKET LIST */}
+          {viewMode === 'list' && (
             <ScrollView
-              style={{ flex: 1, padding: 20 }}
-              contentContainerStyle={{ paddingBottom: 20 }}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={loading}
+                  onRefresh={loadData}
+                  tintColor={THEME.indigo}
+                />
+              }
             >
-              {selectedTicket && (
-                <>
-                  {/* Ticket Info Card */}
-                  <GlassCard className="p-5 mb-8 bg-slate-900/40 border-white/10">
-                    <Text style={styles.detailSubject}>
-                      {selectedTicket.subject}
-                    </Text>
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        marginTop: 12,
-                      }}
-                    >
-                      <View style={styles.categoryTag}>
-                        <Text style={styles.categoryText}>
-                          {selectedTicket.category}
-                        </Text>
-                      </View>
-                      <Clock
-                        size={12}
-                        color="#64748b"
-                        style={{ marginRight: 4, marginLeft: 12 }}
-                      />
-                      <Text style={styles.detailDate}>
-                        {new Date(selectedTicket.created_at).toLocaleString()}
-                      </Text>
-                    </View>
-                    {/* User Info inside details */}
-                    {selectedTicket.user && (
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          marginTop: 16,
-                          paddingTop: 16,
-                          borderTopWidth: 1,
-                          borderTopColor: 'rgba(255,255,255,0.05)',
-                        }}
-                      >
-                        <View
-                          style={{
-                            width: 24,
-                            height: 24,
-                            borderRadius: 12,
-                            backgroundColor: 'rgba(99,102,241,0.2)',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            marginRight: 8,
-                          }}
-                        >
-                          <Text
-                            style={{ color: '#818cf8', fontWeight: 'bold' }}
-                          >
-                            {selectedTicket.user.full_name[0]}
-                          </Text>
-                        </View>
-                        <Text style={{ color: '#94a3b8', fontSize: 12 }}>
-                          {selectedTicket.user.full_name}
-                        </Text>
-                        <View style={{ marginLeft: 8 }}>
-                          <RoleBadge role={selectedTicket.user.role} />
-                        </View>
-                      </View>
-                    )}
-                  </GlassCard>
-
-                  {/* Conversation Thread */}
-                  <View style={{ gap: 16, paddingBottom: 20 }}>
-                    {selectedTicket.messages?.map((msg) => {
-                      const isMe = msg.user_id === user?.id;
-                      return (
-                        <View
-                          key={msg.id}
-                          style={[
-                            styles.messageBubble,
-                            isMe ? styles.messageMe : styles.messageOther,
-                            msg.is_internal && styles.messageInternal,
-                          ]}
-                        >
-                          <View
-                            style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              marginBottom: 6,
-                              justifyContent: 'space-between',
-                            }}
-                          >
-                            <View
-                              style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <Text
-                                style={[
-                                  styles.messageAuthor,
-                                  msg.is_internal && { color: '#facc15' },
-                                ]}
-                              >
-                                {msg.author?.full_name || 'User'}
-                              </Text>
-                              {msg.author && (
-                                <View style={{ marginLeft: 6 }}>
-                                  <RoleBadge role={msg.author.role} />
-                                </View>
-                              )}
-                            </View>
-                            {msg.is_internal && (
-                              <Lock size={12} color="#facc15" />
-                            )}
-                          </View>
-                          <Text
-                            style={[
-                              styles.messageText,
-                              msg.is_internal && { color: '#fef08a' },
-                            ]}
-                          >
-                            {msg.message}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-                </>
-              )}
-            </ScrollView>
-
-            {/* Reply Box */}
-            <View style={styles.replyContainer}>
-              {isStaff && (
-                <View style={{ flexDirection: 'row', marginBottom: 12 }}>
-                  <TextInput
-                    style={[
-                      styles.replyInput,
-                      {
-                        borderColor: 'rgba(234, 179, 8, 0.3)',
-                        color: '#facc15',
-                      },
-                    ]}
-                    placeholder="Internal Staff Note (Hidden from user)..."
-                    placeholderTextColor="#64748b"
-                    value={internalNote}
-                    onChangeText={setInternalNote}
-                  />
+              <Animated.View
+                entering={FadeInDown}
+                style={styles.headerContainer}
+              >
+                <View>
+                  <Text style={styles.headerTitle}>Support Hub</Text>
+                  <Text style={styles.headerSub}>
+                    Logged in as{' '}
+                    <Text style={{ color: THEME.indigo }}>{realRole}</Text>
+                  </Text>
+                </View>
+                {(!isStaff || activeTab === 'my_tickets') && (
                   <TouchableOpacity
-                    onPress={() => handleReply(true)}
-                    disabled={isSubmitting}
+                    style={styles.createBtn}
+                    onPress={() => setViewMode('create')}
+                  >
+                    <LinearGradient
+                      colors={[THEME.indigo, '#818cf8']}
+                      style={StyleSheet.absoluteFill}
+                    />
+                    <Plus size={20} color={THEME.white} />
+                    <Text style={styles.createBtnText}>New Ticket</Text>
+                  </TouchableOpacity>
+                )}
+              </Animated.View>
+
+              <View style={styles.tabContainer}>
+                {isStaff && (
+                  <TouchableOpacity
+                    onPress={() => setActiveTab('queue')}
                     style={[
-                      styles.sendButton,
-                      {
-                        backgroundColor: 'rgba(234, 179, 8, 0.1)',
-                        borderWidth: 1,
-                        borderColor: 'rgba(234, 179, 8, 0.3)',
-                      },
+                      styles.tabBtn,
+                      activeTab === 'queue' && styles.tabBtnActive,
                     ]}
                   >
-                    {isSubmitting ? (
-                      <ActivityIndicator color="#facc15" />
-                    ) : (
-                      <Lock size={20} color="#facc15" />
-                    )}
+                    <Text
+                      style={[
+                        styles.tabText,
+                        activeTab === 'queue' && styles.tabTextActive,
+                      ]}
+                    >
+                      Queue
+                    </Text>
                   </TouchableOpacity>
-                </View>
-              )}
-              <View style={{ flexDirection: 'row' }}>
-                <TextInput
-                  style={styles.replyInput}
-                  placeholder="Type a reply..."
-                  placeholderTextColor="#475569"
-                  multiline
-                  value={reply}
-                  onChangeText={setReply}
-                />
+                )}
                 <TouchableOpacity
-                  onPress={() => handleReply(false)}
-                  disabled={isSubmitting}
-                  style={styles.sendButton}
+                  onPress={() => setActiveTab('my_tickets')}
+                  style={[
+                    styles.tabBtn,
+                    activeTab === 'my_tickets' && styles.tabBtnActive,
+                  ]}
                 >
-                  {isSubmitting ? (
-                    <ActivityIndicator color="#020617" />
-                  ) : (
-                    <Send size={24} color="#020617" />
-                  )}
+                  <Text
+                    style={[
+                      styles.tabText,
+                      activeTab === 'my_tickets' && styles.tabTextActive,
+                    ]}
+                  >
+                    My Tickets
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setActiveTab('faq')}
+                  style={[
+                    styles.tabBtn,
+                    activeTab === 'faq' && styles.tabBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.tabText,
+                      activeTab === 'faq' && styles.tabTextActive,
+                    ]}
+                  >
+                    FAQ
+                  </Text>
                 </TouchableOpacity>
               </View>
-            </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
 
-      {/* 3. STATUS CHANGE MODAL */}
-      <Modal
-        visible={statusModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setStatusModalVisible(false)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={() => setStatusModalVisible(false)}
-          style={styles.modalOverlayCenter}
-        >
-          <View style={styles.statusSheet}>
-            <Text style={styles.statusTitle}>Update Status</Text>
-            {(
-              ['open', 'in_progress', 'resolved', 'closed'] as TicketStatus[]
-            ).map((status) => (
-              <TouchableOpacity
-                key={status}
-                onPress={() => handleStatusChange(status)}
-                style={[
-                  styles.statusOption,
-                  selectedTicket?.status === status &&
-                    styles.statusOptionActive,
-                ]}
-              >
-                <Text style={styles.statusOptionText}>
-                  {status.replace('_', ' ')}
-                </Text>
-                {selectedTicket?.status === status && (
-                  <CheckCircle size={20} color={THEME.indigo} />
+              {activeTab === 'faq' ? (
+                renderFAQ()
+              ) : (
+                <View style={styles.sectionContainer}>
+                  <View style={styles.searchBarContainer}>
+                    <View style={styles.searchBar}>
+                      <Search size={18} color={THEME.slate} />
+                      <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search tickets..."
+                        placeholderTextColor={THEME.slate}
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                      />
+                    </View>
+                  </View>
+                  {loading ? (
+                    <ActivityIndicator
+                      color={THEME.indigo}
+                      style={{ marginTop: 20 }}
+                    />
+                  ) : (
+                    <FlatList
+                      data={filteredTickets}
+                      renderItem={renderTicketItem}
+                      keyExtractor={(item) => item.id}
+                      scrollEnabled={false}
+                      contentContainerStyle={{ paddingHorizontal: 20 }}
+                      ListEmptyComponent={
+                        <Text style={styles.emptyText}>No tickets found.</Text>
+                      }
+                    />
+                  )}
+                </View>
+              )}
+            </ScrollView>
+          )}
+
+          {/* DETAIL VIEW */}
+          {viewMode === 'detail' && selectedTicket && (
+            <View style={{ flex: 1 }}>
+              <GlassCard style={styles.chatHeader} intensity="heavy">
+                <View style={styles.chatHeaderTop}>
+                  <TouchableOpacity
+                    onPress={() => setViewMode('list')}
+                    style={styles.backBtn}
+                  >
+                    <ChevronLeft size={24} color={THEME.white} />
+                  </TouchableOpacity>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.chatTitle} numberOfLines={1}>
+                      {selectedTicket.subject}
+                    </Text>
+                    <Text style={styles.chatSub}>
+                      #{selectedTicket.id.slice(0, 6)} •{' '}
+                      {selectedTicket.category}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      { borderColor: getStatusColor(selectedTicket.status) },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusText,
+                        { color: getStatusColor(selectedTicket.status) },
+                      ]}
+                    >
+                      {selectedTicket.status.toUpperCase().replace('_', ' ')}
+                    </Text>
+                  </View>
+                  {isAdmin && (
+                    <TouchableOpacity
+                      onPress={() => handleDeleteTicket(selectedTicket.id)}
+                      style={styles.deleteBtn}
+                    >
+                      <Trash2 size={18} color={THEME.danger} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {isStaff && (
+                  <View style={styles.staffControls}>
+                    <Text style={styles.staffLabel}>STAFF ACTIONS</Text>
+                    <View
+                      style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}
+                    >
+                      <TouchableOpacity
+                        onPress={() => setStatusModalVisible(true)}
+                        style={styles.actionBtn}
+                      >
+                        <Text style={styles.actionBtnText}>Change Status</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 )}
+              </GlassCard>
+
+              <FlatList
+                ref={flatListRef}
+                data={selectedTicket.messages}
+                renderItem={renderChatMessage}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.chatContent}
+              />
+
+              <GlassCard style={styles.inputArea} intensity="heavy">
+                {isStaff && (
+                  <View style={{ marginBottom: 12 }}>
+                    <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+                      <ShieldAlert size={12} color={THEME.warning} />
+                      <Text
+                        style={{
+                          color: THEME.warning,
+                          fontSize: 10,
+                          marginLeft: 4,
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        INTERNAL NOTE
+                      </Text>
+                    </View>
+                    <View style={styles.internalInputContainer}>
+                      <TextInput
+                        style={styles.internalInput}
+                        placeholder="Add team note..."
+                        placeholderTextColor={THEME.slate}
+                        value={internalNote}
+                        onChangeText={setInternalNote}
+                      />
+                      <TouchableOpacity
+                        onPress={() => handleSendMessage(true)}
+                        style={styles.internalSendBtn}
+                      >
+                        <Lock size={16} color={THEME.warning} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <TextInput
+                    style={styles.chatInput}
+                    placeholder="Type a message..."
+                    placeholderTextColor={THEME.slate}
+                    value={newMessage}
+                    onChangeText={setNewMessage}
+                    multiline
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.sendBtn,
+                      !newMessage.trim() && { opacity: 0.5 },
+                    ]}
+                    onPress={() => handleSendMessage(false)}
+                    disabled={!newMessage.trim()}
+                  >
+                    <Send size={18} color={THEME.white} />
+                  </TouchableOpacity>
+                </View>
+              </GlassCard>
+            </View>
+          )}
+
+          {/* CREATE TICKET VIEW */}
+          {viewMode === 'create' && (
+            <View style={{ flex: 1, padding: 20 }}>
+              <TouchableOpacity
+                onPress={() => setViewMode('list')}
+                style={{ marginBottom: 20 }}
+              >
+                <ChevronLeft size={24} color="white" />
               </TouchableOpacity>
-            ))}
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    </SafeAreaView>
+              <Text
+                style={{
+                  color: 'white',
+                  fontSize: 24,
+                  fontWeight: 'bold',
+                  marginBottom: 20,
+                }}
+              >
+                Create New Ticket
+              </Text>
+              <GlassCard style={{ padding: 20 }}>
+                <Text
+                  style={{
+                    color: THEME.slate,
+                    marginBottom: 8,
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                  }}
+                >
+                  SUBJECT
+                </Text>
+                <TextInput
+                  style={styles.createInput}
+                  placeholder="Brief summary..."
+                  placeholderTextColor={THEME.slate}
+                  value={newTitle}
+                  onChangeText={setNewTitle}
+                />
+                <Text
+                  style={{
+                    color: THEME.slate,
+                    marginBottom: 8,
+                    marginTop: 20,
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                  }}
+                >
+                  CATEGORY
+                </Text>
+                <View
+                  style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}
+                >
+                  {[
+                    'Technical Issue',
+                    'Account',
+                    'Content Request',
+                    'Billing',
+                  ].map((cat) => (
+                    <TouchableOpacity
+                      key={cat}
+                      onPress={() => setNewCategory(cat)}
+                      style={[
+                        styles.categoryChip,
+                        newCategory === cat && {
+                          backgroundColor: THEME.indigo,
+                          borderColor: THEME.indigo,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: 'white',
+                          fontSize: 12,
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text
+                  style={{
+                    color: THEME.slate,
+                    marginBottom: 8,
+                    marginTop: 20,
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                  }}
+                >
+                  DESCRIPTION
+                </Text>
+                <TextInput
+                  style={[
+                    styles.createInput,
+                    { height: 120, textAlignVertical: 'top' },
+                  ]}
+                  placeholder="Describe the issue..."
+                  placeholderTextColor={THEME.slate}
+                  value={newInitialMsg}
+                  onChangeText={setNewInitialMsg}
+                  multiline
+                />
+                <View style={{ marginTop: 30 }}>
+                  {isSubmitting ? (
+                    <ActivityIndicator color={THEME.indigo} />
+                  ) : (
+                    <Button onPress={handleCreateTicket} fullWidth size="lg">
+                      SUBMIT TICKET
+                    </Button>
+                  )}
+                </View>
+              </GlassCard>
+            </View>
+          )}
+
+          <Modal
+            visible={statusModalVisible}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setStatusModalVisible(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => setStatusModalVisible(false)}
+              style={styles.modalOverlayCenter}
+            >
+              <View style={styles.statusSheet}>
+                <Text style={styles.statusTitle}>Update Status</Text>
+                {['open', 'in_progress', 'resolved', 'closed'].map((status) => (
+                  <TouchableOpacity
+                    key={status}
+                    onPress={() => handleStatusChange(status as TicketStatus)}
+                    style={[
+                      styles.statusOption,
+                      selectedTicket?.status === status &&
+                        styles.statusOptionActive,
+                    ]}
+                  >
+                    <Text style={styles.statusOptionText}>
+                      {status.replace('_', ' ')}
+                    </Text>
+                    {selectedTicket?.status === status && (
+                      <CheckCircle2 size={20} color={THEME.indigo} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </TouchableOpacity>
+          </Modal>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 }
 
-// ============================================================================
-// 💅 STYLES & SUBCOMPONENTS
-// ============================================================================
-
-const TabButton = ({ title, isActive, onPress, count }: any) => (
-  <TouchableOpacity
-    onPress={onPress}
-    style={[styles.tabBtn, isActive && styles.tabBtnActive]}
-  >
-    <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
-      {title}
-    </Text>
-    {/* Optional count badge could go here */}
-  </TouchableOpacity>
-);
-
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
-
-  // HEADER
-  header: {
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-    backgroundColor: '#020617',
-  },
-  headerTop: {
+  headerContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
   },
-  headerTitle: { fontSize: 28, fontWeight: '900', color: 'white' },
-  staffBadge: {
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: THEME.white,
+    letterSpacing: -0.5,
+  },
+  headerSub: {
+    color: THEME.slate,
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  createBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(99,102,241,0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(99,102,241,0.2)',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    gap: 8,
+    overflow: 'hidden',
   },
-  staffText: {
-    color: '#818cf8',
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginLeft: 4,
+  createBtnText: { color: THEME.white, fontWeight: 'bold', fontSize: 14 },
+  tabContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    gap: 10,
+    marginBottom: 20,
   },
-
-  // TABS
-  tabContainer: { flexDirection: 'row', gap: 10 },
   tabBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
   },
-  tabBtnActive: { backgroundColor: THEME.indigo, borderColor: THEME.indigo },
-  tabText: { color: '#64748b', fontWeight: 'bold', fontSize: 12 },
+  tabBtnActive: { backgroundColor: THEME.indigo },
+  tabText: { color: THEME.slate, fontWeight: 'bold', fontSize: 12 },
   tabTextActive: { color: 'white' },
-
-  // CONTENT
-  content: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
+  sectionContainer: { marginBottom: 30 },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+  },
+  sectionTitle: { color: THEME.white, fontSize: 18, fontWeight: 'bold' },
+  faqList: { gap: 12, paddingHorizontal: 20 },
+  faqContent: { flexDirection: 'row', alignItems: 'center', padding: 20 },
+  faqIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  faqQuestion: {
+    color: THEME.white,
+    fontWeight: 'bold',
+    fontSize: 15,
+    marginBottom: 4,
+  },
+  faqAnswer: { color: THEME.slate, fontSize: 12, lineHeight: 18 },
+  searchBarContainer: { paddingHorizontal: 20, marginBottom: 16 },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(30,41,59,0.5)',
-    padding: 12,
-    borderRadius: 12,
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    height: 50,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-    marginBottom: 20,
+    borderColor: THEME.glassBorder,
   },
-  searchInput: { flex: 1, color: 'white', marginLeft: 10, fontSize: 16 },
-  centerEmpty: { alignItems: 'center', marginTop: 80, opacity: 0.5 },
-  emptyText: {
-    color: '#94a3b8',
-    marginTop: 16,
+  searchInput: { flex: 1, marginLeft: 12, color: THEME.white },
+  ticketCardContent: { padding: 16 },
+  ticketCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  ticketTitle: {
+    color: THEME.white,
     fontWeight: 'bold',
     fontSize: 16,
+    marginBottom: 4,
   },
-  emptySub: { color: '#64748b', marginTop: 4 },
-
-  // TICKET CARD
-  cardRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  ticketSubject: { color: 'white', fontSize: 16, fontWeight: '700' },
-  ticketMeta: { color: '#64748b', fontSize: 12, fontWeight: '600' },
-  dotSeparator: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#475569',
-    marginHorizontal: 6,
+  ticketSub: { color: THEME.slate, fontSize: 12 },
+  ticketCardBottom: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  miniUserBadge: {
+  statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  miniUserName: {
-    color: '#94a3b8',
-    fontSize: 10,
-    marginLeft: 4,
-    fontWeight: 'bold',
-    marginRight: 4,
-  },
-  statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 12,
     borderWidth: 1,
     gap: 6,
-    alignSelf: 'flex-start',
   },
-  statusText: { fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' },
-
-  // ROLES
+  statusText: { fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+  ticketDate: { color: THEME.slate, fontSize: 11 },
+  emptyText: { color: THEME.slate, textAlign: 'center', marginTop: 20 },
+  chatHeader: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderColor: THEME.glassBorder,
+    borderRadius: 0,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+  },
+  chatHeaderTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: THEME.glassSurface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatTitle: { color: THEME.white, fontWeight: 'bold', fontSize: 16 },
+  chatSub: { color: THEME.slate, fontSize: 11 },
+  deleteBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(239,68,68,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  staffControls: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+  },
+  staffLabel: {
+    color: THEME.indigo,
+    fontSize: 10,
+    fontWeight: '900',
+    marginBottom: 6,
+  },
+  actionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+  },
+  actionBtnText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
+  chatContent: { padding: 20, paddingBottom: 20 },
+  msgRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginBottom: 16,
+    gap: 8,
+  },
+  chatAvatar: { width: 28, height: 28, borderRadius: 14 },
+  chatAvatarPlaceholder: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: THEME.indigo,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatAvatarPlaceholderMe: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: THEME.slate,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1150,187 +1347,81 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
     borderWidth: 1,
+    marginLeft: 4,
   },
   roleText: { fontSize: 8, fontWeight: '900', marginLeft: 2 },
-
-  // FAQ
-  faqHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  faqTitle: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 18,
-    marginLeft: 10,
-  },
-  faqText: { color: '#94a3b8', lineHeight: 22 },
-
-  // FAB
-  fab: {
-    position: 'absolute',
-    bottom: 110,
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: THEME.indigo,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: THEME.indigo,
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-
-  // MODALS
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: '#0f172a',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    height: '90%',
-    padding: 24,
-    borderTopWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  modalTitle: { fontSize: 24, fontWeight: '900', color: 'white' },
-  closeButton: {
-    padding: 8,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 99,
-  },
-  label: {
-    color: THEME.indigo,
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
-  inputField: {
-    backgroundColor: 'rgba(15,23,42,0.5)',
-    color: 'white',
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    fontSize: 16,
-  },
-  primaryButton: {
-    backgroundColor: THEME.indigo,
-    padding: 18,
-    borderRadius: 16,
-    alignItems: 'center',
-  },
-  primaryButtonText: { color: '#020617', fontWeight: '900', fontSize: 16 },
-
-  // DETAILS
-  detailHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  statusDropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(99,102,241,0.1)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(99,102,241,0.2)',
-  },
-  statusDropdownText: {
-    color: '#818cf8',
-    fontWeight: 'bold',
-    fontSize: 12,
-    marginRight: 6,
-    textTransform: 'uppercase',
-  },
-  detailSubject: {
-    fontSize: 22,
+  msgBubble: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 20 },
+  internalLabel: {
+    color: '#facc15',
+    fontSize: 9,
     fontWeight: '900',
-    color: 'white',
     marginBottom: 4,
   },
-  categoryTag: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  categoryText: {
-    color: '#94a3b8',
-    fontSize: 10,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-  },
-  detailDate: { color: '#64748b', fontSize: 12 },
-
-  // MESSAGES
-  messageBubble: {
-    maxWidth: '85%',
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginBottom: 12,
-  },
-  messageMe: {
-    alignSelf: 'flex-end',
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
-    borderColor: 'rgba(99, 102, 241, 0.2)',
-  },
-  messageOther: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(30, 41, 59, 0.5)',
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  messageInternal: {
-    marginLeft: 20,
-    backgroundColor: 'rgba(234, 179, 8, 0.1)',
-    borderColor: 'rgba(234, 179, 8, 0.2)',
-  },
-  messageAuthor: { color: '#94a3b8', fontSize: 10, fontWeight: 'bold' },
-  messageText: { color: 'white', fontSize: 15, lineHeight: 22 },
-
-  // REPLY AREA
-  replyContainer: {
-    padding: 20,
+  inputArea: {
+    padding: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.05)',
-    backgroundColor: '#0f172a',
+    borderColor: THEME.glassBorder,
+    borderRadius: 0,
   },
-  replyInput: {
+  chatInput: {
     flex: 1,
-    backgroundColor: '#020617',
-    color: 'white',
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    marginRight: 10,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    color: THEME.white,
     maxHeight: 100,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
   },
-  sendButton: {
-    width: 56,
+  sendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: THEME.indigo,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: THEME.indigo,
-    borderRadius: 16,
   },
-
-  // STATUS MODAL
+  internalInputContainer: { flexDirection: 'row', marginBottom: 12 },
+  internalInput: {
+    flex: 1,
+    backgroundColor: 'rgba(234, 179, 8, 0.1)',
+    color: '#facc15',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 40,
+    borderWidth: 1,
+    borderColor: 'rgba(234, 179, 8, 0.3)',
+    marginRight: 8,
+  },
+  internalSendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(234, 179, 8, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(234, 179, 8, 0.4)',
+  },
+  createInput: {
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+    borderRadius: 12,
+    padding: 16,
+    color: THEME.white,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    fontSize: 16,
+  },
+  categoryChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: THEME.slate,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
   modalOverlayCenter: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.8)',

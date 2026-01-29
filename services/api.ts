@@ -7,17 +7,35 @@ import {
   WeeklyActivity,
 } from './types';
 
+/**
+ * 🛠️ API SERVICE LAYER
+ * Centralizes all communication between the React Native frontend and Supabase.
+ * Handles Edge Functions, RPC calls, and standard table queries.
+ */
 export const api = {
   /**
-   * 🧠 AI: Generate Daily Sprint via Supabase Edge Function
+   * 🧠 AI: GENERATE DAILY SPRINT
+   * Calls the 'generate-sprint' Edge Function to create a personalized learning session.
+   * * @param language - The target programming language (e.g., 'Python', 'Java').
+   * @returns Array of SprintCard objects (lessons/quizzes).
    */
   generateDailySprint: async (language: string): Promise<SprintCard[]> => {
-    const { data, error } = await supabase.functions.invoke('generate-sprint', {
-      body: { language, difficulty: 'INTERMEDIATE' },
-    });
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        'generate-sprint',
+        {
+          body: { language, difficulty: 'INTERMEDIATE' },
+        },
+      );
 
-    if (error) {
-      console.error('AI Gen Error:', error);
+      if (error) {
+        throw error;
+      }
+
+      return data as SprintCard[];
+    } catch (error) {
+      console.error('❌ API Error [generateDailySprint]:', error);
+      // Fallback content to prevent UI crash during outages
       return [
         {
           title: 'System Offline',
@@ -29,101 +47,152 @@ export const api = {
         },
       ];
     }
-    return data as SprintCard[];
   },
 
   /**
-   * 🏆 GAMIFICATION: Complete Sprint & Update Database
+   * 🏆 GAMIFICATION: COMPLETE SPRINT
+   * Submits sprint results to the 'complete-sprint' Edge Function.
+   * Handles XP awarding, streak updates, and user progress recording server-side.
+   * * @param xp - Total XP earned in this session.
+   * @param score - Number of correct answers.
+   * @returns SprintResult containing new streak and total XP.
    */
   completeSprint: async (xp: number, score: number): Promise<SprintResult> => {
-    const { data, error } = await supabase.functions.invoke('complete-sprint', {
-      body: { xpEarned: xp, questionsCorrect: score },
-    });
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        'complete-sprint',
+        {
+          body: { xpEarned: xp, questionsCorrect: score },
+        },
+      );
 
-    if (error) {
+      if (error) throw error;
+
+      return data as SprintResult;
+    } catch (error) {
+      console.error('❌ API Error [completeSprint]:', error);
+      // Return optimistic response if server fails, to keep user engaged
       return {
         xpEarned: xp,
         questionsCorrect: score,
         totalQuestions: 5,
-        newStreak: 1,
+        newStreak: 1, // Default fallback
       };
     }
-    return data as SprintResult;
   },
 
   /**
-   * 🛠️ ADMIN: Generate a new learning Track via AI
+   * 🛠️ ADMIN: GENERATE TRACK
+   * AI-driven generation of new learning tracks.
+   * * @param topic - The subject matter (e.g., "Rust Systems").
    */
   generateTrack: async (topic: string) => {
     const { data, error } = await supabase.functions.invoke('generate-track', {
       body: { topic },
     });
-    if (error) throw error;
+
+    if (error) {
+      console.error('❌ API Error [generateTrack]:', error);
+      throw error;
+    }
     return data;
   },
 
   /**
-   * 📊 DASHBOARD: Unified Statistics Fetch
-   * Syncs Frontend Leveling Math with PostgreSQL Formula: Floor((XP/100)^0.6) + 1
+   * 📊 DASHBOARD: GET FULL USER STATISTICS
+   * Aggregates data from multiple tables and RPCs to populate the main dashboard.
+   * Syncs frontend progress bar math with the database leveling curve.
+   * * @param userId - The UUID of the current user.
    */
   getDashboardStats: async (userId: string): Promise<UserDashboardStats> => {
-    // 1. Core User Stats (XP, Level, Streak)
-    const { data: stats } = await supabase
-      .from('user_stats')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
+    try {
+      // 1. Fetch Core User Stats (XP, Level, Streak)
+      const { data: stats, error: statsError } = await supabase
+        .from('user_stats')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
 
-    // 2. Track Breakdown by Language (via Postgres RPC)
-    const { data: trackData } = await supabase.rpc('get_user_track_xp', {
-      target_user_id: userId,
-    });
+      if (statsError) throw statsError;
 
-    // 3. Weekly Activity Data for Charting (via Postgres RPC)
-    const { data: activityData } = await supabase.rpc('get_weekly_activity', {
-      target_user_id: userId,
-    });
+      // 2. Fetch Track Breakdown via RPC (SQL Function: get_user_track_xp)
+      const { data: trackData, error: trackError } = await supabase.rpc(
+        'get_user_track_xp',
+        {
+          target_user_id: userId,
+        },
+      );
 
-    const currentXp = stats?.xp || 0;
-    const currentLevel = stats?.level || 1;
+      if (trackError)
+        console.error('⚠️ RPC Warning [get_user_track_xp]:', trackError);
 
-    /**
-     * 📐 MATHEMATICAL ALIGNMENT
-     * To find the XP threshold for a specific level based on our curve:
-     * XP = 100 * (Level - 1)^(1/0.6)
-     */
-    const getXpThreshold = (lvl: number) => {
-      if (lvl <= 1) return 0;
-      // We use 1.6667 as an approximation of 1/0.6
-      return Math.floor(100 * Math.pow(lvl - 1, 1.6667));
-    };
+      // 3. Fetch Weekly Activity via RPC (SQL Function: get_weekly_activity)
+      const { data: activityData, error: activityError } = await supabase.rpc(
+        'get_weekly_activity',
+        {
+          target_user_id: userId,
+        },
+      );
 
-    const currentLevelBaseXP = getXpThreshold(currentLevel);
-    const nextLevelThresholdXP = getXpThreshold(currentLevel + 1);
+      if (activityError)
+        console.error('⚠️ RPC Warning [get_weekly_activity]:', activityError);
 
-    return {
-      xp: currentXp,
-      streak_days: stats?.streak_days || 0,
-      level: currentLevel,
-      weekly_sprints: stats?.total_sprints_completed || 0,
-      track_breakdown: (trackData as unknown as TrackXPStats[]) || [],
-      activity_chart: (activityData as unknown as WeeklyActivity[]) || [],
-      next_level_xp: nextLevelThresholdXP,
-      current_level_base_xp: currentLevelBaseXP,
-    };
+      // --- LEVELING MATHEMATICS ---
+      // Database Formula: Level = Floor((XP / 100)^0.6) + 1
+      // UI Requirement: We need the specific XP range for the current level (Base -> Next).
+
+      const currentXp = stats?.xp || 0;
+      const currentLevel = stats?.level || 1;
+
+      // Inverse Formula: XP = 100 * (Level - 1)^(1/0.6)
+      // 1 / 0.6 is approximately 1.6666667
+      const getXpThreshold = (lvl: number) => {
+        if (lvl <= 1) return 0;
+        return Math.floor(100 * Math.pow(lvl - 1, 1.6667));
+      };
+
+      const currentLevelBaseXP = getXpThreshold(currentLevel);
+      const nextLevelThresholdXP = getXpThreshold(currentLevel + 1);
+
+      return {
+        xp: currentXp,
+        streak_days: stats?.streak_days || 0,
+        level: currentLevel,
+        weekly_sprints: stats?.total_sprints_completed || 0,
+        track_breakdown: (trackData as unknown as TrackXPStats[]) || [],
+        activity_chart: (activityData as unknown as WeeklyActivity[]) || [],
+        next_level_xp: nextLevelThresholdXP,
+        current_level_base_xp: currentLevelBaseXP,
+      };
+    } catch (error) {
+      console.error('❌ API Error [getDashboardStats]:', error);
+      // Return safe defaults to prevent white-screen of death
+      return {
+        xp: 0,
+        streak_days: 0,
+        level: 1,
+        weekly_sprints: 0,
+        track_breakdown: [],
+        activity_chart: [],
+        next_level_xp: 100,
+        current_level_base_xp: 0,
+      };
+    }
   },
 
   /**
-   * 🎖️ BADGES: Retrieve all earned badges for the user
+   * 🎖️ BADGES: GET USER BADGES
+   * Retrieves joined data of earned badges and their details.
+   * * @param userId - The UUID of the current user.
    */
   getUserBadges: async (userId: string) => {
     const { data, error } = await supabase
       .from('user_badges')
-      .select('*, badges(*)')
+      .select('*, badges(*)') // Join to get badge details (name, icon)
       .eq('user_id', userId);
 
     if (error) {
-      console.error('Badge Fetch Error:', error);
+      console.error('❌ API Error [getUserBadges]:', error);
       throw error;
     }
     return data;

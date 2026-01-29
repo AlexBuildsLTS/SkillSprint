@@ -6,6 +6,7 @@ import {
   RefreshControl,
   useWindowDimensions,
   StyleSheet,
+  TouchableOpacity,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,6 +34,10 @@ import { useAuth } from '@/context/AuthContext';
 import { api } from '@/services/api';
 import { LinearGradient } from 'expo-linear-gradient';
 
+/**
+ * 🎨 THEME CONFIGURATION
+ * Centralized color palette for consistent UI styling across the dashboard.
+ */
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
@@ -43,6 +48,15 @@ const THEME = {
   emerald: '#10b981',
 };
 
+/**
+ * 🧩 COMPONENT: TRACK BAR
+ * Renders a single progress bar for a specific language/track in the breakdown.
+ * Calculates percentage width dynamically based on the max XP in the set.
+ *
+ * @param title - The language name (e.g., "Python").
+ * @param xp - Total XP earned in this language.
+ * @param max - The highest XP among all languages (for scaling).
+ */
 const TrackBar = ({
   title,
   xp,
@@ -52,14 +66,17 @@ const TrackBar = ({
   xp: number;
   max: number;
 }) => {
+  // Ensure the bar never exceeds 100% width, even if data is skewed
   const widthPercent = Math.min((xp / max) * 100, 100);
+
   return (
-    <View style={{ marginBottom: 12 }}>
+    <View style={{ marginBottom: 16 }}>
+      {/* Title and XP Value Row */}
       <View
         style={{
           flexDirection: 'row',
           justifyContent: 'space-between',
-          marginBottom: 6,
+          marginBottom: 8,
         }}
       >
         <Text
@@ -68,21 +85,26 @@ const TrackBar = ({
             fontSize: 11,
             fontWeight: '700',
             textTransform: 'uppercase',
+            letterSpacing: 0.5,
           }}
         >
           {title}
         </Text>
         <Text style={{ color: 'white', fontSize: 11, fontWeight: '700' }}>
-          {xp} XP
+          {xp.toLocaleString()} XP
         </Text>
       </View>
+
+      {/* Progress Bar Container */}
       <View
         style={{
           height: 8,
           backgroundColor: 'rgba(255,255,255,0.1)',
           borderRadius: 4,
+          overflow: 'hidden', // Ensures inner bar respects border radius
         }}
       >
+        {/* Fill Bar */}
         <View
           style={{
             height: '100%',
@@ -96,14 +118,25 @@ const TrackBar = ({
   );
 };
 
+/**
+ * 🚀 MAIN COMPONENT: DASHBOARD
+ * The primary hub for user statistics, daily actions, and progress tracking.
+ * Features auto-expanding cards, animated transitions, and real-time data binding.
+ */
 export default function Dashboard() {
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const isDesktop = width >= 768;
+  const isDesktop = width >= 768; // Responsive breakpoint for tablet/desktop layouts
   const { user, refreshUserData } = useAuth();
 
+  // State to toggle the XP Breakdown card expansion
   const [showXpDetails, setShowXpDetails] = useState(false);
 
+  /**
+   * 📡 DATA FETCHING
+   * Retrieves aggregated stats (XP, streaks, levels, activity) from the backend.
+   * Uses React Query for caching and efficient re-fetching.
+   */
   const {
     data: stats,
     isLoading,
@@ -114,12 +147,19 @@ export default function Dashboard() {
     enabled: !!user?.id,
   });
 
+  /**
+   * 🔄 REFRESH HANDLER
+   * Triggered by Pull-to-Refresh. Updates all data and provides haptic feedback.
+   */
   const onRefresh = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await refetch();
-    await refreshUserData();
+    await Promise.all([refetch(), refreshUserData()]);
   }, [refetch, refreshUserData]);
 
+  /**
+   * 🌞 GREETING LOGIC
+   * Returns a time-sensitive greeting based on the user's local clock.
+   */
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good Morning';
@@ -127,13 +167,15 @@ export default function Dashboard() {
     return 'Good Evening';
   };
 
+  // Determine the scale for the XP breakdown bars (prevents tiny bars if one track dominates)
   const maxTrackXP =
     stats?.track_breakdown?.reduce(
       (max, t) => Math.max(max, t.total_xp),
       100,
     ) || 100;
-  const defaultDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
+  // Transform activity data for the chart (Last 7 Days)
+  const defaultDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
   const chartData = defaultDays.map((day) => {
     const match = stats?.activity_chart?.find(
       (d) => d.day_label && d.day_label.trim().startsWith(day),
@@ -158,7 +200,7 @@ export default function Dashboard() {
           }
           showsVerticalScrollIndicator={false}
         >
-          {/* HEADER */}
+          {/* --- SECTION: HEADER --- */}
           <Animated.View
             entering={FadeInDown.duration(800)}
             style={styles.headerTextContainer}
@@ -184,8 +226,9 @@ export default function Dashboard() {
               isDesktop && styles.desktopGridContainer,
             ]}
           >
-            {/* ROW 1: STREAK & LEVEL */}
+            {/* --- SECTION: STATS ROW 1 (Streak & Level) --- */}
             <View style={[styles.row, !isDesktop && styles.mobileStack]}>
+              {/* CARD: STREAK */}
               <Bento3DCard style={{ flex: 1 }}>
                 <View
                   style={[
@@ -209,6 +252,7 @@ export default function Dashboard() {
                 </View>
               </Bento3DCard>
 
+              {/* CARD: LEVEL (With Progress Bar) */}
               <Bento3DCard style={{ flex: 1 }}>
                 <View
                   style={[
@@ -230,6 +274,7 @@ export default function Dashboard() {
                         ? `${Math.max(0, stats.xp - stats.current_level_base_xp)} / ${stats.next_level_xp - stats.current_level_base_xp} XP`
                         : '---'}
                     </Text>
+                    {/* Level Progress Bar */}
                     <View
                       style={{
                         height: 6,
@@ -254,8 +299,9 @@ export default function Dashboard() {
               </Bento3DCard>
             </View>
 
-            {/* ROW 2: DAILY SPRINT & WEEKLY TARGET */}
+            {/* --- SECTION: ACTION ROW 2 (Daily Sprint & Weekly Target) --- */}
             <View style={[styles.row, !isDesktop && styles.mobileStack]}>
+              {/* CARD: DAILY SPRINT (Primary Action) */}
               <Bento3DCard
                 style={{ flex: 1.5 }}
                 onPress={() => router.push('/sprint-setup')}
@@ -299,6 +345,7 @@ export default function Dashboard() {
                 </LinearGradient>
               </Bento3DCard>
 
+              {/* CARD: WEEKLY TARGET */}
               <Bento3DCard style={{ flex: 1 }}>
                 <View
                   style={[
@@ -353,7 +400,7 @@ export default function Dashboard() {
               </Bento3DCard>
             </View>
 
-            {/* ROW 3: ACTIVITY LOG */}
+            {/* --- SECTION: ACTIVITY CHART --- */}
             <Bento3DCard style={{ width: '100%', marginBottom: 16 }}>
               <View
                 style={[
@@ -388,22 +435,26 @@ export default function Dashboard() {
               </View>
             </Bento3DCard>
 
-            {/* ROW 4: TOTAL XP / BREAKDOWN (AUTO-EXPANDING HEIGHT) */}
+            {/* --- SECTION: XP BREAKDOWN (Expandable) --- */}
             <Bento3DCard
-              style={{ width: '100%' }} // No fixed height here
+              // Removes fixed height constraints to allow auto-expansion.
+              // This is crucial: width='100%' lets the flex layout dictate the height.
+              style={{ width: '100%' }}
               onPress={() => {
                 Haptics.selectionAsync();
                 setShowXpDetails(!showXpDetails);
               }}
             >
               <Animated.View
-                layout={LinearTransition.springify()}
+                // Automatically animates layout changes (height expansion/contraction)
+                layout={LinearTransition.springify().damping(15)}
                 style={[
                   styles.cardContent,
                   styles.glassEffect,
                   {
                     borderColor: THEME.indigo + '40',
                     justifyContent: 'flex-start',
+                    // Minimum height for the collapsed state to maintain card uniformity
                     minHeight: 240,
                   },
                 ]}
@@ -421,6 +472,7 @@ export default function Dashboard() {
                 </View>
 
                 {!showXpDetails ? (
+                  // STATE: COLLAPSED (Summary View)
                   <Animated.View
                     entering={FadeIn}
                     key="main"
@@ -437,7 +489,9 @@ export default function Dashboard() {
                     <Text style={styles.tapHint}>Tap to view breakdown</Text>
                   </Animated.View>
                 ) : (
-                  // AUTO-EXPANDING CONTENT
+                  // STATE: EXPANDED (Detailed List)
+                  // No internal ScrollView here. This view will grow, pushing the BentoCard height,
+                  // and the outer Page ScrollView will handle scrolling.
                   <Animated.View
                     entering={FadeIn}
                     key="breakdown"
@@ -476,6 +530,7 @@ export default function Dashboard() {
   );
 }
 
+// --- STYLES ---
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
   scrollContent: { paddingBottom: 100 },
@@ -504,7 +559,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
 
-  // Added flexGrow to allow content to push height
+  // flexGrow: 1 ensures the content pushes the container size naturally
   cardContent: {
     flexGrow: 1,
     padding: 20,
