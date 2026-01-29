@@ -146,7 +146,7 @@ export default function LessonScreen() {
                 >
                   <Target size={16} color={THEME.gold} />
                   <Text style={[styles.cardLabel, { color: THEME.gold }]}>
-                    CURRENT_MISSION
+                    Task
                   </Text>
                 </View>
                 <Zap size={14} color={THEME.emerald} fill={THEME.emerald} />
@@ -162,7 +162,7 @@ export default function LessonScreen() {
                 style={styles.actionBtn}
                 onPress={() => setStep('PRACTICE')}
               >
-                <Text style={styles.actionBtnT}>INITIALIZE TERMINAL</Text>
+                <Text style={styles.actionBtnT}>INITIALIZE TASK</Text>
               </TouchableOpacity>
             </Animated.View>
           ) : (

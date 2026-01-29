@@ -6,31 +6,27 @@ const CORS_HEADERS = {
     'authorization, x-client-info, apikey, content-type',
 };
 
-// Ensure you have GEMINI_API_KEY set in your Supabase secrets
 const GEMINI_API_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
 
 Deno.serve(async (req) => {
-  // 1. Handle CORS Preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
   }
 
   try {
-    // 2. Parse Request Body
     const { language, difficulty, userId } = await req.json();
     const apiKey = Deno.env.get('GEMINI_API_KEY');
 
     if (!apiKey) throw new Error('Missing GEMINI_API_KEY');
     if (!userId) throw new Error('Missing userId');
 
-    // 3. Initialize Supabase Client
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // 4. Check for Existing Sprint (Idempotency)
+    // 1. Check for Existing Sprint
     const today = new Date().toISOString().split('T')[0];
 
     const { data: existingSprint } = await supabase
@@ -51,7 +47,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 5. Generate Content with Gemini
+    // 2. Generate with Gemini
     console.log(`Generating sprint for ${language} (${difficulty})...`);
 
     const prompt = `
@@ -103,12 +99,10 @@ Deno.serve(async (req) => {
     const geminiData = await geminiResp.json();
     let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
 
-    // 6. Clean & Parse JSON
-    // Remove markdown code fences if Gemini adds them
     rawText = rawText
-      .replace(/^```json\s*/, '') // Remove starting ```json
-      .replace(/^```\s*/, '') // Remove starting ```
-      .replace(/\s*```$/, '') // Remove ending ```
+      .replace(/^```json\s*/, '')
+      .replace(/^```\s*/, '')
+      .replace(/\s*```$/, '')
       .trim();
 
     let tasks;
@@ -119,10 +113,7 @@ Deno.serve(async (req) => {
       throw new Error('Failed to parse Gemini response as JSON');
     }
 
-    // 7. Save to Database
-
-    // Upsert ensures that if a race condition created a row, we handle it,
-    // though the initial check usually covers this.
+    // 3. Save to Database (WITH CATEGORIES)
     const { error: insertError } = await supabase.from('daily_sprints').upsert(
       {
         user_id: userId,
@@ -132,7 +123,6 @@ Deno.serve(async (req) => {
         difficulty: difficulty,
         is_completed: false,
         xp_earned: 0,
-        // created_at is handled by default now()
       },
       { onConflict: 'user_id, date' },
     );
@@ -144,7 +134,6 @@ Deno.serve(async (req) => {
 
     console.log('Sprint generated and saved successfully.');
 
-    // 8. Return Tasks to Client
     return new Response(JSON.stringify(tasks), {
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
