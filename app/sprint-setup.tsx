@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   Play,
   ShieldAlert,
+  Check,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, SlideInRight } from 'react-native-reanimated';
 
@@ -84,13 +85,10 @@ export default function SprintSetupScreen() {
 
   // Responsive Grid Logic
   const isDesktop = width >= 1024;
-  const isTablet = width >= 768 && width < 1024;
 
-  // 3 Columns on Desktop, 2 on Tablet/Mobile
+  // Columns: 3 on Desktop, 2 on Mobile/Tablet
   const numColumns = isDesktop ? 3 : 2;
   const gap = 12;
-  // Calculate width: (Total Width - Padding - Gaps) / Columns
-  // We use a max-width container on desktop to keep it centered
   const containerWidth = isDesktop ? 1000 : width - 40;
   const cardWidth = (containerWidth - gap * (numColumns - 1)) / numColumns;
 
@@ -129,7 +127,7 @@ export default function SprintSetupScreen() {
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
-            { alignItems: 'center' }, // Center content on desktop
+            { alignItems: 'center' },
           ]}
           showsVerticalScrollIndicator={false}
         >
@@ -144,9 +142,9 @@ export default function SprintSetupScreen() {
               </Text>
             </Animated.View>
 
-            <Text style={styles.sectionLabel}>LANGUAGE</Text>
+            <Text style={styles.sectionLabel}>TARGET LANGUAGE</Text>
 
-            {/* GRID CONTAINER */}
+            {/* LANGUAGE GRID */}
             <View style={[styles.grid, { gap }]}>
               {LANGUAGES.map((lang, index) => {
                 const isSelected = selectedLang.id === lang.id;
@@ -158,23 +156,29 @@ export default function SprintSetupScreen() {
                     entering={FadeInDown.delay(200 + index * 50)}
                     style={{ width: cardWidth, height: 140 }}
                   >
-                    <TouchableOpacity
-                      activeOpacity={0.8}
+                    {/* Direct onPress on BentoCard to avoid touch conflicts */}
+                    <Bento3DCard
+                      style={{ flex: 1 }}
                       onPress={() => {
                         Haptics.selectionAsync();
                         setSelectedLang(lang);
                       }}
-                      style={{ flex: 1 }}
                     >
-                      <Bento3DCard style={{ flex: 1 }}>
+                      <View
+                        style={[
+                          styles.langCard,
+                          isSelected && {
+                            borderColor: lang.color,
+                            backgroundColor: `${lang.color}15`,
+                          },
+                        ]}
+                      >
                         <View
-                          style={[
-                            styles.langCard,
-                            isSelected && {
-                              borderColor: lang.color,
-                              backgroundColor: `${lang.color}10`,
-                            },
-                          ]}
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                          }}
                         >
                           <View
                             style={[
@@ -184,32 +188,41 @@ export default function SprintSetupScreen() {
                           >
                             <Icon size={24} color={lang.color} />
                           </View>
-                          <View>
-                            <Text
+                          {isSelected && (
+                            <View
                               style={[
-                                styles.langName,
-                                isSelected && { color: lang.color },
+                                styles.checkBadge,
+                                { backgroundColor: lang.color },
                               ]}
                             >
-                              {lang.name}
-                            </Text>
-                            <Text style={styles.langDesc}>{lang.desc}</Text>
-                          </View>
-                          {isSelected && (
-                            <View style={styles.checkBadge}>
-                              <Zap size={12} color="white" fill="white" />
+                              <Check size={10} color="white" strokeWidth={4} />
                             </View>
                           )}
                         </View>
-                      </Bento3DCard>
-                    </TouchableOpacity>
+
+                        <View>
+                          <Text
+                            style={[
+                              styles.langName,
+                              isSelected && {
+                                color: lang.color,
+                                fontWeight: '900',
+                              },
+                            ]}
+                          >
+                            {lang.name}
+                          </Text>
+                          <Text style={styles.langDesc}>{lang.desc}</Text>
+                        </View>
+                      </View>
+                    </Bento3DCard>
                   </Animated.View>
                 );
               })}
             </View>
 
             <Text style={[styles.sectionLabel, { marginTop: 30 }]}>
-              COMPLEXITY
+              COMPLEXITY LEVEL
             </Text>
             <GlassCard style={styles.diffContainer}>
               {DIFFICULTIES.map((diff) => {
@@ -247,7 +260,7 @@ export default function SprintSetupScreen() {
             }}
           >
             <View style={styles.footerInfo}>
-              <Text style={styles.footerLabel}>EST. REWARD</Text>
+              <Text style={styles.footerLabel}>POTENTIAL REWARD</Text>
               <Text style={styles.xpText}>
                 {difficulty === 'ADVANCED'
                   ? '500 XP'
@@ -264,7 +277,7 @@ export default function SprintSetupScreen() {
                 end={{ x: 1, y: 0 }}
                 style={styles.startGradient}
               >
-                <Text style={styles.startText}>INITIALIZE</Text>
+                <Text style={styles.startText}>INITIALIZE SPRINT</Text>
                 <Play size={16} color="white" fill="white" />
               </LinearGradient>
             </TouchableOpacity>
@@ -290,9 +303,9 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
     fontWeight: '900',
-    letterSpacing: 1,
+    letterSpacing: 2,
   },
-  scrollContent: { padding: 20, paddingBottom: 100 },
+  scrollContent: { padding: 20, paddingBottom: 120 },
 
   heroSection: { marginBottom: 30 },
   heroTitle: {
@@ -309,6 +322,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 1.5,
     marginBottom: 15,
+    marginTop: 10,
   },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
@@ -323,9 +337,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(30, 41, 59, 0.4)',
   },
   iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -333,27 +347,29 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 4,
+    marginBottom: 2,
   },
-  langDesc: { color: THEME.slate, fontSize: 11 },
+  langDesc: { color: THEME.slate, fontSize: 11, fontWeight: '500' },
   checkBadge: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: THEME.indigo,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  diffContainer: { flexDirection: 'row', padding: 4, borderRadius: 16, gap: 4 },
+  diffContainer: {
+    flexDirection: 'row',
+    padding: 6,
+    borderRadius: 18,
+    gap: 6,
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+  },
   diffBtn: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 14,
     alignItems: 'center',
-    borderRadius: 12,
+    borderRadius: 14,
   },
   diffBtnActive: { backgroundColor: 'rgba(255,255,255,0.1)' },
   diffText: { color: THEME.slate, fontSize: 12, fontWeight: '700' },
@@ -365,21 +381,26 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 24,
-    backgroundColor: 'rgba(2, 6, 23, 0.9)',
+    backgroundColor: 'rgba(2, 6, 23, 0.95)',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.05)',
   },
   footerInfo: { gap: 4 },
-  footerLabel: { color: THEME.slate, fontSize: 10, fontWeight: '900' },
+  footerLabel: {
+    color: THEME.slate,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
   xpText: { color: THEME.emerald, fontSize: 20, fontWeight: '900' },
 
   startBtn: { borderRadius: 16, overflow: 'hidden' },
   startGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     paddingHorizontal: 32,
-    paddingVertical: 16,
+    paddingVertical: 18,
   },
   startText: {
     color: 'white',

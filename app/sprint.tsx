@@ -5,8 +5,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   StyleSheet,
-  Vibration,
   Alert,
+  StatusBar,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
@@ -14,7 +14,13 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { X, CheckCircle2, Trophy, Flame } from 'lucide-react-native';
+import {
+  X,
+  CheckCircle2,
+  Trophy,
+  Flame,
+  AlertTriangle,
+} from 'lucide-react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -22,6 +28,7 @@ import Animated, {
   withTiming,
   withSequence,
   SlideInRight,
+  FadeIn,
 } from 'react-native-reanimated';
 
 import { api } from '@/services/api';
@@ -29,6 +36,7 @@ import { SprintCard, SprintResult } from '@/services/types';
 import Button from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { CodeEmulator } from '@/components/lesson/CodeEmulator';
+import { LinearGradient } from 'expo-linear-gradient';
 
 /**
  * 🎨 THEME CONFIGURATION
@@ -41,6 +49,8 @@ const THEME = {
   obsidian: '#020617',
   slate: '#94a3b8',
   white: '#ffffff',
+  glassSurface: 'rgba(30, 41, 59, 0.6)',
+  border: 'rgba(255, 255, 255, 0.1)',
 };
 
 /**
@@ -112,12 +122,15 @@ export default function SprintScreen() {
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
 
-  // Normalize topic param to string
+  // Extract Params from Setup
   const topic = Array.isArray(params.topic)
     ? params.topic[0]
     : params.topic || 'General';
+  const difficulty = Array.isArray(params.difficulty)
+    ? params.difficulty[0]
+    : params.difficulty || 'INTERMEDIATE';
 
-  // --- STATE MANAGEMENT ---
+  // State Management
   const [status, setStatus] = useState<'initializing' | 'active' | 'summary'>(
     'initializing',
   );
@@ -130,29 +143,31 @@ export default function SprintScreen() {
   const [result, setResult] = useState<SprintResult | null>(null);
   const comboScale = useSharedValue(1);
 
-  // --- INITIALIZATION: FETCH AI TASKS ---
+  // 1. INIT: Call Gemini Edge Function
   useEffect(() => {
     const initSprint = async () => {
       try {
+        // Pass language/topic to generate-sprint edge function
         const data = await api.generateDailySprint(topic);
+
         if (data && data.length > 0) {
           setCards(data);
           setStatus('active');
         } else {
-          throw new Error('No cards generated');
+          throw new Error('No content generated');
         }
       } catch (err) {
         console.error('Sprint Init Failed:', err);
-        // Fallback for offline/error state to prevent stuck UI
-        Alert.alert('Neural Link Failure', 'Using offline backup.', [
-          { text: 'OK', onPress: () => {} },
+        Alert.alert('Connection Failed', 'Switching to offline backup mode.', [
+          { text: 'OK' },
         ]);
+        // Fallback content to ensure app doesn't crash
         setCards([
           {
             title: 'System Offline',
-            content: 'Neural Net unreachable. Verify integrity.',
+            content: 'Network unreachable. Verify connection.',
             type: 'code',
-            codeSnippet: "print('Offline')",
+            codeSnippet: "print('Offline Mode')",
             options: ['Retry'],
             correctAnswer: 0,
           },
@@ -161,9 +176,9 @@ export default function SprintScreen() {
       }
     };
     initSprint();
-  }, [topic]);
+  }, [topic, difficulty]);
 
-  // --- HANDLER: QUIZ ANSWER SELECTION ---
+  // 2. HANDLER: Quiz Answer
   const handleAnswer = useCallback(
     (index: number) => {
       if (isAnswered) return;
@@ -178,13 +193,13 @@ export default function SprintScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
         setCombo(0);
-        Vibration.vibrate(100);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     },
     [isAnswered, cards, currentIndex, comboScale],
   );
 
-  // --- HANDLER: CODE EMULATOR SUCCESS ---
+  // 3. HANDLER: Code Emulator Success
   const handleCodeSuccess = useCallback(() => {
     if (isAnswered) return;
     setIsAnswered(true);
@@ -193,7 +208,7 @@ export default function SprintScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [isAnswered]);
 
-  // --- HANDLER: NEXT CARD / FINISH SPRINT ---
+  // 4. HANDLER: Next / Complete
   const handleNext = useCallback(async () => {
     if (currentIndex < cards.length - 1) {
       setCurrentIndex((prev) => prev + 1);
@@ -201,21 +216,21 @@ export default function SprintScreen() {
       setIsAnswered(false);
     } else {
       // SPRINT COMPLETE
-      setStatus('initializing'); // Show loading while submitting
+      setStatus('initializing'); // Show loading state during submission
       try {
-        // Calculate XP: 100 per correct answer (max 500)
-        const xpEarned = score * 100;
+        const xpEarned = score * 100; // Example XP Calc: 100 per correct
         const res = await api.completeSprint(xpEarned, score);
         setResult(res);
         setStatus('summary');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (err) {
-        console.error('Submission Error:', err);
-        // Optimistic fallback so user isn't stuck
+        console.error('Submit Error:', err);
+        // Fallback result if API fails
         setResult({
           xpEarned: score * 100,
           questionsCorrect: score,
           totalQuestions: cards.length,
-          newStreak: 1,
+          newStreak: 1, // Optimistic streak update
         });
         setStatus('summary');
       }
@@ -226,6 +241,7 @@ export default function SprintScreen() {
   if (status === 'initializing') {
     return (
       <View style={styles.center}>
+        <StatusBar barStyle="light-content" />
         <ActivityIndicator size="large" color={THEME.indigo} />
         <Text style={styles.loaderText}>
           INITIALIZING {topic.toUpperCase()} PROTOCOLS...
@@ -237,113 +253,172 @@ export default function SprintScreen() {
   // --- RENDER: SUMMARY STATE ---
   if (status === 'summary' && result) {
     return (
-      <SafeAreaView style={styles.summaryContainer}>
-        <Trophy size={80} color={THEME.warning} />
-        <Text style={styles.summaryTitle}>SPRINT COMPLETE</Text>
-        <GlassCard style={styles.statBox}>
-          <Text style={styles.statLabel}>XP EARNED</Text>
-          <Text style={styles.statValue}>+{result.xpEarned}</Text>
-        </GlassCard>
-        <Button onPress={() => router.replace('/')} fullWidth>
-          RETURN TO DASHBOARD
-        </Button>
-      </SafeAreaView>
+      <View style={styles.container}>
+        <LinearGradient
+          colors={[THEME.obsidian, '#0f172a']}
+          style={StyleSheet.absoluteFill}
+        />
+        <SafeAreaView style={styles.summaryContainer}>
+          <Animated.View
+            entering={FadeIn.delay(300)}
+            style={{ alignItems: 'center', gap: 20, width: '100%' }}
+          >
+            <Trophy size={80} color={THEME.warning} />
+            <Text style={styles.summaryTitle}>SPRINT COMPLETE</Text>
+
+            <GlassCard style={styles.statBox} intensity="heavy">
+              <Text style={styles.statLabel}>XP EARNED</Text>
+              <Text style={styles.statValue}>+{result.xpEarned}</Text>
+            </GlassCard>
+
+            <GlassCard style={styles.statBox} intensity="heavy">
+              <Text style={styles.statLabel}>ACCURACY</Text>
+              <Text style={styles.statValue}>
+                {Math.round(
+                  (result.questionsCorrect / result.totalQuestions) * 100,
+                )}
+                %
+              </Text>
+            </GlassCard>
+
+            <View style={{ width: '100%', marginTop: 20 }}>
+              <Button onPress={() => router.replace('/')} fullWidth size="lg">
+                RETURN TO DASHBOARD
+              </Button>
+            </View>
+          </Animated.View>
+        </SafeAreaView>
+      </View>
     );
   }
 
   // --- RENDER: ACTIVE SPRINT ---
   const currentCard = cards[currentIndex];
-  // Determine if this is a coding task based on type or snippet presence
+  // Determine if this is a coding task based on type
   const isCodingTask =
     currentCard.type === 'code' ||
-    (currentCard.codeSnippet && currentCard.codeSnippet.length > 5);
+    (currentCard.codeSnippet && currentCard.codeSnippet.length > 0);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* HUD HEADER */}
-      <View style={styles.hudHeader}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <X size={20} color={THEME.slate} />
-        </TouchableOpacity>
-        <SprintProgressBar total={cards.length} current={currentIndex} />
+    <View style={styles.container}>
+      <LinearGradient
+        colors={[THEME.obsidian, '#0f172a']}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        {/* HUD HEADER */}
+        <View style={styles.hudHeader}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.closeBtn}
+          >
+            <X size={20} color={THEME.slate} />
+          </TouchableOpacity>
+          <SprintProgressBar total={cards.length} current={currentIndex} />
+          <Animated.View
+            style={{
+              transform: [{ scale: comboScale }],
+              flexDirection: 'row',
+              gap: 4,
+              alignItems: 'center',
+            }}
+          >
+            <Flame size={16} color={THEME.warning} fill={THEME.warning} />
+            <Text style={{ color: THEME.warning, fontWeight: '900' }}>
+              {combo}x
+            </Text>
+          </Animated.View>
+        </View>
+
+        {/* QUESTION CARD */}
         <Animated.View
-          style={{
-            transform: [{ scale: comboScale }],
-            flexDirection: 'row',
-            gap: 4,
-          }}
+          entering={SlideInRight}
+          key={currentIndex} // Force re-render animation on index change
+          style={styles.cardStack}
         >
-          <Flame size={16} color={THEME.warning} />
-          <Text style={{ color: THEME.warning, fontWeight: '900' }}>
-            {combo}x
-          </Text>
+          <SprintCard3D isActive={true}>
+            <GlassCard intensity="heavy" style={styles.cardInner}>
+              <View style={{ marginBottom: 20 }}>
+                <Text style={styles.questionText}>{currentCard.title}</Text>
+                <Text style={styles.contentText}>{currentCard.content}</Text>
+              </View>
+
+              {isCodingTask ? (
+                // CODE EMULATOR MODE
+                <View
+                  style={{
+                    flex: 1,
+                    borderRadius: 16,
+                    overflow: 'hidden',
+                    borderWidth: 1,
+                    borderColor: THEME.border,
+                  }}
+                >
+                  <CodeEmulator
+                    language={topic.toLowerCase()}
+                    code={currentCard.codeSnippet || ''}
+                    // Passing undefined triggers the "Run" success simulation for now
+                    // In a real scenario, you'd pass expected output here.
+                    expectedOutput={undefined}
+                    onComplete={handleCodeSuccess}
+                  />
+                </View>
+              ) : (
+                // QUIZ MODE
+                <View style={styles.optionsGrid}>
+                  {currentCard.options?.map((opt, idx) => (
+                    <TouchableOpacity
+                      key={idx}
+                      onPress={() => handleAnswer(idx)}
+                      disabled={isAnswered}
+                      activeOpacity={0.8}
+                      style={[
+                        styles.optionBase,
+                        !isAnswered && selectedOption === idx
+                          ? styles.optionSelected
+                          : isAnswered && idx === currentCard.correctAnswer
+                            ? styles.optionCorrect
+                            : isAnswered && selectedOption === idx
+                              ? styles.optionWrong
+                              : styles.optionNormal,
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: 'white',
+                          fontWeight: 'bold',
+                          fontSize: 16,
+                        }}
+                      >
+                        {opt}
+                      </Text>
+                      {isAnswered && idx === currentCard.correctAnswer && (
+                        <CheckCircle2 size={20} color={THEME.success} />
+                      )}
+                      {isAnswered &&
+                        selectedOption === idx &&
+                        idx !== currentCard.correctAnswer && (
+                          <AlertTriangle size={20} color={THEME.danger} />
+                        )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </GlassCard>
+          </SprintCard3D>
         </Animated.View>
-      </View>
 
-      {/* QUESTION CARD */}
-      <Animated.View
-        entering={SlideInRight}
-        key={currentIndex}
-        style={styles.cardStack}
-      >
-        <SprintCard3D isActive={true}>
-          <GlassCard intensity="heavy" style={styles.cardInner}>
-            <Text style={styles.questionText}>{currentCard.title}</Text>
-            <Text style={styles.contentText}>{currentCard.content}</Text>
-
-            {isCodingTask ? (
-              // CODE EMULATOR MODE
-              <View style={{ flex: 1, marginTop: 10 }}>
-                <CodeEmulator
-                  language={topic.toLowerCase()}
-                  code={currentCard.codeSnippet || ''}
-                  // Simple check for demo purposes; real logic would be stricter
-                  expectedOutput={undefined}
-                  onComplete={handleCodeSuccess}
-                />
-              </View>
-            ) : (
-              // QUIZ MODE
-              <View style={styles.optionsGrid}>
-                {currentCard.options?.map((opt, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    onPress={() => handleAnswer(idx)}
-                    disabled={isAnswered}
-                    style={[
-                      styles.optionBase,
-                      !isAnswered && selectedOption === idx
-                        ? styles.optionSelected
-                        : isAnswered && idx === currentCard.correctAnswer
-                          ? styles.optionCorrect
-                          : isAnswered && selectedOption === idx
-                            ? styles.optionWrong
-                            : styles.optionNormal,
-                    ]}
-                  >
-                    <Text style={{ color: 'white', fontWeight: 'bold' }}>
-                      {opt}
-                    </Text>
-                    {isAnswered && idx === currentCard.correctAnswer && (
-                      <CheckCircle2 size={18} color={THEME.success} />
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </GlassCard>
-        </SprintCard3D>
-      </Animated.View>
-
-      {/* FOOTER ACTION BUTTON */}
-      <View style={{ padding: 20, paddingBottom: insets.bottom + 10 }}>
-        {isAnswered && (
-          <Button fullWidth size="lg" onPress={handleNext}>
-            CONTINUE
-          </Button>
-        )}
-      </View>
-    </SafeAreaView>
+        {/* FOOTER ACTION BUTTON */}
+        <View style={{ padding: 20, paddingBottom: insets.bottom + 10 }}>
+          {isAnswered && (
+            <Button fullWidth size="lg" onPress={handleNext}>
+              {currentIndex < cards.length - 1 ? 'CONTINUE' : 'COMPLETE SPRINT'}
+            </Button>
+          )}
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -356,12 +431,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: THEME.obsidian,
   },
-  loaderText: { color: THEME.indigo, marginTop: 20, fontWeight: '900' },
+  loaderText: {
+    color: THEME.indigo,
+    marginTop: 20,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+
   hudHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 20,
     gap: 15,
+  },
+  closeBtn: {
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
   },
   progressContainer: { flex: 1, flexDirection: 'row', height: 6, gap: 4 },
   progressSegment: {
@@ -371,19 +457,28 @@ const styles = StyleSheet.create({
   },
   progressSegmentCompleted: { backgroundColor: THEME.success },
   progressSegmentActive: { backgroundColor: THEME.indigo },
+
   cardStack: { flex: 1, padding: 20 },
   cardWrapper: { flex: 1 },
-  cardInner: { flex: 1, padding: 24, borderRadius: 32 },
+  cardInner: {
+    flex: 1,
+    padding: 24,
+    borderRadius: 24,
+    justifyContent: 'space-between',
+  },
+
   questionText: {
     color: 'white',
     fontSize: 24,
     fontWeight: '800',
-    marginBottom: 12,
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
-  contentText: { color: THEME.slate, fontSize: 16, marginBottom: 30 },
+  contentText: { color: THEME.slate, fontSize: 16, lineHeight: 24 },
+
   optionsGrid: { gap: 12 },
   optionBase: {
-    padding: 18,
+    padding: 20,
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: 'row',
@@ -391,42 +486,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   optionNormal: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderColor: THEME.border,
   },
   optionSelected: {
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    backgroundColor: 'rgba(99, 102, 241, 0.2)',
     borderColor: THEME.indigo,
   },
   optionCorrect: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
     borderColor: THEME.success,
   },
   optionWrong: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
     borderColor: THEME.danger,
   },
+
   summaryContainer: {
     flex: 1,
-    backgroundColor: THEME.obsidian,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 40,
-    gap: 20,
   },
-  summaryTitle: { color: 'white', fontSize: 32, fontWeight: '900' },
+  summaryTitle: {
+    color: 'white',
+    fontSize: 32,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
   statBox: {
-    padding: 30,
+    padding: 24,
     alignItems: 'center',
     borderRadius: 24,
     width: '100%',
-    marginBottom: 30,
+    backgroundColor: THEME.glassSurface,
   },
   statLabel: {
     color: THEME.slate,
     fontSize: 12,
     fontWeight: '900',
-    letterSpacing: 1,
+    letterSpacing: 1.5,
+    marginBottom: 8,
   },
-  statValue: { color: 'white', fontSize: 48, fontWeight: '900', marginTop: 10 },
+  statValue: { color: 'white', fontSize: 48, fontWeight: '900' },
 });
