@@ -6,14 +6,13 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   ScrollView,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
   Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   FadeInDown,
@@ -32,12 +31,16 @@ import {
 } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { CodeEmulator } from '@/components/lesson/CodeEmulator';
+import { Bento3DCard } from '@/components/ui/Bento3DCard'; // Correct Import
 
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
   gold: '#fbbf24',
+  emerald: '#10b981',
   border: 'rgba(255,255,255,0.08)',
+  slate: '#94a3b8',
+  white: '#ffffff',
 };
 
 export default function LessonScreen() {
@@ -47,7 +50,6 @@ export default function LessonScreen() {
   const lessonId = Array.isArray(id) ? id[0] : id || '';
 
   const [step, setStep] = useState<'LEARN' | 'PRACTICE'>('LEARN');
-  const [userCode, setUserCode] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const barWidth = useSharedValue(0);
 
@@ -59,10 +61,14 @@ export default function LessonScreen() {
       });
       if (error) throw error;
       const res = data as any;
-      const content =
-        typeof res.lesson.content === 'string'
-          ? JSON.parse(res.lesson.content)
-          : res.lesson.content;
+      let content = res.lesson.content;
+      if (typeof content === 'string') {
+        try {
+          content = JSON.parse(content);
+        } catch (e) {
+          content = { text: 'Error loading content.', starter_code: '' };
+        }
+      }
       return {
         title: res.lesson.title,
         text: content.text,
@@ -77,10 +83,6 @@ export default function LessonScreen() {
     },
     enabled: !!lessonId,
   });
-
-  useEffect(() => {
-    if (context?.starter) setUserCode(context.starter);
-  }, [context]);
 
   const onComplete = () => {
     setShowSuccess(true);
@@ -128,22 +130,30 @@ export default function LessonScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 24 }}>
-          {/* MISSION BOX */}
-          <View style={styles.missionCard}>
+        <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }}>
+          {/* MISSION CARD - Using Bento3DCard Wrapper + Inner View Pattern */}
+          <Bento3DCard style={{ marginBottom: 20, width: '100%' }}>
             <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 8,
-                marginBottom: 8,
-              }}
+              style={[
+                styles.cardContent,
+                styles.glassEffect,
+                { borderColor: THEME.emerald + '40', minHeight: 120 },
+              ]}
             >
-              <Target size={14} color={THEME.gold} />
-              <Text style={styles.missionTitle}>CURRENT_MISSION</Text>
+              <View style={styles.cardHeader}>
+                <View
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                >
+                  <Target size={16} color={THEME.gold} />
+                  <Text style={[styles.cardLabel, { color: THEME.gold }]}>
+                    CURRENT_MISSION
+                  </Text>
+                </View>
+                <Zap size={14} color={THEME.emerald} fill={THEME.emerald} />
+              </View>
+              <Text style={styles.missionText}>{context?.missionText}</Text>
             </View>
-            <Text style={styles.missionText}>{context?.missionText}</Text>
-          </View>
+          </Bento3DCard>
 
           {step === 'LEARN' ? (
             <Animated.View entering={FadeInDown}>
@@ -157,17 +167,10 @@ export default function LessonScreen() {
             </Animated.View>
           ) : (
             <View>
-              <TextInput
-                multiline
-                style={styles.editor}
-                value={userCode}
-                onChangeText={setUserCode}
-                spellCheck={false}
-                autoCapitalize="none"
-              />
+              {/* Single Emulator Instance */}
               <CodeEmulator
                 language={context?.lang || 'python'}
-                code={userCode}
+                code={context?.starter || ''}
                 expectedOutput={context?.expected}
                 onComplete={onComplete}
               />
@@ -248,16 +251,39 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
   headerT: { color: 'white', fontSize: 18, fontWeight: 'bold' },
-  missionCard: {
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
-    padding: 20,
-    borderRadius: 20,
+
+  // --- GLASS CARD STYLES ---
+  glassEffect: {
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    borderColor: 'rgba(148, 163, 184, 0.1)',
     borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.3)',
-    marginBottom: 20,
   },
-  missionTitle: { color: THEME.gold, fontSize: 10, fontWeight: '900' },
-  missionText: { color: 'white', fontSize: 15, fontWeight: 'bold' },
+  cardContent: {
+    padding: 20,
+    borderRadius: 24,
+    justifyContent: 'space-between',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  cardLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 2,
+    color: THEME.slate,
+  },
+  // -------------------------
+
+  missionText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    lineHeight: 24,
+  },
   bodyText: {
     color: '#94a3b8',
     fontSize: 16,
@@ -271,17 +297,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionBtnT: { color: 'white', fontWeight: 'bold' },
-  editor: {
-    backgroundColor: '#050a18',
-    color: '#a5b4fc',
-    padding: 20,
-    borderRadius: 20,
-    fontFamily: 'monospace',
-    minHeight: 200,
-    borderWidth: 1,
-    borderColor: THEME.border,
-    textAlignVertical: 'top',
-  },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.9)',
@@ -330,4 +345,3 @@ const styles = StyleSheet.create({
   },
   nextBtnT: { color: 'white', fontWeight: 'bold' },
 });
-  

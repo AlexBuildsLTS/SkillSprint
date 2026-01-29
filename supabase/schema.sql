@@ -143,7 +143,7 @@ create table public.daily_sprints (
 -- 7. STORAGE BUCKETS (System)
 -- -----------------------------------------------------------------------------
 -- Note: You usually create buckets via UI, but this SQL creates the entries if system triggers exist.
--- We will handle permissions via Policies below.
+-- We will handle pertasks via Policies below.
 
 insert into storage.buckets (id, name, public) 
 values ('avatars', 'avatars', true)

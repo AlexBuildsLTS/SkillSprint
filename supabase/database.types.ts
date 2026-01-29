@@ -67,29 +67,29 @@ export type Database = {
       };
       daily_sprints: {
         Row: {
-          content: Json;
           created_at: string | null;
           date: string;
           id: string;
           is_completed: boolean | null;
+          tasks: Json;
           user_id: string;
           xp_earned: number | null;
         };
         Insert: {
-          content: Json;
           created_at?: string | null;
           date?: string;
           id?: string;
           is_completed?: boolean | null;
+          tasks?: Json;
           user_id: string;
           xp_earned?: number | null;
         };
         Update: {
-          content?: Json;
           created_at?: string | null;
           date?: string;
           id?: string;
           is_completed?: boolean | null;
+          tasks?: Json;
           user_id?: string;
           xp_earned?: number | null;
         };
@@ -217,47 +217,6 @@ export type Database = {
             columns: ['lesson_id'];
             isOneToOne: false;
             referencedRelation: 'lessons';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      sprint_tasks: {
-        Row: {
-          created_at: string | null;
-          difficulty: string;
-          id: string;
-          is_completed: boolean | null;
-          language: string;
-          task_content: Json;
-          task_hash: string;
-          user_id: string;
-        };
-        Insert: {
-          created_at?: string | null;
-          difficulty: string;
-          id?: string;
-          is_completed?: boolean | null;
-          language: string;
-          task_content: Json;
-          task_hash: string;
-          user_id: string;
-        };
-        Update: {
-          created_at?: string | null;
-          difficulty?: string;
-          id?: string;
-          is_completed?: boolean | null;
-          language?: string;
-          task_content?: Json;
-          task_hash?: string;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'sprint_tasks_user_id_fkey';
-            columns: ['user_id'];
-            isOneToOne: false;
-            referencedRelation: 'profiles';
             referencedColumns: ['id'];
           },
         ];

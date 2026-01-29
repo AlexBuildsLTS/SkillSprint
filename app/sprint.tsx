@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Alert,
   StatusBar,
+  ScrollView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
@@ -20,6 +21,7 @@ import {
   Trophy,
   Flame,
   AlertTriangle,
+  Zap,
 } from 'lucide-react-native';
 import Animated, {
   useSharedValue,
@@ -30,22 +32,21 @@ import Animated, {
   SlideInRight,
   FadeIn,
 } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { api } from '@/services/api';
 import { SprintCard, SprintResult } from '@/services/types';
 import Button from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
+import { Bento3DCard } from '@/components/ui/Bento3DCard';
 import { CodeEmulator } from '@/components/lesson/CodeEmulator';
-import { LinearGradient } from 'expo-linear-gradient';
 
-/**
- * 🎨 THEME CONFIGURATION
- */
 const THEME = {
   indigo: '#6366f1',
   success: '#10b981',
   danger: '#ef4444',
   warning: '#f59e0b',
+  emerald: '#10b981',
   obsidian: '#020617',
   slate: '#94a3b8',
   white: '#ffffff',
@@ -55,7 +56,6 @@ const THEME = {
 
 /**
  * 📊 COMPONENT: SPRINT PROGRESS BAR
- * Visualizes the user's progress through the 5 daily tasks.
  */
 const SprintProgressBar = memo(function SprintProgressBar({
   total,
@@ -82,7 +82,6 @@ const SprintProgressBar = memo(function SprintProgressBar({
 
 /**
  * 🃏 COMPONENT: 3D CARD CONTAINER
- * Adds depth and entry animations to the task card.
  */
 const SprintCard3D = memo(function SprintCard3D({
   isActive,
@@ -114,15 +113,13 @@ const SprintCard3D = memo(function SprintCard3D({
 });
 
 /**
- * 🚀 MAIN COMPONENT: SPRINT SCREEN
- * Orchestrates the daily learning session: AI fetch -> User interaction -> Result submission.
+ * 🚀 MAIN SPRINT SCREEN
  */
 export default function SprintScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
 
-  // Extract Params from Setup
   const topic = Array.isArray(params.topic)
     ? params.topic[0]
     : params.topic || 'General';
@@ -130,7 +127,6 @@ export default function SprintScreen() {
     ? params.difficulty[0]
     : params.difficulty || 'INTERMEDIATE';
 
-  // State Management
   const [status, setStatus] = useState<'initializing' | 'active' | 'summary'>(
     'initializing',
   );
@@ -143,25 +139,44 @@ export default function SprintScreen() {
   const [result, setResult] = useState<SprintResult | null>(null);
   const comboScale = useSharedValue(1);
 
-  // 1. INIT: Call Gemini Edge Function
+  // 1. INIT
   useEffect(() => {
     const initSprint = async () => {
       try {
-        // Pass language/topic to generate-sprint edge function
-        const data = await api.generateDailySprint(topic);
+        const responseData = (await api.generateDailySprint(topic)) as any;
 
-        if (data && data.length > 0) {
-          setCards(data);
+        let finalTasks: SprintCard[] = [];
+        if (Array.isArray(responseData)) {
+          finalTasks = responseData;
+        } else if (
+          responseData &&
+          responseData.content &&
+          Array.isArray(responseData.content)
+        ) {
+          finalTasks = responseData.content;
+        } else if (
+          responseData &&
+          responseData.tasks &&
+          Array.isArray(responseData.tasks)
+        ) {
+          finalTasks = responseData.tasks;
+        } else {
+          finalTasks = Object.values(responseData).filter(
+            (x) => typeof x === 'object',
+          ) as SprintCard[];
+        }
+
+        if (finalTasks.length > 0) {
+          setCards(finalTasks);
           setStatus('active');
         } else {
           throw new Error('No content generated');
         }
       } catch (err) {
         console.error('Sprint Init Failed:', err);
-        Alert.alert('Connection Failed', 'Switching to offline backup mode.', [
+        Alert.alert('Connection Failed', 'Using offline mode.', [
           { text: 'OK' },
         ]);
-        // Fallback content to ensure app doesn't crash
         setCards([
           {
             title: 'System Offline',
@@ -178,13 +193,12 @@ export default function SprintScreen() {
     initSprint();
   }, [topic, difficulty]);
 
-  // 2. HANDLER: Quiz Answer
+  // 2. HANDLERS
   const handleAnswer = useCallback(
     (index: number) => {
       if (isAnswered) return;
       setSelectedOption(index);
       setIsAnswered(true);
-
       const correctIdx = cards[currentIndex].correctAnswer ?? 0;
       if (index === correctIdx) {
         setScore((s) => s + 1);
@@ -199,58 +213,53 @@ export default function SprintScreen() {
     [isAnswered, cards, currentIndex, comboScale],
   );
 
-  // 3. HANDLER: Code Emulator Success
   const handleCodeSuccess = useCallback(() => {
     if (isAnswered) return;
     setIsAnswered(true);
     setScore((s) => s + 1);
     setCombo((prev) => prev + 1);
+    comboScale.value = withSequence(withSpring(1.5), withSpring(1));
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  }, [isAnswered]);
+  }, [isAnswered, comboScale]);
 
-  // 4. HANDLER: Next / Complete
   const handleNext = useCallback(async () => {
     if (currentIndex < cards.length - 1) {
       setCurrentIndex((prev) => prev + 1);
       setSelectedOption(null);
       setIsAnswered(false);
     } else {
-      // SPRINT COMPLETE
-      setStatus('initializing'); // Show loading state during submission
+      setStatus('initializing');
       try {
-        const xpEarned = score * 100; // Example XP Calc: 100 per correct
+        const xpEarned = score * 100;
         const res = await api.completeSprint(xpEarned, score);
         setResult(res);
         setStatus('summary');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (err) {
-        console.error('Submit Error:', err);
-        // Fallback result if API fails
         setResult({
           xpEarned: score * 100,
           questionsCorrect: score,
           totalQuestions: cards.length,
-          newStreak: 1, // Optimistic streak update
+          newStreak: 1,
         });
         setStatus('summary');
       }
     }
   }, [currentIndex, cards, score]);
 
-  // --- RENDER: LOADING STATE ---
+  // --- RENDER ---
   if (status === 'initializing') {
     return (
       <View style={styles.center}>
         <StatusBar barStyle="light-content" />
         <ActivityIndicator size="large" color={THEME.indigo} />
         <Text style={styles.loaderText}>
-          INITIALIZING {topic.toUpperCase()} PROTOCOLS...
+          INITIALIZING {topic.toUpperCase()}...
         </Text>
       </View>
     );
   }
 
-  // --- RENDER: SUMMARY STATE ---
   if (status === 'summary' && result) {
     return (
       <View style={styles.container}>
@@ -265,22 +274,10 @@ export default function SprintScreen() {
           >
             <Trophy size={80} color={THEME.warning} />
             <Text style={styles.summaryTitle}>SPRINT COMPLETE</Text>
-
             <GlassCard style={styles.statBox} intensity="heavy">
               <Text style={styles.statLabel}>XP EARNED</Text>
               <Text style={styles.statValue}>+{result.xpEarned}</Text>
             </GlassCard>
-
-            <GlassCard style={styles.statBox} intensity="heavy">
-              <Text style={styles.statLabel}>ACCURACY</Text>
-              <Text style={styles.statValue}>
-                {Math.round(
-                  (result.questionsCorrect / result.totalQuestions) * 100,
-                )}
-                %
-              </Text>
-            </GlassCard>
-
             <View style={{ width: '100%', marginTop: 20 }}>
               <Button onPress={() => router.replace('/')} fullWidth size="lg">
                 RETURN TO DASHBOARD
@@ -292,9 +289,9 @@ export default function SprintScreen() {
     );
   }
 
-  // --- RENDER: ACTIVE SPRINT ---
   const currentCard = cards[currentIndex];
-  // Determine if this is a coding task based on type
+  if (!currentCard) return null;
+
   const isCodingTask =
     currentCard.type === 'code' ||
     (currentCard.codeSnippet && currentCard.codeSnippet.length > 0);
@@ -307,7 +304,7 @@ export default function SprintScreen() {
       />
 
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        {/* HUD HEADER */}
+        {/* HUD */}
         <View style={styles.hudHeader}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -331,24 +328,53 @@ export default function SprintScreen() {
           </Animated.View>
         </View>
 
-        {/* QUESTION CARD */}
-        <Animated.View
-          entering={SlideInRight}
-          key={currentIndex} // Force re-render animation on index change
-          style={styles.cardStack}
+        {/* SCROLL CONTENT */}
+        <ScrollView
+          contentContainerStyle={{ padding: 20, paddingBottom: 120 }}
+          showsVerticalScrollIndicator={false}
         >
-          <SprintCard3D isActive={true}>
-            <GlassCard intensity="heavy" style={styles.cardInner}>
-              <View style={{ marginBottom: 20 }}>
-                <Text style={styles.questionText}>{currentCard.title}</Text>
-                <Text style={styles.contentText}>{currentCard.content}</Text>
-              </View>
+          <Animated.View
+            entering={SlideInRight}
+            key={currentIndex}
+            style={styles.cardStack}
+          >
+            {/* 1. TASK CARD - CORRECT PATTERN: Bento3DCard > View (Glass Effect) */}
+            <Bento3DCard style={{ marginBottom: 24, width: '100%' }}>
+              <View
+                style={[
+                  styles.cardContent,
+                  styles.glassEffect,
+                  { borderColor: THEME.emerald + '40', minHeight: 120 },
+                ]}
+              >
+                <View style={styles.cardHeader}>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <Zap size={18} color={THEME.emerald} fill={THEME.emerald} />
+                    <Text style={[styles.cardLabel, { color: THEME.emerald }]}>
+                      CURRENT TASK
+                    </Text>
+                  </View>
+                </View>
 
+                <View>
+                  <Text style={styles.questionText}>{currentCard.title}</Text>
+                  <Text style={styles.contentText}>{currentCard.content}</Text>
+                </View>
+              </View>
+            </Bento3DCard>
+
+            {/* 2. INTERACTION AREA */}
+            <GlassCard intensity="heavy" style={styles.interactionCard}>
               {isCodingTask ? (
-                // CODE EMULATOR MODE
+                // Code Emulator Container
                 <View
                   style={{
-                    flex: 1,
                     borderRadius: 16,
                     overflow: 'hidden',
                     borderWidth: 1,
@@ -358,21 +384,17 @@ export default function SprintScreen() {
                   <CodeEmulator
                     language={topic.toLowerCase()}
                     code={currentCard.codeSnippet || ''}
-                    // Passing undefined triggers the "Run" success simulation for now
-                    // In a real scenario, you'd pass expected output here.
-                    expectedOutput={undefined}
                     onComplete={handleCodeSuccess}
                   />
                 </View>
               ) : (
-                // QUIZ MODE
+                // Quiz Options
                 <View style={styles.optionsGrid}>
                   {currentCard.options?.map((opt, idx) => (
                     <TouchableOpacity
                       key={idx}
                       onPress={() => handleAnswer(idx)}
                       disabled={isAnswered}
-                      activeOpacity={0.8}
                       style={[
                         styles.optionBase,
                         !isAnswered && selectedOption === idx
@@ -406,11 +428,11 @@ export default function SprintScreen() {
                 </View>
               )}
             </GlassCard>
-          </SprintCard3D>
-        </Animated.View>
+          </Animated.View>
+        </ScrollView>
 
-        {/* FOOTER ACTION BUTTON */}
-        <View style={{ padding: 20, paddingBottom: insets.bottom + 10 }}>
+        {/* FOOTER */}
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 10 }]}>
           {isAnswered && (
             <Button fullWidth size="lg" onPress={handleNext}>
               {currentIndex < cards.length - 1 ? 'CONTINUE' : 'COMPLETE SPRINT'}
@@ -422,7 +444,6 @@ export default function SprintScreen() {
   );
 }
 
-// --- STYLES ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: THEME.obsidian },
   center: {
@@ -449,6 +470,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 12,
   },
+
   progressContainer: { flex: 1, flexDirection: 'row', height: 6, gap: 4 },
   progressSegment: {
     flex: 1,
@@ -458,23 +480,45 @@ const styles = StyleSheet.create({
   progressSegmentCompleted: { backgroundColor: THEME.success },
   progressSegmentActive: { backgroundColor: THEME.indigo },
 
-  cardStack: { flex: 1, padding: 20 },
+  cardStack: { flex: 1 },
   cardWrapper: { flex: 1 },
-  cardInner: {
-    flex: 1,
-    padding: 24,
+
+  // --- GLASS CARD PATTERN FROM INDEX.TSX ---
+  glassEffect: {
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    borderColor: 'rgba(148, 163, 184, 0.1)',
+    borderWidth: 1,
+  },
+  cardContent: {
+    padding: 20,
     borderRadius: 24,
     justifyContent: 'space-between',
   },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  cardLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 2,
+    color: THEME.slate,
+  },
+  // ----------------------------------------
 
   questionText: {
     color: 'white',
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
-    marginBottom: 8,
     letterSpacing: -0.5,
+    marginBottom: 8,
   },
-  contentText: { color: THEME.slate, fontSize: 16, lineHeight: 24 },
+  contentText: { color: THEME.slate, fontSize: 16, lineHeight: 26 },
+
+  interactionCard: { padding: 20, borderRadius: 24 },
 
   optionsGrid: { gap: 12 },
   optionBase: {
@@ -500,6 +544,15 @@ const styles = StyleSheet.create({
   optionWrong: {
     backgroundColor: 'rgba(239, 68, 68, 0.2)',
     borderColor: THEME.danger,
+  },
+
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
 
   summaryContainer: {

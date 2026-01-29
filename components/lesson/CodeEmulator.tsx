@@ -9,24 +9,30 @@ import {
   Platform,
   ActivityIndicator,
   Keyboard,
+  Dimensions,
 } from 'react-native';
-import Animated, { FadeInDown, FadeInUp, Layout } from 'react-native-reanimated';
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+  Layout,
+} from 'react-native-reanimated';
 import {
   Play,
   RefreshCcw,
   Terminal,
   CheckCircle2,
   XCircle,
-  Activity,
   Cpu,
   Code2,
+  Plus,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 
+const { width } = Dimensions.get('window');
+
 /**
  * 🎨 THEME CONFIGURATION
- * Centralized palette for consistent "Obsidian/Glass" aesthetic.
  */
 const THEME = {
   obsidian: '#020617',
@@ -37,52 +43,130 @@ const THEME = {
   border: 'rgba(255,255,255,0.08)',
   surface: '#0f172a',
   editorBg: '#050a18',
-  codeColor: '#a5b4fc', // Light Indigo for code text
+  codeColor: '#a5b4fc',
   white: '#FFFFFF',
 };
 
 /**
- * 🛠️ INTERFACE DEFINITIONS
- * Strict typing for component props to ensure stability.
+ * 🧠 SYNTAX HELPER DATA
+ * Common keywords for supported languages to help mobile users.
  */
+const SYNTAX_HELPERS: Record<string, string[]> = {
+  python: [
+    'def',
+    'print()',
+    'return',
+    'if',
+    'else:',
+    'for',
+    'in',
+    'True',
+    'False',
+    'import',
+  ],
+  javascript: [
+    'function',
+    'const',
+    'let',
+    'console.log()',
+    'return',
+    'if',
+    'else',
+    '=>',
+    'true',
+    'false',
+  ],
+  typescript: [
+    'interface',
+    'type',
+    'const',
+    'let',
+    'console.log()',
+    'return',
+    'if',
+    'else',
+    '=>',
+    'true',
+  ],
+  java: [
+    'public',
+    'class',
+    'void',
+    'System.out.println()',
+    'return',
+    'if',
+    'else',
+    'int',
+    'String',
+    'new',
+  ],
+  rust: [
+    'fn',
+    'let',
+    'mut',
+    'println!()',
+    'return',
+    'if',
+    'else',
+    'match',
+    'pub',
+    'use',
+  ],
+  sql: [
+    'SELECT',
+    'FROM',
+    'WHERE',
+    'INSERT INTO',
+    'VALUES',
+    'UPDATE',
+    'SET',
+    'DELETE',
+    'JOIN',
+    'GROUP BY',
+  ],
+  go: [
+    'func',
+    'package',
+    'import',
+    'fmt.Println()',
+    'return',
+    'if',
+    'else',
+    'var',
+    'type',
+    'struct',
+  ],
+};
+
 interface CodeEmulatorProps {
-  language: string;        // Target language (e.g., 'python', 'java', 'rust')
-  code: string;            // Initial starter code snippet
-  expectedOutput?: string; // Optional: Exact string match for validation
-  onComplete: () => void;  // Callback when code executes successfully
+  language: string;
+  code: string;
+  expectedOutput?: string;
+  onComplete: () => void;
 }
 
-/**
- * 🖥️ COMPONENT: CODE EMULATOR
- * A sophisticated, interactive code editor simulation.
- * Features:
- * - Real-time typing
- * - Language-specific kernel simulation (Java, Python, Rust, Node)
- * - Output parsing regex for print statements
- * - Haptic feedback integration
- */
 export function CodeEmulator({
   language,
   code: initialCode,
   expectedOutput,
   onComplete,
 }: CodeEmulatorProps) {
-  // --- STATE MANAGEMENT ---
-  const [sourceCode, setSourceCode] = useState(initialCode); // User's editable code
-  const [status, setStatus] = useState<'IDLE' | 'COMPILING' | 'EXECUTING'>('IDLE');
+  const [sourceCode, setSourceCode] = useState(initialCode);
+  const [status, setStatus] = useState<'IDLE' | 'COMPILING' | 'EXECUTING'>(
+    'IDLE',
+  );
   const [logs, setLogs] = useState<string[]>([]);
-  const [validationResult, setValidationResult] = useState<'success' | 'fail' | null>(null);
+  const [validationResult, setValidationResult] = useState<
+    'success' | 'fail' | null
+  >(null);
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
 
-  // --- REFS ---
-  // Used to manage focus or scroll positions if needed in complex scenarios
   const inputRef = useRef<TextInput>(null);
 
-  /**
-   * 🔄 EFFECT: RESET ON NEW TASK
-   * When the parent component passes a new initialCode (new task),
-   * we must reset the internal state to avoid stale data.
-   */
+  // Get relevant helpers for current language (default to JS if not found)
+  const helpers =
+    SYNTAX_HELPERS[language?.toLowerCase()] || SYNTAX_HELPERS['javascript'];
+
   useEffect(() => {
     setSourceCode(initialCode);
     setLogs([]);
@@ -91,12 +175,13 @@ export function CodeEmulator({
     setStatus('IDLE');
   }, [initialCode]);
 
-  /**
-   * 🧠 CORE LOGIC: RUN CODE
-   * Simulates the compilation and execution pipeline of a real IDE.
-   */
+  // Insert helper text at cursor position (simplified to append for now, proper cursor handling requires selection state)
+  const handleInsertHelper = (text: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSourceCode((prev) => prev + text); // Appends to end. Ideally uses selection/cursor pos.
+  };
+
   const handleExecution = useCallback(() => {
-    // 1. UI FEEDBACK
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     Keyboard.dismiss();
     setStatus('COMPILING');
@@ -104,122 +189,78 @@ export function CodeEmulator({
     setValidationResult(null);
     setLogs([]);
 
-    // 2. SIMULATED RUNTIME DELAY
-    // We use a timeout to mimic server latency/compilation time.
     setTimeout(() => {
       setStatus('EXECUTING');
-      
       const outputBuffer: string[] = [];
       const lang = (language || 'javascript').toLowerCase();
 
-      // --- KERNEL SIMULATION LAYER ---
-      // Inject fake system commands to make it feel authentic
-      if (lang.includes('java')) {
-        outputBuffer.push('> javac Main.java');
-        outputBuffer.push('> java Main');
-      } else if (lang.includes('python')) {
-        outputBuffer.push(`> python3 main.py --verbose`);
-      } else if (lang.includes('rust')) {
-        outputBuffer.push('> cargo build --release');
-        outputBuffer.push('> target/release/main');
-      } else if (lang.includes('go')) {
-        outputBuffer.push('> go run main.go');
-      } else {
-        outputBuffer.push('> node index.js');
-      }
+      // Kernel Sim
+      if (lang.includes('python')) outputBuffer.push(`> python3 main.py`);
+      else if (lang.includes('java'))
+        outputBuffer.push('> javac Main.java && java Main');
+      else outputBuffer.push('> node index.js');
 
-      // --- PARSING ENGINE ---
-      // We parse the user's *actual* input (sourceCode) to find print statements.
-      // This allows the user to type `print("Hello")` and actually see "Hello" in the output.
-      
-      // Variable Storage for simple variable resolution
+      // Parsing Logic (same as before)
       const varMap = new Map<string, string>();
-      
-      // Pass 1: Scan for variable assignments
       sourceCode.split('\n').forEach((line) => {
-        // Matches patterns like: x = 5, let x = "hi", int x = 10
         const assignmentMatch = line.match(
-          /(?:let|const|var|int|String|float|bool)?\s*(\w+)\s*(?::=|=)\s*(.*);?$/
+          /(?:let|const|var|int|String|float|bool)?\s*(\w+)\s*(?::=|=)\s*(.*);?$/,
         );
-        if (assignmentMatch) {
-          const varName = assignmentMatch[1];
-          // Remove quotes and semicolons from value
-          const varValue = assignmentMatch[2].trim().replace(/['";]/g, '');
-          varMap.set(varName, varValue);
-        }
+        if (assignmentMatch)
+          varMap.set(
+            assignmentMatch[1],
+            assignmentMatch[2].trim().replace(/['";]/g, ''),
+          );
       });
 
-      // Pass 2: Scan for Print Statements
       let calculatedOutput = '';
-      
-      // Regex library for different languages
       const printPatterns = [
-        /System\.out\.println\s*\(\s*(.*?)\s*\)/, // Java
-        /fmt\.Println\s*\(\s*(.*?)\s*\)/,         // Go
-        /print\s*\(\s*f?["']?(.*?)["']?\s*\)/,     // Python
-        /console\.log\s*\(\s*(.*?)\s*\)/,          // JS/TS
-        /println!\s*\(\s*["']?(.*?)["']?\s*\)/,    // Rust
+        /System\.out\.println\s*\(\s*(.*?)\s*\)/,
+        /fmt\.Println\s*\(\s*(.*?)\s*\)/,
+        /print\s*\(\s*f?["']?(.*?)["']?\s*\)/,
+        /console\.log\s*\(\s*(.*?)\s*\)/,
+        /println!\s*\(\s*["']?(.*?)["']?\s*\)/,
       ];
 
       for (const pattern of printPatterns) {
         const match = sourceCode.match(pattern);
         if (match) {
           const rawContent = match[1].trim();
-          
-          // Check if it's a literal string (starts with quotes)
           if (rawContent.startsWith('"') || rawContent.startsWith("'")) {
             calculatedOutput = rawContent.replace(/['"]/g, '');
-          } 
-          // Check if it's a known variable
-          else if (varMap.has(rawContent)) {
+          } else if (varMap.has(rawContent)) {
             calculatedOutput = varMap.get(rawContent) || '';
-          } 
-          // Fallback: Just print raw content (e.g. numbers)
-          else {
+          } else {
             calculatedOutput = rawContent;
           }
-          break; // Stop after finding the first print statement (simplification)
+          break;
         }
       }
 
-      // --- RESULT VALIDATION ---
-      if (calculatedOutput) {
-        outputBuffer.push(calculatedOutput);
-      } else {
-        outputBuffer.push('Process finished with exit code 0');
-      }
+      if (calculatedOutput) outputBuffer.push(calculatedOutput);
+      else outputBuffer.push('Process finished with exit code 0');
 
       setLogs(outputBuffer);
       setStatus('IDLE');
 
-      // Check against Expected Output (if provided)
-      // We normalize strings to avoid whitespace issues
-      const normalizedCalc = calculatedOutput.trim().toLowerCase();
-      const normalizedExp = (expectedOutput || '').trim().toLowerCase();
-
-      // If no expected output is strictly defined, any valid run is a success
-      // If expected output IS defined, we enforce a match.
-      const isSuccess = expectedOutput 
-        ? normalizedCalc.includes(normalizedExp) 
-        : true; 
+      const isSuccess = expectedOutput
+        ? calculatedOutput
+            .trim()
+            .toLowerCase()
+            .includes((expectedOutput || '').trim().toLowerCase())
+        : true;
 
       if (isSuccess) {
         setValidationResult('success');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        // Trigger completion callback after short delay for user to read output
         setTimeout(onComplete, 1500);
       } else {
         setValidationResult('fail');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
-
-    }, 1200); // 1.2s simulation time
+    }, 1200);
   }, [sourceCode, language, expectedOutput, onComplete]);
 
-  /**
-   * 🔄 LOGIC: RESET EMULATOR
-   * Clears the console and reverts code to the initial state.
-   */
   const handleReset = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSourceCode(initialCode);
@@ -228,19 +269,23 @@ export function CodeEmulator({
     setIsConsoleOpen(false);
   };
 
-  // --- RENDER ---
   return (
     <View style={styles.emulatorContainer}>
-      
       {/* 1. TOOLBAR */}
       <View style={styles.toolbar}>
         <View style={styles.toolbarLeft}>
           <View style={styles.langBadge}>
             <Cpu size={12} color={THEME.indigo} />
-            <Text style={styles.langText}>{language?.toUpperCase() || 'SCRIPT'}</Text>
+            <Text style={styles.langText}>
+              {language?.toUpperCase() || 'SCRIPT'}
+            </Text>
           </View>
           <Text style={styles.statusText}>
-            {status === 'IDLE' ? 'READY' : status === 'COMPILING' ? 'COMPILING...' : 'RUNNING...'}
+            {status === 'IDLE'
+              ? 'READY'
+              : status === 'COMPILING'
+                ? 'COMPILING...'
+                : 'RUNNING...'}
           </Text>
         </View>
         <TouchableOpacity onPress={handleReset} style={styles.iconButton}>
@@ -251,8 +296,10 @@ export function CodeEmulator({
       {/* 2. EDITOR VIEWPORT */}
       <View style={styles.editorViewport}>
         <View style={styles.lineNumbers}>
-          {[1,2,3,4,5,6].map(n => (
-            <Text key={n} style={styles.lineNum}>{n}</Text>
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <Text key={n} style={styles.lineNum}>
+              {n}
+            </Text>
           ))}
         </View>
         <TextInput
@@ -270,10 +317,35 @@ export function CodeEmulator({
         />
       </View>
 
-      {/* 3. CONSOLE OUTPUT (Animated Expansion) */}
+      {/* 3. SYNTAX ASSISTANT BAR (New!) */}
+      <View style={styles.syntaxBarContainer}>
+        <Text style={styles.syntaxLabel}>QUICK INSERT:</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.syntaxScroll}
+        >
+          {helpers.map((token, i) => (
+            <TouchableOpacity
+              key={i}
+              onPress={() => handleInsertHelper(token)}
+              style={styles.syntaxChip}
+            >
+              <Text style={styles.syntaxText}>{token}</Text>
+              <Plus
+                size={10}
+                color={THEME.indigo}
+                style={{ marginLeft: 4, opacity: 0.5 }}
+              />
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* 4. CONSOLE OUTPUT */}
       {isConsoleOpen && (
-        <Animated.View 
-          layout={Layout.springify()} 
+        <Animated.View
+          layout={Layout.springify()}
           entering={FadeInUp.duration(300)}
           style={styles.consoleContainer}
         >
@@ -283,34 +355,50 @@ export function CodeEmulator({
           </View>
           <ScrollView style={styles.logsScroll} nestedScrollEnabled>
             {logs.map((log, i) => (
-              <Text 
-                key={i} 
+              <Text
+                key={i}
                 style={[
-                  styles.logText, 
-                  // Highlight the actual output line (usually the last one before exit code)
-                  (i === logs.length - 1 && log !== 'Process finished with exit code 0') && { color: THEME.white, fontWeight: 'bold' }
+                  styles.logText,
+                  i === logs.length - 1 &&
+                    log !== 'Process finished with exit code 0' && {
+                      color: THEME.white,
+                      fontWeight: 'bold',
+                    },
                 ]}
               >
                 {log}
               </Text>
             ))}
-            
-            {/* Validation Badge */}
+
             {validationResult && (
-              <Animated.View entering={FadeInDown} style={[
-                styles.resultBadge,
-                validationResult === 'success' ? styles.badgeSuccess : styles.badgeFail
-              ]}>
+              <Animated.View
+                entering={FadeInDown}
+                style={[
+                  styles.resultBadge,
+                  validationResult === 'success'
+                    ? styles.badgeSuccess
+                    : styles.badgeFail,
+                ]}
+              >
                 {validationResult === 'success' ? (
                   <CheckCircle2 size={16} color={THEME.success} />
                 ) : (
                   <XCircle size={16} color={THEME.danger} />
                 )}
-                <Text style={[
-                  styles.resultText,
-                  { color: validationResult === 'success' ? THEME.success : THEME.danger }
-                ]}>
-                  {validationResult === 'success' ? 'TEST PASSED' : 'OUTPUT MISMATCH'}
+                <Text
+                  style={[
+                    styles.resultText,
+                    {
+                      color:
+                        validationResult === 'success'
+                          ? THEME.success
+                          : THEME.danger,
+                    },
+                  ]}
+                >
+                  {validationResult === 'success'
+                    ? 'TEST PASSED'
+                    : 'OUTPUT MISMATCH'}
                 </Text>
               </Animated.View>
             )}
@@ -318,11 +406,13 @@ export function CodeEmulator({
         </Animated.View>
       )}
 
-      {/* 4. EXECUTION BAR */}
+      {/* 5. EXECUTION BAR */}
       <View style={styles.executionBar}>
         <View style={styles.executionInfo}>
           <Code2 size={14} color={THEME.slate} />
-          <Text style={styles.infoText}>main.{language === 'python' ? 'py' : 'js'}</Text>
+          <Text style={styles.infoText}>
+            main.{language === 'python' ? 'py' : 'js'}
+          </Text>
         </View>
 
         <TouchableOpacity
@@ -331,7 +421,11 @@ export function CodeEmulator({
           activeOpacity={0.8}
         >
           <LinearGradient
-            colors={status === 'IDLE' ? [THEME.indigo, '#4f46e5'] : ['#334155', '#1e293b']}
+            colors={
+              status === 'IDLE'
+                ? [THEME.indigo, '#4f46e5']
+                : ['#334155', '#1e293b']
+            }
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.runButton}
@@ -347,24 +441,23 @@ export function CodeEmulator({
           </LinearGradient>
         </TouchableOpacity>
       </View>
-
     </View>
   );
 }
 
 /**
  * 💅 STYLESHEET
- * High-performance styles tailored for the obsidian dark theme.
  */
 const styles = StyleSheet.create({
   emulatorContainer: {
     borderRadius: 16,
     borderWidth: 1,
     borderColor: THEME.border,
-    backgroundColor: THEME.obsidian,
+    backgroundColor: THEME.obsidian, // Set explicit bg to fix "white lines"
     overflow: 'hidden',
     marginTop: 20,
-    minHeight: 320, // Ensure decent height for typing
+    minHeight: 380, // Increased height for better mobile usability
+    width: '100%', // Ensure it takes full width
   },
 
   // TOOLBAR
@@ -379,20 +472,20 @@ const styles = StyleSheet.create({
     borderBottomColor: THEME.border,
   },
   toolbarLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  langBadge: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 6, 
+  langBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: 'rgba(99, 102, 241, 0.1)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
-  langText: { 
-    color: THEME.indigo, 
-    fontSize: 10, 
-    fontWeight: '900', 
-    letterSpacing: 1 
+  langText: {
+    color: THEME.indigo,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   statusText: { color: THEME.slate, fontSize: 10, fontWeight: 'bold' },
   iconButton: { padding: 4 },
@@ -416,7 +509,7 @@ const styles = StyleSheet.create({
     color: 'rgba(148, 163, 184, 0.4)',
     fontSize: 12,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    lineHeight: 22, // Must match text input line height
+    lineHeight: 22,
   },
   codeInput: {
     flex: 1,
@@ -426,6 +519,45 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     padding: 16,
     textAlignVertical: 'top',
+    height: '100%',
+  },
+
+  // SYNTAX HELPER BAR
+  syntaxBarContainer: {
+    height: 40,
+    backgroundColor: '#0f172a', // Matches surface
+    borderTopWidth: 1,
+    borderTopColor: THEME.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+  },
+  syntaxLabel: {
+    color: THEME.slate,
+    fontSize: 9,
+    fontWeight: '900',
+    marginRight: 8,
+  },
+  syntaxScroll: {
+    paddingRight: 16,
+    alignItems: 'center',
+    gap: 8,
+  },
+  syntaxChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  syntaxText: {
+    color: '#e2e8f0',
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontWeight: '600',
   },
 
   // CONSOLE
@@ -451,8 +583,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginBottom: 4,
   },
-  
-  // RESULT BADGES
+
   resultBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -463,11 +594,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignSelf: 'flex-start',
   },
-  badgeSuccess: { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' },
-  badgeFail: { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' },
+  badgeSuccess: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  badgeFail: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
   resultText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
 
-  // FOOTER
+  // EXECUTION BAR
   executionBar: {
     height: 56,
     backgroundColor: THEME.surface,
@@ -480,7 +617,7 @@ const styles = StyleSheet.create({
   },
   executionInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   infoText: { color: THEME.slate, fontSize: 12, fontWeight: '600' },
-  
+
   runButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -489,5 +626,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
   },
-  runButtonText: { color: 'white', fontSize: 11, fontWeight: '900', letterSpacing: 1 },
+  runButtonText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
 });

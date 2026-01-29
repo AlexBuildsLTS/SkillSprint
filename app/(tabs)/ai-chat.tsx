@@ -206,7 +206,7 @@ export default function AIChatScreen() {
     {
       id: 'intro',
       role: 'ai',
-      text: "Hello! I'm SprintBot ⚡. Ready to architect your micro-learning logic. What's the mission?",
+      text: "Hello! I'm SprintBot ⚡. Ready to architect your micro-learning logic. What's the task?",
       timestamp: Date.now(),
     },
   ]);
