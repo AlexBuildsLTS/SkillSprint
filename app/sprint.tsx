@@ -8,6 +8,8 @@ import {
   Alert,
   StatusBar,
   ScrollView,
+  useWindowDimensions, // Required for responsive layout
+  Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
@@ -119,6 +121,10 @@ export default function SprintScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
+
+  // Calculate dynamic terminal height: 60% of screen, but min 450px for usability
+  const terminalHeight = Math.max(450, screenHeight * 0.6);
 
   const topic = Array.isArray(params.topic)
     ? params.topic[0]
@@ -332,13 +338,14 @@ export default function SprintScreen() {
         <ScrollView
           contentContainerStyle={{ padding: 20, paddingBottom: 120 }}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled" // Ensures taps inside code editor work
         >
           <Animated.View
             entering={SlideInRight}
             key={currentIndex}
             style={styles.cardStack}
           >
-            {/* 1. TASK CARD - CORRECT PATTERN: Bento3DCard > View (Glass Effect) */}
+            {/* 1. TASK CARD */}
             <Bento3DCard style={{ marginBottom: 24, width: '100%' }}>
               <View
                 style={[
@@ -373,12 +380,16 @@ export default function SprintScreen() {
             <GlassCard intensity="heavy" style={styles.interactionCard}>
               {isCodingTask ? (
                 // Code Emulator Container
+                // FIXED: Removed overflow:hidden to allow keyboard/run button visibility
+                // FIXED: Adaptive height ensuring it fills screen properly on mobile/desktop
                 <View
                   style={{
                     borderRadius: 16,
-                    overflow: 'hidden',
                     borderWidth: 1,
                     borderColor: THEME.border,
+                    height: terminalHeight,
+                    width: '100%',
+                    backgroundColor: '#0f172a',
                   }}
                 >
                   <CodeEmulator
@@ -483,7 +494,7 @@ const styles = StyleSheet.create({
   cardStack: { flex: 1 },
   cardWrapper: { flex: 1 },
 
-  // --- GLASS CARD PATTERN FROM INDEX.TSX ---
+  // --- GLASS CARD PATTERN ---
   glassEffect: {
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
     borderColor: 'rgba(148, 163, 184, 0.1)',
@@ -507,7 +518,6 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     color: THEME.slate,
   },
-  // ----------------------------------------
 
   questionText: {
     color: 'white',

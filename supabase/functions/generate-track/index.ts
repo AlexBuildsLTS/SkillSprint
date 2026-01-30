@@ -1,160 +1,129 @@
 import { createClient } from '@supabase/supabase-js';
 
-const corsHeaders = {
+const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
     'authorization, x-client-info, apikey, content-type',
 };
 
 const GEMINI_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS')
+    return new Response('ok', { headers: CORS_HEADERS });
 
   try {
-    const { topic } = await req.json();
+    const { language, difficulty, userId } = await req.json();
     const apiKey = Deno.env.get('GEMINI_API_KEY');
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!apiKey) throw new Error('Missing GEMINI_API_KEY');
 
-    if (!apiKey || !supabaseUrl || !supabaseKey) {
-      throw new Error('Missing environment variables');
+    // 1. Initialize Supabase
+    // Using Service Role Key to strictly bypass RLS policies
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+    const today = new Date().toISOString().split('T')[0];
+
+    // 2. Check Cache
+    const { data: existingSprint } = await supabase
+      .from('daily_sprints')
+      .select('tasks')
+      .eq('user_id', userId)
+      .eq('date', today)
+      .maybeSingle();
+
+    if (existingSprint) {
+      return new Response(JSON.stringify(existingSprint.tasks), {
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // 1. Strict Prompt Engineering for Structured Data
+    // 3. Generate Gemini Content
     const prompt = `
-      You are a Senior Curriculum Architect for a coding platform.
-      Create a comprehensive learning track for: "${topic}".
-      
-      REQUIREMENTS:
-      1. Determine the category based on the topic: 'FRONTEND', 'BACKEND', 'SYSTEMS', or 'DATA'.
-      2. Difficulty should be 'BEGINNER' unless the topic is inherently complex.
-      3. Generate exactly 5 progressive lessons.
-      4. Each lesson MUST have a 'content' object with 'text' and 'starter_code'.
-      5. Each lesson MUST have a 'quiz' object with 'question', 'options' (4 items), 'answer' (index 0-3), and 'explanation'.
-      6. Code snippets must be valid and educational.
-
-      OUTPUT FORMAT (Strict JSON, no markdown):
-      {
-        "track": {
-          "title": "Title Case Name",
-          "description": "Engaging description under 150 chars.",
-          "category": "BACKEND",
-          "difficulty": "BEGINNER",
-          "icon": "code", 
-          "color_gradient": "from-blue-500-to-cyan-500"
+      Generate 5 distinct coding tasks for ${language} at ${difficulty} level.
+      Return ONLY valid JSON array. No markdown. No comments.
+      Format:
+      [
+        {
+          "id": 1,
+          "type": "quiz",
+          "title": "Topic Name",
+          "content": "Question text",
+          "options": ["A", "B", "C", "D"],
+          "correctAnswer": 0,
+          "explanation": "Why A is correct."
         },
-        "lessons": [
-          {
-            "title": "Lesson 1 Title",
-            "order": 1,
-            "xp_reward": 100,
-            "content": {
-              "text": "Clear, concise explanation of the concept.",
-              "starter_code": "print('Hello')"
-            },
-            "quiz": {
-              "question": "Test understanding",
-              "options": ["Correct", "Wrong 1", "Wrong 2", "Wrong 3"],
-              "answer": 0,
-              "explanation": "Why correct is correct."
-            }
-          }
-        ]
-      }
+        {
+          "id": 2,
+          "type": "code",
+          "title": "Coding Challenge",
+          "content": "Problem description",
+          "codeSnippet": "def buggy_function():\\n  pass",
+          "answer": "Correct output or fixed code",
+          "explanation": "Fix explanation"
+        }
+      ]
+      Ensure a mix of 'quiz' and 'code' types.
     `;
 
-    // 2. Call Gemini API
-    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    const geminiResp = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2, // Low temp for strict JSON adherence
-          responseMimeType: 'application/json',
-        },
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
       }),
     });
 
-    const data = await response.json();
-    let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!rawText) throw new Error('AI returned empty response');
-
-    // Clean potential markdown wrappers
-    rawText = rawText
-      .replace(/```json/g, '')
-      .replace(/```/g, '')
-      .trim();
-    const result = JSON.parse(rawText);
-
-    // 3. Database Insertion Transaction
-    // A. Insert Track
-    const slug =
-      result.track.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') +
-      '-' +
-      Date.now().toString().slice(-4);
-
-    const { data: trackData, error: trackError } = await supabase
-      .from('tracks')
-      .insert({
-        title: result.track.title,
-        slug: slug,
-        description: result.track.description,
-        category: result.track.category,
-        difficulty: result.track.difficulty,
-        icon: result.track.icon,
-        color_gradient: result.track.color_gradient,
-        is_published: false, // Draft mode by default for safety
-      })
-      .select()
-      .single();
-
-    if (trackError) throw trackError;
-
-    // B. Insert Lessons and Questions
-    for (const lesson of result.lessons) {
-      const { data: lessonData, error: lessonError } = await supabase
-        .from('lessons')
-        .insert({
-          track_id: trackData.id,
-          title: lesson.title,
-          order: lesson.order,
-          xp_reward: lesson.xp_reward,
-          content: lesson.content, // helper to ensure jsonb compatibility
-        })
-        .select()
-        .single();
-
-      if (lessonError) throw lessonError;
-
-      // C. Insert Quiz Question
-      const { error: quizError } = await supabase.from('questions').insert({
-        lesson_id: lessonData.id,
-        type: 'mcq',
-        question: lesson.quiz.question,
-        options: lesson.quiz.options,
-        answer: lesson.quiz.answer, // Storing index or value depending on your DB constraint, assumed JSONB or text match
-        explanation: lesson.quiz.explanation,
-      });
-
-      if (quizError) throw quizError;
+    if (!geminiResp.ok) {
+      const text = await geminiResp.text();
+      throw new Error(`Gemini API Error: ${geminiResp.status} ${text}`);
     }
 
-    return new Response(JSON.stringify({ success: true, track: trackData }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    const geminiData = await geminiResp.json();
+    let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+
+    // Clean markdown
+    rawText = rawText
+      .replace(/^```json\s*/, '')
+      .replace(/^```\s*/, '')
+      .replace(/\s*```$/, '')
+      .trim();
+
+    const tasks = JSON.parse(rawText);
+
+    // 4. SAVE TO DATABASE (The Fix)
+    // We explicitly capture 'error' from the upsert.
+    const { error: dbError } = await supabase.from('daily_sprints').upsert(
+      {
+        user_id: userId,
+        date: today,
+        tasks: tasks,
+        language: language, // Added to match schema
+        difficulty: difficulty, // Added to match schema
+        is_completed: false,
+        xp_earned: 0,
+      },
+      { onConflict: 'user_id, date' },
+    );
+
+    // CRITICAL: If the DB save fails, we THROW so the function fails
+    // and you see the 500 error instead of a fake success.
+    if (dbError) {
+      console.error('CRITICAL DB SAVE ERROR:', dbError);
+      throw new Error(`Database Save Failed: ${dbError.message}`);
+    }
+
+    return new Response(JSON.stringify(tasks), {
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error generating track:', error);
+    console.error('Sprint Gen Error:', error);
     return new Response(JSON.stringify({ error: (error as Error).message }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   }
 });

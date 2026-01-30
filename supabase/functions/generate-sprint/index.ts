@@ -7,79 +7,98 @@ const CORS_HEADERS = {
 };
 
 const GEMINI_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
 
 Deno.serve(async (req) => {
+  // 1. Handle CORS
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
   }
 
   try {
-    const { language, difficulty, userId } = await req.json();
+    const { language, difficulty } = await req.json();
     const apiKey = Deno.env.get('GEMINI_API_KEY');
 
     if (!apiKey) throw new Error('Missing GEMINI_API_KEY');
-    if (!userId) throw new Error('Missing userId');
 
-    const supabase = createClient(
+    // 2. Initialize Supabase Client
+    // We use the Auth Header from the request to get the User Context
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      {
+        global: {
+          headers: { Authorization: req.headers.get('Authorization')! },
+        },
+      },
+    );
+
+    // 3. Get the Real User ID from the JWT (Fixes the "undefined" bug)
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseClient.auth.getUser();
+
+    if (authError || !user) {
+      throw new Error('Unauthorized: Invalid or missing token');
+    }
+    const userId = user.id; // <--- This is now guaranteed to be the correct UUID
+
+    // 4. Initialize Admin Client for Database Operations (Bypass RLS for saving)
+    const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // 1. Check for Existing Sprint
     const today = new Date().toISOString().split('T')[0];
 
-    const { data: existingSprint } = await supabase
+    // 5. Check Cache
+    const { data: existingSprint } = await supabaseAdmin
       .from('daily_sprints')
       .select('tasks')
       .eq('user_id', userId)
       .eq('date', today)
       .maybeSingle();
 
-    if (
-      existingSprint &&
-      existingSprint.tasks &&
-      existingSprint.tasks.length > 0
-    ) {
-      console.log('Returning existing sprint for today.');
+    if (existingSprint) {
+      console.log('Cache Hit: Returning existing sprint');
       return new Response(JSON.stringify(existingSprint.tasks), {
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
       });
     }
 
-    // 2. Generate with Gemini
-    console.log(`Generating sprint for ${language} (${difficulty})...`);
-
+    // 6. Generate Gemini Content
     const prompt = `
       Generate 5 distinct coding tasks for ${language} at ${difficulty} level.
       Return ONLY valid JSON array. No markdown. No comments.
-      
-      Structure the response exactly like this:
+
+      STRICT GENERATION RULES:
+      1. Use MODERN standards only (e.g., JavaScript ES2023+, Python 3.11+, React 18+).
+      2. Do NOT generate questions based on deprecated features.
+      3. For "True/False" or "Quiz" questions, ensure the answer is unambiguously correct in 2024.
+      4. Avoid "trick" questions about features that have changed recently.
+
+      Format:
       [
         {
           "id": 1,
           "type": "quiz",
-          "title": "Concept Check",
-          "content": "A clear question about ${language} syntax or concepts.",
-          "options": ["Option A", "Option B", "Option C", "Option D"],
+          "title": "Topic Name",
+          "content": "Question text",
+          "options": ["A", "B", "C", "D"],
           "correctAnswer": 0,
-          "explanation": "Brief explanation."
+          "explanation": "Why A is correct."
         },
         {
           "id": 2,
           "type": "code",
-          "title": "Bug Fix Challenge",
-          "content": "Describe a bug in the code below.",
-          "codeSnippet": "function broken() { ... }", 
-          "answer": "The corrected code or expected output.",
-          "explanation": "What was fixed."
+          "title": "Coding Challenge",
+          "content": "Problem description",
+          "codeSnippet": "def buggy_function():\\n  pass",
+          "answer": "Correct output or fixed code",
+          "explanation": "Fix explanation"
         }
       ]
-      
-      IMPORTANT:
-      - Mix "quiz" and "code" types (e.g., 2 quiz, 3 code).
-      - Ensure code snippets are valid ${language}.
-      - Do not wrap in \`\`\`json blocks. Just raw JSON.
     `;
 
     const geminiResp = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
@@ -87,34 +106,28 @@ Deno.serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2500 },
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
       }),
     });
 
     if (!geminiResp.ok) {
-      const errText = await geminiResp.text();
-      throw new Error(`Gemini API Error: ${errText}`);
+      const text = await geminiResp.text();
+      throw new Error(`Gemini API Error: ${geminiResp.status} ${text}`);
     }
 
     const geminiData = await geminiResp.json();
     let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
 
+    // Clean markdown
     rawText = rawText
       .replace(/^```json\s*/, '')
       .replace(/^```\s*/, '')
       .replace(/\s*```$/, '')
       .trim();
+    const tasks = JSON.parse(rawText);
 
-    let tasks;
-    try {
-      tasks = JSON.parse(rawText);
-    } catch (parseError) {
-      console.error('JSON Parse Failed:', rawText);
-      throw new Error('Failed to parse Gemini response as JSON');
-    }
-
-    // 3. Save to Database (WITH CATEGORIES)
-    const { error: insertError } = await supabase.from('daily_sprints').upsert(
+    // 7. Save to Database (Using Admin Client & Valid UserID)
+    const { error: dbError } = await supabaseAdmin.from('daily_sprints').upsert(
       {
         user_id: userId,
         date: today,
@@ -127,20 +140,18 @@ Deno.serve(async (req) => {
       { onConflict: 'user_id, date' },
     );
 
-    if (insertError) {
-      console.error('DB Insert Error:', insertError);
-      throw new Error(`Database Error: ${insertError.message}`);
+    if (dbError) {
+      console.error('CRITICAL DB SAVE ERROR:', dbError);
+      throw new Error(`Database Save Failed: ${dbError.message}`);
     }
-
-    console.log('Sprint generated and saved successfully.');
 
     return new Response(JSON.stringify(tasks), {
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Generate Sprint Error:', error);
+    console.error('Sprint Gen Error:', error);
     return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500,
+      status: 500, // Return 500 so you know it failed
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   }

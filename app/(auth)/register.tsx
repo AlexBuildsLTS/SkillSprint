@@ -182,7 +182,7 @@ export default function RegisterScreen() {
                     resizeMode="contain"
                   />
                 </View>
-                <Text style={styles.title}>Establish Core</Text>
+                <Text style={styles.title}>Create Account</Text>
                 <Text style={styles.subtitle}>
                   Provision new learner identity
                 </Text>

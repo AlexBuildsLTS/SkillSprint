@@ -22,6 +22,12 @@ import {
   Play,
   ShieldAlert,
   Check,
+  Smartphone,
+  Server,
+  Gem,
+  Braces,
+  Hash,
+  Box,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, SlideInRight } from 'react-native-reanimated';
 
@@ -49,23 +55,51 @@ const LANGUAGES = [
   {
     id: 'javascript',
     name: 'JavaScript',
-    icon: Globe,
+    icon: Braces, // "Braces" represents JS syntax better
     color: '#eab308',
     desc: 'Web & Async',
   },
   {
+    id: 'typescript',
+    name: 'TypeScript',
+    icon: ShieldAlert, // Represents "Type Safety"
+    color: '#3178c6',
+    desc: 'Type Safety',
+  },
+  {
     id: 'rust',
     name: 'Rust',
-    icon: ShieldAlert,
+    icon: Zap, // "Zap" for Blazing Speed/Safety
     color: '#f97316',
     desc: 'Systems & Memory',
   },
   {
     id: 'java',
     name: 'Java',
-    icon: Code,
+    icon: Code, // Generic Code fits Java's verbosity
     color: '#ef4444',
     desc: 'Enterprise OOP',
+  },
+  {
+    id: 'cpp',
+    name: 'C++',
+    icon: Cpu, // CPU for high performance
+    color: '#00599c',
+    desc: 'High Performance',
+  },
+  {
+    id: 'csharp',
+    name: 'C#',
+    icon: Hash, // "Hash" literally fits C-Sharp
+    color: '#178600',
+    desc: '.NET Ecosystem',
+  },
+  {
+    id: 'go',
+    name: 'Go',
+    icon: Box, // "Box" for Containers/Go Routines
+    color: '#06b6d4',
+    desc: 'Concurrency',
   },
   {
     id: 'sql',
@@ -74,7 +108,34 @@ const LANGUAGES = [
     color: '#10b981',
     desc: 'Data Querying',
   },
-  { id: 'go', name: 'Go', icon: Cpu, color: '#06b6d4', desc: 'Concurrency' },
+  {
+    id: 'swift',
+    name: 'Swift',
+    icon: Smartphone, // Mobile specific
+    color: '#F05138',
+    desc: 'Apple & iOS',
+  },
+  {
+    id: 'kotlin',
+    name: 'Kotlin',
+    icon: Smartphone, // Mobile specific
+    color: '#7F52FF',
+    desc: 'Modern Android',
+  },
+  {
+    id: 'php',
+    name: 'PHP',
+    icon: Server, // Server specific
+    color: '#777BB4',
+    desc: 'Server-side Web',
+  },
+  {
+    id: 'ruby',
+    name: 'Ruby',
+    icon: Gem, // "Gem" fits Ruby perfectly
+    color: '#CC342D',
+    desc: 'Dev Happiness',
+  },
 ];
 
 const DIFFICULTIES = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'];

@@ -176,7 +176,7 @@ export default function LoginScreen() {
                     />
                   </Animated.View>
                 </Pressable>
-                <Text style={styles.title}>SkillSprint</Text>
+
                 <Text style={styles.subtitle}>Resume Technical Mastery</Text>
               </Animated.View>
 
@@ -184,7 +184,7 @@ export default function LoginScreen() {
                 <View style={{ gap: 24 }}>
                   {/* EMAIL INPUT BLOCK */}
                   <View>
-                    <Text style={styles.label}>Learner Identity</Text>
+                    <Text style={styles.label}>Email Account</Text>
                     <View style={styles.inputRow}>
                       <Mail size={18} color={THEME.slate} />
                       <TextInput
@@ -202,7 +202,7 @@ export default function LoginScreen() {
 
                   {/* PASSWORD INPUT BLOCK */}
                   <View>
-                    <Text style={styles.label}>Master Key</Text>
+                    <Text style={styles.label}>Password</Text>
                     <View style={styles.inputRow}>
                       <Lock size={18} color={THEME.slate} />
                       <TextInput
@@ -251,9 +251,7 @@ export default function LoginScreen() {
 
                   {/* ROUTE TRANSITION */}
                   <View style={styles.switchRow}>
-                    <Text style={styles.switchText}>
-                      No Account?{' '}
-                    </Text>
+                    <Text style={styles.switchText}>No Account? </Text>
                     <Link href="/(auth)/register" asChild>
                       <TouchableOpacity
                         onPress={() =>
