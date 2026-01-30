@@ -10,7 +10,6 @@ const GEMINI_API_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
 
 Deno.serve(async (req) => {
-  // 1. Handle CORS
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS });
   }
@@ -18,11 +17,9 @@ Deno.serve(async (req) => {
   try {
     const { language, difficulty } = await req.json();
     const apiKey = Deno.env.get('GEMINI_API_KEY');
-
     if (!apiKey) throw new Error('Missing GEMINI_API_KEY');
 
-    // 2. Initialize Supabase Client
-    // We use the Auth Header from the request to get the User Context
+    // 1. Authenticate User & Get Real ID
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
@@ -33,31 +30,27 @@ Deno.serve(async (req) => {
       },
     );
 
-    // 3. Get the Real User ID from the JWT (Fixes the "undefined" bug)
     const {
       data: { user },
       error: authError,
     } = await supabaseClient.auth.getUser();
+    if (authError || !user) throw new Error('Unauthorized: Invalid token');
+    const userId = user.id;
 
-    if (authError || !user) {
-      throw new Error('Unauthorized: Invalid or missing token');
-    }
-    const userId = user.id; // <--- This is now guaranteed to be the correct UUID
-
-    // 4. Initialize Admin Client for Database Operations (Bypass RLS for saving)
+    // 2. Initialize Admin Client (Bypass RLS)
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
-
     const today = new Date().toISOString().split('T')[0];
 
-    // 5. Check Cache
+    // 3. CHECK CACHE (Language Specific)
     const { data: existingSprint } = await supabaseAdmin
       .from('daily_sprints')
       .select('tasks')
       .eq('user_id', userId)
       .eq('date', today)
+      .eq('language', language)
       .maybeSingle();
 
     if (existingSprint) {
@@ -67,15 +60,46 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 6. Generate Gemini Content
+    // 4. CHECK LIMITS (Role Based)
+    // A. Get User Role
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single();
+
+    const userRole = profile?.role || 'MEMBER';
+
+    // B. Count usage today
+    const { count } = await supabaseAdmin
+      .from('daily_sprints')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('date', today);
+
+    const currentUsage = count || 0;
+
+    // C. Define Limits
+    let dailyLimit = 1;
+    if (userRole === 'PREMIUM' || userRole === 'MODERATOR') dailyLimit = 3;
+    if (userRole === 'ADMIN') dailyLimit = 9999; // <--- YOU ARE HERE
+
+    // D. Enforce
+    if (currentUsage >= dailyLimit) {
+      throw new Error(
+        `Daily limit reached! You are a ${userRole} and can only generate ${dailyLimit} sprints per day.`,
+      );
+    }
+
+    // 5. Generate Gemini Content (ALL LANGUAGES SUPPORTED)
     const prompt = `
       Generate 5 distinct coding tasks for ${language} at ${difficulty} level.
       Return ONLY valid JSON array. No markdown. No comments.
 
       STRICT GENERATION RULES:
-      1. Use MODERN standards only (e.g., JavaScript ES2023+, Python 3.11+, React 18+).
+      1. Use MODERN standards for ${language} (e.g., latest stable version features).
       2. Do NOT generate questions based on deprecated features.
-      3. For "True/False" or "Quiz" questions, ensure the answer is unambiguously correct in 2024.
+      3. For "True/False" or "Quiz" questions, ensure the answer is unambiguously correct in 2024+.
       4. Avoid "trick" questions about features that have changed recently.
 
       Format:
@@ -118,7 +142,6 @@ Deno.serve(async (req) => {
     const geminiData = await geminiResp.json();
     let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
 
-    // Clean markdown
     rawText = rawText
       .replace(/^```json\s*/, '')
       .replace(/^```\s*/, '')
@@ -126,7 +149,7 @@ Deno.serve(async (req) => {
       .trim();
     const tasks = JSON.parse(rawText);
 
-    // 7. Save to Database (Using Admin Client & Valid UserID)
+    // 6. Save to Database
     const { error: dbError } = await supabaseAdmin.from('daily_sprints').upsert(
       {
         user_id: userId,
@@ -137,7 +160,7 @@ Deno.serve(async (req) => {
         is_completed: false,
         xp_earned: 0,
       },
-      { onConflict: 'user_id, date' },
+      { onConflict: 'user_id, date, language' },
     );
 
     if (dbError) {
@@ -151,7 +174,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Sprint Gen Error:', error);
     return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500, // Return 500 so you know it failed
+      status: 400, // Frontend handles 400 as a user-facing error
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   }
