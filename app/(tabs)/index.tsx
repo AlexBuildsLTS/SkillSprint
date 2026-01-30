@@ -525,8 +525,13 @@ export default function Dashboard() {
             <Bento3DCard style={{ width: '100%' }}>
               <View style={[styles.cardInner, { minHeight: 200 }]}>
                 <View style={styles.cardHeader}>
-                  <Activity size={16} color={THEME.emerald} /> 
-                  <Text style={[styles.cardLabel, { marginLeft: 8, color: THEME.emerald }]}>
+                  <Activity size={16} color={THEME.emerald} />
+                  <Text
+                    style={[
+                      styles.cardLabel,
+                      { marginLeft: 8, color: THEME.emerald },
+                    ]}
+                  >
                     ACTIVITY CHART
                   </Text>
                 </View>
@@ -790,7 +795,11 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     overflow: 'hidden',
   },
-  trackFill: { height: '100%', backgroundColor: THEME.indigo, borderRadius: 4 },
+  trackFill: {
+    height: '100%',
+    backgroundColor: THEME.indigo,
+    borderRadius: 4,
+  },
 
   // STATES
   tapHint: {

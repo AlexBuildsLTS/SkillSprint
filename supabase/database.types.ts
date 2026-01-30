@@ -493,6 +493,7 @@ export type Database = {
       };
       calculate_level: { Args: { xp_input: number }; Returns: number };
       calculate_level_from_xp: { Args: { xp_input: number }; Returns: number };
+      get_dashboard_stats: { Args: { target_user_id: string }; Returns: Json };
       get_full_lesson_details: {
         Args: { target_lesson_id: string };
         Returns: Json;

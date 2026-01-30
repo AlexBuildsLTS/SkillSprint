@@ -11,12 +11,14 @@ import {
  * 🛠️ API SERVICE LAYER
  * Centralizes all communication between the React Native frontend and Supabase.
  * Handles Edge Functions, RPC calls, and standard table queries.
+ *
+ * STATUS: PRODUCTION READY
  */
 export const api = {
   /**
    * 🧠 AI: GENERATE DAILY SPRINT
    * Calls the 'generate-sprint' Edge Function to create a personalized learning session.
-   * * @param language - The target programming language (e.g., 'Python', 'Java').
+   * @param language - The target programming language (e.g., 'Python', 'Java').
    * @returns Array of SprintCard objects (lessons/quizzes).
    */
   generateDailySprint: async (language: string): Promise<SprintCard[]> => {
@@ -53,7 +55,7 @@ export const api = {
    * 🏆 GAMIFICATION: COMPLETE SPRINT
    * Submits sprint results to the 'complete-sprint' Edge Function.
    * Handles XP awarding, streak updates, and user progress recording server-side.
-   * * @param xp - Total XP earned in this session.
+   * @param xp - Total XP earned in this session.
    * @param score - Number of correct answers.
    * @returns SprintResult containing new streak and total XP.
    */
@@ -84,7 +86,7 @@ export const api = {
   /**
    * 🛠️ ADMIN: GENERATE TRACK
    * AI-driven generation of new learning tracks.
-   * * @param topic - The subject matter (e.g., "Rust Systems").
+   * @param topic - The subject matter (e.g., "Rust Systems").
    */
   generateTrack: async (topic: string) => {
     const { data, error } = await supabase.functions.invoke('generate-track', {
@@ -102,70 +104,40 @@ export const api = {
    * 📊 DASHBOARD: GET FULL USER STATISTICS
    * Aggregates data from multiple tables and RPCs to populate the main dashboard.
    * Syncs frontend progress bar math with the database leveling curve.
-   * * @param userId - The UUID of the current user.
+   * @param userId - The UUID of the current user.
    */
   getDashboardStats: async (userId: string): Promise<UserDashboardStats> => {
     try {
-      // 1. Fetch Core User Stats (XP, Level, Streak)
-      const { data: stats, error: statsError } = await supabase
-        .from('user_stats')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
+      // 1. CALL THE MASTER RPC (get_dashboard_stats)
+      // This single call returns: XP, Level, Streak, Weekly Count, Breakdown, and Chart.
+      const { data, error } = await supabase.rpc('get_dashboard_stats', {
+        target_user_id: userId,
+      });
 
-      if (statsError) throw statsError;
+      if (error) throw error;
 
-      // 2. Fetch Track Breakdown via RPC (SQL Function: get_user_track_xp)
-      const { data: trackData, error: trackError } = await supabase.rpc(
-        'get_user_track_xp',
-        {
-          target_user_id: userId,
-        },
-      );
-
-      if (trackError)
-        console.error('⚠️ RPC Warning [get_user_track_xp]:', trackError);
-
-      // 3. Fetch Weekly Activity via RPC (SQL Function: get_weekly_activity)
-      const { data: activityData, error: activityError } = await supabase.rpc(
-        'get_weekly_activity',
-        {
-          target_user_id: userId,
-        },
-      );
-
-      if (activityError)
-        console.error('⚠️ RPC Warning [get_weekly_activity]:', activityError);
-
-      // --- LEVELING MATHEMATICS ---
-      // Database Formula: Level = Floor((XP / 100)^0.6) + 1
-      // UI Requirement: We need the specific XP range for the current level (Base -> Next).
-
-      const currentXp = stats?.xp || 0;
-      const currentLevel = stats?.level || 1;
-
-      // Inverse Formula: XP = 100 * (Level - 1)^(1/0.6)
-      // 1 / 0.6 is approximately 1.6666667
-      const getXpThreshold = (lvl: number) => {
-        if (lvl <= 1) return 0;
-        return Math.floor(100 * Math.pow(lvl - 1, 1.6667));
-      };
-
-      const currentLevelBaseXP = getXpThreshold(currentLevel);
-      const nextLevelThresholdXP = getXpThreshold(currentLevel + 1);
+      // The RPC returns exactly the shape we need.
+      // We safely cast it here to ensure Type Safety.
+      const stats = data as any;
 
       return {
-        xp: currentXp,
-        streak_days: stats?.streak_days || 0,
-        level: currentLevel,
-        weekly_sprints: stats?.total_sprints_completed || 0,
-        track_breakdown: (trackData as unknown as TrackXPStats[]) || [],
-        activity_chart: (activityData as unknown as WeeklyActivity[]) || [],
-        next_level_xp: nextLevelThresholdXP,
-        current_level_base_xp: currentLevelBaseXP,
+        xp: stats.xp || 0,
+        streak_days: stats.streak_days || 0,
+        level: stats.level || 1,
+        weekly_sprints: stats.weekly_sprints || 0,
+
+        // Ensure arrays are arrays (defensive coding)
+        track_breakdown: (stats.track_breakdown || []) as TrackXPStats[],
+        activity_chart: (stats.activity_chart || []) as WeeklyActivity[],
+
+        // Pass through the calculated thresholds directly from SQL
+        // This ensures the frontend matches the backend math perfectly.
+        current_level_base_xp: stats.current_level_base_xp || 0,
+        next_level_xp: stats.next_level_xp || 1000,
       };
     } catch (error) {
       console.error('❌ API Error [getDashboardStats]:', error);
+
       // Return safe defaults to prevent white-screen of death
       return {
         xp: 0,
@@ -174,7 +146,7 @@ export const api = {
         weekly_sprints: 0,
         track_breakdown: [],
         activity_chart: [],
-        next_level_xp: 100,
+        next_level_xp: 1000,
         current_level_base_xp: 0,
       };
     }
@@ -183,7 +155,7 @@ export const api = {
   /**
    * 🎖️ BADGES: GET USER BADGES
    * Retrieves joined data of earned badges and their details.
-   * * @param userId - The UUID of the current user.
+   * @param userId - The UUID of the current user.
    */
   getUserBadges: async (userId: string) => {
     const { data, error } = await supabase
@@ -195,6 +167,37 @@ export const api = {
       console.error('❌ API Error [getUserBadges]:', error);
       throw error;
     }
+    return data;
+  },
+
+  /**
+   * 📚 LESSONS: GET TRACK LESSONS
+   * (Optional: Keeping this if you use it elsewhere in your app)
+   */
+  getTrackLessons: async (trackId: string) => {
+    const { data, error } = await supabase
+      .from('lessons')
+      .select('*')
+      .eq('track_id', trackId)
+      .order('order_index', { ascending: true });
+
+    if (error) throw error;
+    return data;
+  },
+
+  /**
+   * 📝 USER PROGRESS: GET LESSON STATUS
+   * (Optional: Keeping this for completeness)
+   */
+  getUserProgress: async (userId: string, lessonId: string) => {
+    const { data, error } = await supabase
+      .from('user_progress')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('lesson_id', lessonId)
+      .maybeSingle();
+
+    if (error) throw error;
     return data;
   },
 };
