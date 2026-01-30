@@ -1,4 +1,3 @@
-// FILE: tailwind.config.js
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   // IMPORTANT: Ensure these paths match your actual folder structure
