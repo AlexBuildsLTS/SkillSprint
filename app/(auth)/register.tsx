@@ -1,14 +1,12 @@
 /**
  * ============================================================================
- * 🔐 SCREEN: SKILLSPRINT CORE ESTABLISHMENT (REGISTER)
- * ============================================================================
  * PATH: app/(auth)/register.tsx
- * STATUS: PRODUCTION READY - ARCHITECT LEVEL
- * * FEATURES:
+ * ARCHITECTURE: Responsive Hybrid (Split-Desktop / Stacked-Mobile)
+ * FIX: Extracted components to prevent re-mounting on keystrokes.
+ * FEATURES:
  * - Multi-stage Node Provisioning Logic.
  * - Neon Password Strength Matrix.
- * - Reanimated v4 3D Bento Worklets.
- * - Strict Confirm Token Validation.
+ * - 3D Gyroscopic-feel Tilt Cards.
  * ============================================================================
  */
 
@@ -27,6 +25,7 @@ import {
   StyleSheet,
   Image,
   Pressable,
+  LayoutChangeEvent,
 } from 'react-native';
 import { useRouter, Link } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -36,19 +35,16 @@ import {
   Mail,
   Lock,
   CheckCircle2,
-  ArrowRight,
   Eye,
   EyeOff,
   ShieldCheck,
-  Cpu,
-  Globe,
   Zap,
   Brain,
   Trophy,
-  Terminal,
-  Activity,
+  Cpu,
   Layers,
-  Database,
+  Globe,
+  Fingerprint,
 } from 'lucide-react-native';
 import Animated, {
   FadeInDown,
@@ -60,30 +56,83 @@ import Animated, {
   interpolateColor,
   interpolate,
   Extrapolation,
+  withSequence,
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // UI COMPONENT SYSTEM
 import { GlassCard } from '@/components/ui/GlassCard';
 import { PasswordStrengthIndicator } from '@/components/auth/PasswordStrengthIndicator';
 import Button from '@/components/ui/Button';
 
+// ASSET: Identity
 const APP_ICON = require('../../assets/images/favicons.png');
 
+// --- THEME & CONFIG ---
 const THEME = {
   indigo: '#6366f1',
   obsidian: '#020617',
   slate: '#94a3b8',
   white: '#ffffff',
   accent: '#10b981',
+  glassBorder: 'rgba(255,255,255,0.08)',
 };
 
+const SPRING_CONFIG = {
+  damping: 15,
+  stiffness: 150,
+  mass: 1,
+};
+
+// --- TYPES ---
+type BentoItem = {
+  icon: any;
+  title: string;
+  desc: string;
+};
+
+// --- DATA ---
+const BENTO_ITEMS: BentoItem[] = [
+  {
+    icon: Zap,
+    title: 'Adaptive Sprints',
+    desc: 'AI-generated challenges tuned precisely to technical gaps.',
+  },
+  {
+    icon: Brain,
+    title: 'Neural Caching',
+    desc: 'Edge-computed spaced repetition algorithmic logic.',
+  },
+  {
+    icon: Trophy,
+    title: 'Elite Clusters',
+    desc: 'Verified Global ranking for senior technical mastery.',
+  },
+  {
+    icon: Cpu,
+    title: 'Deno Wall',
+    desc: 'Isolated progression via server-side secure worklets.',
+  },
+  {
+    icon: Layers,
+    title: 'Deep Tracks',
+    desc: 'Multi-stage learning paths designed by Lead Architects.',
+  },
+  {
+    icon: Globe,
+    title: 'Global Nodes',
+    desc: 'Synchronize technical progress across all device endpoints.',
+  },
+];
+
+// --- MAIN SCREEN COMPONENT ---
 export default function RegisterScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 1024;
 
-  // OPERATOR IDENTITY STATE
+  // FORM STATE
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -93,12 +142,12 @@ export default function RegisterScreen() {
     agreed: false,
   });
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
-  /**
-   * NODE PROVISIONING PROTOCOL
-   * Strictly validates tokens and security agreements
-   */
+  // CALLBACKS (Memoized to prevent unnecessary prop updates)
+  const updateForm = useCallback((key: string, value: string | boolean) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
   const handleRegister = async () => {
     const { firstName, lastName, email, password, confirmPassword, agreed } =
       form;
@@ -157,267 +206,305 @@ export default function RegisterScreen() {
     }
   };
 
-  const updateForm = (key: string, value: string | boolean) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
-
   return (
     <View style={styles.root}>
+      <LinearGradient
+        colors={[THEME.obsidian, '#0f172a', '#000000']}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+
       <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
         >
-          <View style={isDesktop ? styles.desktopLayout : styles.mobileLayout}>
-            {/* --- IDENTITY PROVISIONING SIDEBAR --- */}
-            <View style={isDesktop ? styles.sidebar : styles.mobilePane}>
-              <Animated.View
-                entering={FadeInDown.duration(800).springify()}
-                style={styles.brandHeader}
-              >
-                <View style={styles.brandBox}>
-                  <Image
-                    source={APP_ICON}
-                    style={styles.brandIcon}
-                    resizeMode="contain"
-                  />
-                </View>
-                <Text style={styles.title}>Create Account</Text>
-                <Text style={styles.subtitle}>
-                  Provision new learner identity
-                </Text>
-              </Animated.View>
-
-              <GlassCard intensity="heavy" style={styles.formCard}>
-                <ScrollView
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 20 }}
-                >
-                  {/* Name Cluster */}
-                  <View style={styles.nameRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.label}>First Name</Text>
-                      <View style={styles.inputRow}>
-                        <User size={16} color={THEME.slate} />
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="Jane"
-                          placeholderTextColor="#475569"
-                          value={form.firstName}
-                          onChangeText={(v) => updateForm('firstName', v)}
-                        />
-                      </View>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.label}>Last Name</Text>
-                      <View style={styles.inputRow}>
-                        <User size={16} color={THEME.slate} />
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="Doe"
-                          placeholderTextColor="#475569"
-                          value={form.lastName}
-                          onChangeText={(v) => updateForm('lastName', v)}
-                        />
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Identity Node */}
-                  <View>
-                    <Text style={styles.label}>Identity Email</Text>
-                    <View style={styles.inputRow}>
-                      <Mail size={16} color={THEME.slate} />
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="learner@skillsprint.ai"
-                        autoCapitalize="none"
-                        placeholderTextColor="#475569"
-                        value={form.email}
-                        onChangeText={(v) => updateForm('email', v)}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Security Master Token */}
-                  <View>
-                    <Text style={styles.label}>Master Token</Text>
-                    <View style={styles.inputRow}>
-                      <Lock size={16} color={THEME.slate} />
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="••••••••"
-                        secureTextEntry={!showPassword}
-                        placeholderTextColor="#475569"
-                        value={form.password}
-                        onChangeText={(v) => updateForm('password', v)}
-                      />
-                      <TouchableOpacity
-                        onPress={() => setShowPassword(!showPassword)}
-                      >
-                        {showPassword ? (
-                          <EyeOff size={16} color={THEME.slate} />
-                        ) : (
-                          <Eye size={16} color={THEME.slate} />
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                    <PasswordStrengthIndicator password={form.password} />
-                  </View>
-
-                  {/* Token Verification */}
-                  <View>
-                    <Text style={styles.label}>Confirm Token</Text>
-                    <View style={styles.inputRow}>
-                      <Lock size={16} color={THEME.slate} />
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="••••••••"
-                        secureTextEntry={!showPassword}
-                        placeholderTextColor="#475569"
-                        value={form.confirmPassword}
-                        onChangeText={(v) => updateForm('confirmPassword', v)}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Security Protocol Check */}
-                  <TouchableOpacity
-                    style={styles.protocolRow}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      updateForm('agreed', !form.agreed);
-                    }}
-                  >
-                    <View
-                      style={[
-                        styles.checkbox,
-                        form.agreed && {
-                          backgroundColor: THEME.indigo,
-                          borderColor: THEME.indigo,
-                        },
-                      ]}
-                    >
-                      {form.agreed && <CheckCircle2 size={12} color="#fff" />}
-                    </View>
-                    <Text style={styles.protocolText}>
-                      Accept Security Protocols & Terms
-                    </Text>
-                  </TouchableOpacity>
-
-                  <Button
-                    onPress={handleRegister}
-                    disabled={loading}
-                    fullWidth
-                    size="lg"
-                  >
-                    {loading ? (
-                      <ActivityIndicator color={THEME.white} />
-                    ) : (
-                      'REGISTER'
-                    )}
-                  </Button>
-
-                  <View style={styles.switchRow}>
-                    <Text style={styles.switchText}>
-                      Node already provisioned?{' '}
-                    </Text>
-                    <Link href="/(auth)/login" asChild>
-                      <TouchableOpacity>
-                        <Text style={styles.switchLink}>Sign In</Text>
-                      </TouchableOpacity>
-                    </Link>
-                  </View>
-                </ScrollView>
-              </GlassCard>
-
-              {/* Security Footer Tag */}
-              <View style={styles.integrityFooter}>
-                <ShieldCheck size={14} color={THEME.slate} />
-                <Text style={styles.integrityText}>
-                  ENCRYPTED IDENTITY REGISTRY V2.4
-                </Text>
+          {isDesktop ? (
+            <View style={styles.desktopContainer}>
+              <View style={styles.desktopSidebar}>
+                <RegisterFormContent
+                  form={form}
+                  loading={loading}
+                  updateForm={updateForm}
+                  onRegister={handleRegister}
+                />
               </View>
+              <ScrollView
+                style={styles.desktopScroll}
+                contentContainerStyle={styles.desktopScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <MarketingContent isDesktop={true} />
+              </ScrollView>
             </View>
-
-            {/* --- BENTO INTELLIGENCE GRID --- */}
-            {isDesktop && <MarketingSection />}
-          </View>
+          ) : (
+            <ScrollView
+              style={styles.mobileScroll}
+              contentContainerStyle={styles.mobileScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.mobilePane}>
+                <RegisterFormContent
+                  form={form}
+                  loading={loading}
+                  updateForm={updateForm}
+                  onRegister={handleRegister}
+                />
+              </View>
+              <View style={styles.mobileDivider} />
+              <View style={styles.mobilePane}>
+                <MarketingContent isDesktop={false} />
+              </View>
+            </ScrollView>
+          )}
         </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
   );
 }
 
-// SHARED COMPONENTS DUPLICATED FOR ARCHITECTURAL STABILITY
-const MarketingSection = memo(() => (
-  <ScrollView
-    style={styles.contentScroll}
-    contentContainerStyle={styles.marketingContainer}
-    showsVerticalScrollIndicator={false}
-  >
-    <Animated.View entering={FadeInRight.duration(1000).springify()}>
-      <Text style={styles.heroTitle}>
+// --- EXTRACTED COMPONENTS (PREVENTS RE-RENDER LOOPS) ---
+
+const RegisterFormContent = memo(
+  ({ form, loading, updateForm, onRegister }: any) => {
+    const [showPassword, setShowPassword] = useState(false);
+    const iconScale = useSharedValue(1);
+    const iconRotate = useSharedValue(0);
+
+    const animatedIconStyle = useAnimatedStyle(() => ({
+      transform: [
+        { scale: iconScale.value },
+        { rotate: `${iconRotate.value}deg` },
+      ],
+    }));
+
+    const handleIconPress = () => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      iconRotate.value = withSequence(
+        withTiming(15, { duration: 100 }),
+        withTiming(-15, { duration: 100 }),
+        withTiming(0, { duration: 100 }),
+      );
+    };
+
+    return (
+      <View style={{ width: '100%', maxWidth: 480 }}>
+        <Animated.View
+          entering={FadeInDown.duration(800).springify()}
+          style={styles.brandHeader}
+        >
+          <Pressable
+            onPressIn={() => (iconScale.value = withSpring(1.1))}
+            onPressOut={() => (iconScale.value = withSpring(1))}
+            onPress={handleIconPress}
+          >
+            <Animated.View style={animatedIconStyle}>
+              <Image
+                source={APP_ICON}
+                style={styles.brandIcon}
+                resizeMode="contain"
+              />
+            </Animated.View>
+          </Pressable>
+          <Text style={styles.title}>Create Account</Text>
+          <Text style={styles.subtitle}>Provision new learner identity</Text>
+        </Animated.View>
+
+        <GlassCard intensity="heavy" style={styles.formCard}>
+          <View style={{ gap: 20 }}>
+            {/* Name Cluster */}
+            <View style={styles.nameRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>First Name</Text>
+                <View style={styles.inputRow}>
+                  <User size={16} color={THEME.slate} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Jane"
+                    placeholderTextColor="#475569"
+                    value={form.firstName}
+                    onChangeText={(v) => updateForm('firstName', v)}
+                  />
+                </View>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>Last Name</Text>
+                <View style={styles.inputRow}>
+                  <User size={16} color={THEME.slate} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Doe"
+                    placeholderTextColor="#475569"
+                    value={form.lastName}
+                    onChangeText={(v) => updateForm('lastName', v)}
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Identity Node */}
+            <View>
+              <Text style={styles.label}>Identity Email</Text>
+              <View style={styles.inputRow}>
+                <Mail size={16} color={THEME.slate} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="learner@skillsprint.ai"
+                  autoCapitalize="none"
+                  placeholderTextColor="#475569"
+                  value={form.email}
+                  onChangeText={(v) => updateForm('email', v)}
+                />
+              </View>
+            </View>
+
+            {/* Security Master Token */}
+            <View>
+              <Text style={styles.label}>Master Token</Text>
+              <View style={styles.inputRow}>
+                <Lock size={16} color={THEME.slate} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="••••••••"
+                  secureTextEntry={!showPassword}
+                  placeholderTextColor="#475569"
+                  value={form.password}
+                  onChangeText={(v) => updateForm('password', v)}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={{ padding: 4 }}
+                >
+                  {showPassword ? (
+                    <EyeOff size={16} color={THEME.slate} />
+                  ) : (
+                    <Eye size={16} color={THEME.slate} />
+                  )}
+                </TouchableOpacity>
+              </View>
+              <PasswordStrengthIndicator password={form.password} />
+            </View>
+
+            {/* Token Verification */}
+            <View>
+              <Text style={styles.label}>Confirm Token</Text>
+              <View style={styles.inputRow}>
+                <Lock size={16} color={THEME.slate} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="••••••••"
+                  secureTextEntry={!showPassword}
+                  placeholderTextColor="#475569"
+                  value={form.confirmPassword}
+                  onChangeText={(v) => updateForm('confirmPassword', v)}
+                />
+              </View>
+            </View>
+
+            {/* Protocol Check */}
+            <TouchableOpacity
+              style={styles.protocolRow}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                updateForm('agreed', !form.agreed);
+              }}
+            >
+              <View
+                style={[
+                  styles.checkbox,
+                  form.agreed && {
+                    backgroundColor: THEME.indigo,
+                    borderColor: THEME.indigo,
+                  },
+                ]}
+              >
+                {form.agreed && <CheckCircle2 size={12} color="#fff" />}
+              </View>
+              <Text style={styles.protocolText}>
+                Accept Security Protocols & Terms
+              </Text>
+            </TouchableOpacity>
+
+            <Button onPress={onRegister} disabled={loading} fullWidth size="lg">
+              {loading ? <ActivityIndicator color={THEME.white} /> : 'REGISTER'}
+            </Button>
+
+            <View style={styles.switchRow}>
+              <Text style={styles.switchText}>Node already provisioned? </Text>
+              <Link href="/(auth)/login" asChild>
+                <TouchableOpacity>
+                  <Text style={styles.switchLink}>Sign In</Text>
+                </TouchableOpacity>
+              </Link>
+            </View>
+          </View>
+        </GlassCard>
+
+        <View style={styles.integrityFooter}>
+          <ShieldCheck size={14} color={THEME.slate} />
+          <Text style={styles.integrityText}>
+            ENCRYPTED IDENTITY REGISTRY V2.4
+          </Text>
+        </View>
+      </View>
+    );
+  },
+);
+RegisterFormContent.displayName = 'RegisterFormContent';
+
+const MarketingContent = memo(({ isDesktop }: { isDesktop: boolean }) => (
+  <View style={{ width: '100%', paddingBottom: 60 }}>
+    <Animated.View
+      entering={FadeInRight.duration(1000).springify()}
+      style={{ marginBottom: 40 }}
+    >
+      <Text style={[styles.heroTitle, !isDesktop && styles.heroTitleMobile]}>
         Elite <Text style={{ color: THEME.indigo }}>Performance</Text>
       </Text>
-      <Text style={styles.heroSub}>
+      <Text style={[styles.heroSub, !isDesktop && styles.heroSubMobile]}>
         The production-grade habit engine for software engineers. Master complex
         technical systems in 5-minute sessions.
       </Text>
     </Animated.View>
+
     <View style={styles.bentoGrid}>
-      <BentoModule
-        icon={Zap}
-        title="Adaptive Sprints"
-        desc="AI-generated challenges tuned precisely to technical gaps."
-        index={0}
-      />
-      <BentoModule
-        icon={Brain}
-        title="Neural Caching"
-        desc="Edge-computed spaced repetition algorithmic logic."
-        index={1}
-      />
-      <BentoModule
-        icon={Trophy}
-        title="Elite Clusters"
-        desc="Verified Global ranking for senior technical mastery."
-        index={2}
-      />
-      <BentoModule
-        icon={Cpu}
-        title="Deno Wall"
-        desc="Isolated progression via server-side secure worklets."
-        index={3}
-      />
-      <BentoModule
-        icon={Layers}
-        title="Deep Tracks"
-        desc="Multi-stage learning paths designed by Lead Architects."
-        index={4}
-      />
-      <BentoModule
-        icon={Globe}
-        title="Global Nodes"
-        desc="Synchronize technical progress across all device endpoints."
-        index={5}
-      />
+      {BENTO_ITEMS.map((item, index) => (
+        <Bento3DCard
+          key={index}
+          index={index}
+          item={item}
+          isDesktop={isDesktop}
+        />
+      ))}
     </View>
+
     <View style={styles.footerVersion}>
       <Text style={styles.versionText}>
         BUILD 2026.04.12 | SECURE ENCLAVE ACTIVE
       </Text>
     </View>
-  </ScrollView>
+  </View>
 ));
-MarketingSection.displayName = 'MarketingSection';
+MarketingContent.displayName = 'MarketingContent';
 
-const BentoModule = React.forwardRef(
-  ({ icon: Icon, title, desc, index }: any, ref: React.Ref<View>) => {
+const Bento3DCard = memo(
+  ({
+    item,
+    index,
+    isDesktop,
+  }: {
+    item: BentoItem;
+    index: number;
+    isDesktop: boolean;
+  }) => {
+    const Icon = item.icon;
     const rotateX = useSharedValue(0);
     const rotateY = useSharedValue(0);
     const scale = useSharedValue(1);
-    const glow = useSharedValue(0);
+    const glowOpacity = useSharedValue(0);
+    const [layout, setLayout] = useState({ width: 0, height: 0, x: 0, y: 0 });
 
     const animatedStyle = useAnimatedStyle(() => ({
       transform: [
@@ -427,30 +514,47 @@ const BentoModule = React.forwardRef(
         { scale: withSpring(scale.value, { damping: 12, stiffness: 100 }) },
       ],
       backgroundColor: interpolateColor(
-        glow.value,
+        glowOpacity.value,
         [0, 1],
         ['rgba(15, 23, 42, 0.3)', 'rgba(99, 102, 241, 0.08)'],
       ),
       borderColor: interpolateColor(
-        glow.value,
+        glowOpacity.value,
         [0, 1],
         ['rgba(255,255,255,0.05)', 'rgba(99, 102, 241, 0.4)'],
       ),
     }));
 
-    const onPointerMove = (e: any) => {
-      if (Platform.OS === 'web') {
-        const { nativeEvent } = e;
-        rotateY.value = interpolate(
-          nativeEvent.offsetX,
-          [0, 300],
-          [-8, 8],
+    const handleInteraction = (active: boolean) => {
+      scale.value = withSpring(active ? 0.98 : 1);
+      glowOpacity.value = withTiming(active ? 1 : 0);
+      if (!active && !isDesktop) {
+        rotateX.value = withSpring(0);
+        rotateY.value = withSpring(0);
+      }
+    };
+
+    const handleMove = (event: any) => {
+      const x =
+        Platform.OS === 'web'
+          ? event.nativeEvent.offsetX
+          : event.nativeEvent.locationX;
+      const y =
+        Platform.OS === 'web'
+          ? event.nativeEvent.offsetY
+          : event.nativeEvent.locationY;
+
+      if (layout.width > 0 && layout.height > 0) {
+        rotateX.value = interpolate(
+          y,
+          [0, layout.height],
+          [8, -8],
           Extrapolation.CLAMP,
         );
-        rotateX.value = interpolate(
-          nativeEvent.offsetY,
-          [0, 250],
-          [8, -8],
+        rotateY.value = interpolate(
+          x,
+          [0, layout.width],
+          [-8, 8],
           Extrapolation.CLAMP,
         );
       }
@@ -458,72 +562,64 @@ const BentoModule = React.forwardRef(
 
     return (
       <Animated.View
-        ref={ref}
         entering={FadeInRight.delay(400 + index * 100).springify()}
         style={[
-          { width: '48%', borderRadius: 28, borderWidth: 1 },
+          styles.bentoCardContainer,
+          { width: isDesktop ? '48%' : '100%' },
           animatedStyle,
         ]}
+        onLayout={(e: LayoutChangeEvent) => setLayout(e.nativeEvent.layout)}
       >
         <Pressable
-          onPointerEnter={() => {
-            scale.value = 1.04;
-            glow.value = withTiming(1);
-          }}
-          onPointerLeave={() => {
-            scale.value = 1;
-            glow.value = withTiming(0);
-            rotateX.value = withSpring(0);
-            rotateY.value = withSpring(0);
-          }}
-          onPointerMove={onPointerMove}
-          onTouchStart={() => {
-            scale.value = 0.98;
-            glow.value = withTiming(1);
-          }}
-          onTouchEnd={() => {
-            scale.value = 1;
-            glow.value = withTiming(0);
-          }}
           style={styles.bentoInnerContent}
+          onHoverIn={() => isDesktop && handleInteraction(true)}
+          onHoverOut={() => isDesktop && handleInteraction(false)}
+          onPressIn={() => handleInteraction(true)}
+          onPressOut={() => handleInteraction(false)}
+          // @ts-ignore
+          onPointerMove={isDesktop ? handleMove : undefined}
+          onTouchMove={!isDesktop ? handleMove : undefined}
         >
           <View style={styles.bentoIconBox}>
             <Icon size={26} color={THEME.indigo} strokeWidth={2.5} />
           </View>
-          <Text style={styles.bentoTitle}>{title}</Text>
-          <Text style={styles.bentoDesc}>{desc}</Text>
+          <Text style={styles.bentoTitle}>{item.title}</Text>
+          <Text style={styles.bentoDesc}>{item.desc}</Text>
         </Pressable>
       </Animated.View>
     );
   },
 );
-BentoModule.displayName = 'BentoModule';
+Bento3DCard.displayName = 'Bento3DCard';
 
+// --- STYLESHEET ---
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
-  desktopLayout: { flexDirection: 'row', flex: 1 },
-  mobileLayout: { flex: 1, justifyContent: 'center' },
-  sidebar: {
-    width: '38%',
+  desktopContainer: { flexDirection: 'row', flex: 1 },
+  desktopSidebar: {
+    width: '42%',
     height: '100%',
     paddingHorizontal: 56,
     justifyContent: 'center',
+    alignItems: 'center',
     borderRightWidth: 1,
     borderRightColor: '#1e293b',
-    backgroundColor: THEME.obsidian,
+    backgroundColor: 'rgba(2, 6, 23, 0.85)',
     zIndex: 10,
   },
-  mobilePane: { width: '100%', padding: 24 },
-  brandHeader: { alignItems: 'center', marginBottom: 32 },
-  brandBox: {
-    width: 140,
-    height: 140,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
+  desktopScroll: { flex: 1 },
+  desktopScrollContent: { padding: 80, paddingBottom: 150 },
+  mobileScroll: { flex: 1 },
+  mobileScrollContent: { flexGrow: 1, paddingBottom: 80 },
+  mobilePane: { padding: 24, paddingTop: 40 },
+  mobileDivider: {
+    height: 1,
+    backgroundColor: '#1e293b',
+    marginVertical: 40,
+    marginHorizontal: 24,
   },
-  brandIcon: { width: '100%', height: '100%' },
+  brandHeader: { alignItems: 'center', marginBottom: 32 },
+  brandIcon: { width: 140, height: 140, marginBottom: 24 },
   title: {
     color: THEME.white,
     fontSize: 40,
@@ -537,7 +633,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '500',
   },
-  formCard: { padding: 28, borderRadius: 44, borderBottomWidth: 0 },
+  formCard: {
+    padding: 28,
+    borderRadius: 44,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+  },
+  nameRow: { flexDirection: 'row', gap: 16 },
   label: {
     color: '#6366f1',
     fontSize: 9,
@@ -564,10 +667,6 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     fontWeight: '600',
   },
-  switchRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
-  switchText: { color: '#64748b', fontSize: 13 },
-  switchLink: { color: THEME.indigo, fontWeight: '800', fontSize: 13 },
-  nameRow: { flexDirection: 'row', gap: 16 },
   protocolRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -584,8 +683,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   protocolText: { color: THEME.slate, fontSize: 11 },
-  contentScroll: { flex: 1, backgroundColor: '#010409' },
-  marketingContainer: { padding: 80, paddingBottom: 120 },
+  switchRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
+  switchText: { color: '#64748b', fontSize: 13 },
+  switchLink: { color: THEME.indigo, fontWeight: '800', fontSize: 13 },
+  integrityFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 40,
+    opacity: 0.3,
+    gap: 10,
+  },
+  integrityText: {
+    color: THEME.slate,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+  },
   heroTitle: {
     color: THEME.white,
     fontSize: 64,
@@ -594,6 +708,7 @@ const styles = StyleSheet.create({
     letterSpacing: -4,
     lineHeight: 76,
   },
+  heroTitleMobile: { fontSize: 42, lineHeight: 48 },
   heroSub: {
     color: '#64748b',
     fontSize: 20,
@@ -601,8 +716,14 @@ const styles = StyleSheet.create({
     marginTop: 28,
     maxWidth: 580,
   },
+  heroSubMobile: { fontSize: 16, lineHeight: 26 },
   bentoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 24, marginTop: 64 },
-  bentoInnerContent: { padding: 36, minHeight: 230 },
+  bentoCardContainer: { borderRadius: 28, borderWidth: 1, overflow: 'hidden' },
+  bentoInnerContent: {
+    padding: 36,
+    minHeight: 230,
+    justifyContent: 'flex-start',
+  },
   bentoIconBox: {
     width: 56,
     height: 56,
@@ -619,20 +740,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   bentoDesc: { color: '#64748b', fontSize: 15, lineHeight: 24 },
-  integrityFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 40,
-    opacity: 0.3,
-    gap: 10,
-  },
-  integrityText: {
-    color: THEME.slate,
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 1.5,
-  },
   footerVersion: { marginTop: 100, opacity: 0.15 },
   versionText: {
     color: THEME.slate,
