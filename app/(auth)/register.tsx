@@ -1,5 +1,7 @@
 /**
  * ============================================================================
+ * 🔐 SCREEN: SKILLSPRINT CORE ESTABLISHMENT (REGISTER) - V8.0 (PERFORMANCE FIX)
+ * ============================================================================
  * PATH: app/(auth)/register.tsx
  * ARCHITECTURE: Responsive Hybrid (Split-Desktop / Stacked-Mobile)
  * FIX: Extracted components to prevent re-mounting on keystrokes.
@@ -7,6 +9,7 @@
  * - Multi-stage Node Provisioning Logic.
  * - Neon Password Strength Matrix.
  * - 3D Gyroscopic-feel Tilt Cards.
+ * - Liquid Glassmorphism.
  * ============================================================================
  */
 
