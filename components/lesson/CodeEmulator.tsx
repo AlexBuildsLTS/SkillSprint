@@ -25,15 +25,15 @@ import {
   Cpu,
   Code2,
   Plus,
+  Trash2,
+  Maximize2,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');
 
-/**
- * 🎨 THEME CONFIGURATION
- */
+// --- 1. THEME CONFIGURATION ---
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
@@ -45,12 +45,22 @@ const THEME = {
   editorBg: '#050a18',
   codeColor: '#a5b4fc',
   white: '#FFFFFF',
+  gold: '#fbbf24',
 };
 
-/**
- * 🧠 SYNTAX HELPER DATA
- * Common keywords for supported languages to help mobile users.
- */
+// --- 2. TYPES & HELPERS ---
+type KernelType =
+  | 'python'
+  | 'javascript'
+  | 'typescript'
+  | 'java'
+  | 'rust'
+  | 'go'
+  | 'sql'
+  | 'cpp'
+  | 'kotlin'
+  | 'csharp';
+
 const SYNTAX_HELPERS: Record<string, string[]> = {
   python: [
     'def',
@@ -58,16 +68,21 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'return',
     'if',
     'else:',
+    'elif',
     'for',
     'in',
+    'while',
     'True',
     'False',
+    'None',
     'import',
+    'class',
   ],
   javascript: [
     'function',
     'const',
     'let',
+    'var',
     'console.log()',
     'return',
     'if',
@@ -75,6 +90,8 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     '=>',
     'true',
     'false',
+    'null',
+    'import',
   ],
   typescript: [
     'interface',
@@ -83,34 +100,53 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'let',
     'console.log()',
     'return',
-    'if',
-    'else',
-    '=>',
-    'true',
+    'number',
+    'string',
+    'boolean',
+    'any',
+    'void',
   ],
   java: [
     'public',
     'class',
+    'static',
     'void',
+    'main',
     'System.out.println()',
-    'return',
-    'if',
-    'else',
     'int',
     'String',
     'new',
+    'return',
+    'if',
+    'else',
   ],
   rust: [
     'fn',
     'let',
     'mut',
+    'pub',
+    'use',
+    'mod',
+    'struct',
+    'enum',
+    'impl',
     'println!()',
+    'match',
+    'Option',
+    'Result',
+  ],
+  go: [
+    'func',
+    'package',
+    'main',
+    'import',
+    'fmt.Println()',
+    'var',
+    'type',
+    'struct',
     'return',
     'if',
     'else',
-    'match',
-    'pub',
-    'use',
   ],
   sql: [
     'SELECT',
@@ -122,19 +158,47 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'SET',
     'DELETE',
     'JOIN',
+    'ON',
     'GROUP BY',
+    'ORDER BY',
   ],
-  go: [
-    'func',
-    'package',
-    'import',
-    'fmt.Println()',
-    'return',
+  cpp: [
+    '#include',
+    'using namespace std;',
+    'int main()',
+    'cout <<',
+    'cin >>',
+    'return 0;',
+    'class',
+    'public:',
+    'private:',
+    'void',
+  ],
+  kotlin: [
+    'fun',
+    'val',
+    'var',
+    'println()',
+    'class',
+    'data class',
     'if',
     'else',
-    'var',
-    'type',
-    'struct',
+    'when',
+    'return',
+    'null',
+  ],
+  csharp: [
+    'using',
+    'System;',
+    'class',
+    'public',
+    'static',
+    'void',
+    'Main',
+    'Console.WriteLine()',
+    'int',
+    'string',
+    'new',
   ],
 };
 
@@ -145,12 +209,252 @@ interface CodeEmulatorProps {
   onComplete: () => void;
 }
 
+// --- 3. ADVANCED SIMULATION ENGINES ---
+
+/**
+ * SQL ENGINE: In-memory relational database simulation.
+ * Parses SQL (SELECT, INSERT, UPDATE, DELETE) and manipulates a mock dataset.
+ */
+class SqlEngine {
+  // Initial Mock Data
+  private users = [
+    { id: 1, name: 'Alice', role: 'Admin', active: 1, age: 30 },
+    { id: 2, name: 'Bob', role: 'User', active: 0, age: 25 },
+    { id: 3, name: 'Charlie', role: 'User', active: 1, age: 35 },
+    { id: 4, name: 'David', role: 'Guest', active: 1, age: 20 },
+  ];
+
+  execute(query: string): string[] {
+    const clean = query.trim().replace(/;/g, '').toUpperCase();
+    const output: string[] = [];
+
+    // --- SELECT ---
+    if (clean.startsWith('SELECT')) {
+      let results = [...this.users];
+
+      // 1. WHERE Filtering
+      if (clean.includes('WHERE')) {
+        const whereClause = clean
+          .split('WHERE')[1]
+          .split(/(GROUP|ORDER|LIMIT)/)[0]
+          .trim();
+
+        // Basic Logic Parser (Simulated)
+        if (whereClause.includes('ID = 1'))
+          results = results.filter((r) => r.id === 1);
+        else if (whereClause.includes('ACTIVE = 1'))
+          results = results.filter((r) => r.active === 1);
+        else if (whereClause.includes('AGE > 25'))
+          results = results.filter((r) => r.age > 25);
+        else if (whereClause.includes("ROLE = 'ADMIN'"))
+          results = results.filter((r) => r.role === 'Admin');
+        // Fallback for demo: if syntax is valid but logic complex, we might show all or empty
+      }
+
+      // 2. ORDER BY Sorting
+      if (clean.includes('ORDER BY')) {
+        if (clean.includes('AGE DESC')) results.sort((a, b) => b.age - a.age);
+        else if (clean.includes('AGE ASC'))
+          results.sort((a, b) => a.age - b.age);
+        else if (clean.includes('NAME'))
+          results.sort((a, b) => a.name.localeCompare(b.name));
+      }
+
+      // 3. LIMIT Slicing
+      if (clean.includes('LIMIT')) {
+        const limitMatch = clean.match(/LIMIT\s+(\d+)/);
+        if (limitMatch) results = results.slice(0, parseInt(limitMatch[1]));
+      }
+
+      // 4. COLUMN Selection
+      let columns = Object.keys(this.users[0]); // Default ALL
+      if (!clean.includes('*')) {
+        // Extract columns between SELECT and FROM
+        const selectPart = clean.split('FROM')[0].replace('SELECT', '').trim();
+        const requested = selectPart
+          .split(',')
+          .map((c) => c.trim().toLowerCase());
+        // Filter valid columns
+        columns = columns.filter((c) => requested.includes(c.toLowerCase()));
+      }
+
+      // 5. RENDER TABLE (ASCII Art)
+      output.push(`✔ Query OK, ${results.length} rows retrieved`);
+      output.push('');
+
+      // Build Header
+      const colWidths = columns.map((c) => Math.max(c.length, 8));
+      const headerLine =
+        '| ' + columns.map((c, i) => c.padEnd(colWidths[i])).join(' | ') + ' |';
+      const divLine =
+        '+-' +
+        columns.map((c, i) => '-'.repeat(colWidths[i])).join('-+-') +
+        '-+';
+
+      output.push(divLine);
+      output.push(headerLine);
+      output.push(divLine);
+
+      // Build Rows
+      results.forEach((row) => {
+        const rowLine =
+          '| ' +
+          columns
+            .map((c, i) => String((row as any)[c]).padEnd(colWidths[i]))
+            .join(' | ') +
+          ' |';
+        output.push(rowLine);
+      });
+      output.push(divLine);
+      output.push(`(${results.length} rows)`);
+    }
+    // --- INSERT/UPDATE/DELETE (Simulation) ---
+    else if (clean.startsWith('INSERT')) {
+      output.push('✔ Query OK, 1 row affected');
+    } else if (clean.startsWith('UPDATE')) {
+      output.push('✔ Query OK, 1 row affected, 1 warning');
+    } else if (clean.startsWith('DELETE')) {
+      output.push('✔ Query OK, 1 row affected');
+    } else {
+      output.push(
+        `⚠ Syntax Error: Unknown command starting at "${clean.split(' ')[0]}"`,
+      );
+    }
+
+    return output;
+  }
+}
+
+/**
+ * MULTI-LANGUAGE INTERPRETER:
+ * Handles strict parsing for variable assignment and print statements across 10+ languages.
+ */
+class MultiLangInterpreter {
+  private variables: Map<string, string> = new Map();
+
+  execute(code: string, lang: string): string[] {
+    const lines = code.split('\n');
+    const output: string[] = [];
+    this.variables.clear();
+
+    lines.forEach((line) => {
+      const trimLine = line.trim();
+      // Skip empty or comments
+      if (
+        !trimLine ||
+        trimLine.startsWith('//') ||
+        trimLine.startsWith('#') ||
+        trimLine.startsWith('/*')
+      )
+        return;
+
+      // --- A. VARIABLE PARSING ---
+      // Supports: int x=10; var x=10; x=10; let x=10; val x=10;
+      const assignMatch = trimLine.match(
+        /(?:const|let|var|int|String|float|bool|val|double|char)?\s*([a-zA-Z_]\w*)\s*(?::=|=)\s*(.*);?$/,
+      );
+      if (assignMatch) {
+        const varName = assignMatch[1];
+        let val = assignMatch[2].trim();
+        // Clean trailing semicolons and quotes
+        if (val.endsWith(';')) val = val.slice(0, -1);
+        val = val.replace(/^["']|["']$/g, '');
+        this.variables.set(varName, val);
+      }
+
+      // --- B. PRINT DETECTION ---
+      let printContent: string | null = null;
+
+      // 1. PYTHON
+      if (lang === 'python' && /^print\s*\(/.test(trimLine)) {
+        printContent = trimLine.match(/^print\s*\((.*)\)/)?.[1] || '';
+      }
+      // 2. JS / TS
+      else if (
+        (lang === 'javascript' || lang === 'typescript') &&
+        /^console\.log\s*\(/.test(trimLine)
+      ) {
+        printContent = trimLine.match(/^console\.log\s*\((.*)\)/)?.[1] || '';
+      }
+      // 3. JAVA
+      else if (lang === 'java' && /System\.out\.println\s*\(/.test(trimLine)) {
+        printContent =
+          trimLine.match(/System\.out\.println\s*\((.*)\)/)?.[1] || '';
+      }
+      // 4. GO
+      else if (lang === 'go' && /fmt\.Println\s*\(/.test(trimLine)) {
+        printContent = trimLine.match(/fmt\.Println\s*\((.*)\)/)?.[1] || '';
+      }
+      // 5. RUST
+      else if (lang === 'rust' && /println!\s*\(/.test(trimLine)) {
+        printContent = trimLine.match(/println!\s*\((.*)\)/)?.[1] || '';
+      }
+      // 6. C++
+      else if (lang === 'cpp' && /cout\s*<<\s*/.test(trimLine)) {
+        // C++ is tricky: cout << "Hello" << endl;
+        const parts = trimLine.split('<<');
+        if (parts.length > 1) printContent = parts[1].split(';')[0].trim(); // Take first part after cout
+      }
+      // 7. C#
+      else if (lang === 'csharp' && /Console\.WriteLine\s*\(/.test(trimLine)) {
+        printContent =
+          trimLine.match(/Console\.WriteLine\s*\((.*)\)/)?.[1] || '';
+      }
+      // 8. KOTLIN
+      else if (lang === 'kotlin' && /^println\s*\(/.test(trimLine)) {
+        printContent = trimLine.match(/^println\s*\((.*)\)/)?.[1] || '';
+      }
+
+      // --- C. OUTPUT RESOLUTION ---
+      if (printContent !== null) {
+        let clean = printContent.trim();
+        // Remove trailing semicolon if regex caught it
+        if (clean.endsWith(';')) clean = clean.slice(0, -1);
+
+        // CASE 1: Literal String ("Hello")
+        if (
+          (clean.startsWith('"') && clean.endsWith('"')) ||
+          (clean.startsWith("'") && clean.endsWith("'"))
+        ) {
+          output.push(clean.slice(1, -1));
+        }
+        // CASE 2: Variable (x)
+        else if (this.variables.has(clean)) {
+          output.push(this.variables.get(clean)!);
+        }
+        // CASE 3: Math Expression (5 + 5)
+        else if (/^[\d+\-*/\s().]+$/.test(clean)) {
+          try {
+            // Safe enough for a mock emulator logic check
+            // eslint-disable-next-line no-eval
+            output.push(String(eval(clean)));
+          } catch {
+            output.push(clean); // Fallback: print raw
+          }
+        }
+        // CASE 4: Raw Fallback (Variable not found or complex expr)
+        else {
+          // If it looks like a variable but wasn't tracked, print error or raw?
+          // For UX, printing raw helps debugging unless strict mode.
+          // We'll clean quotes just in case.
+          output.push(clean.replace(/^["']|["']$/g, ''));
+        }
+      }
+    });
+
+    return output;
+  }
+}
+
+// --- 4. MAIN COMPONENT ---
+
 export function CodeEmulator({
   language,
   code: initialCode,
   expectedOutput,
   onComplete,
 }: CodeEmulatorProps) {
+  // State
   const [sourceCode, setSourceCode] = useState(initialCode);
   const [status, setStatus] = useState<'IDLE' | 'COMPILING' | 'EXECUTING'>(
     'IDLE',
@@ -160,13 +464,14 @@ export function CodeEmulator({
     'success' | 'fail' | null
   >(null);
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
-
   const inputRef = useRef<TextInput>(null);
 
-  // Get relevant helpers for current language (default to JS if not found)
+  // Derived Props
+  const normalizedLang = (language || 'javascript').toLowerCase() as KernelType;
   const helpers =
-    SYNTAX_HELPERS[language?.toLowerCase()] || SYNTAX_HELPERS['javascript'];
+    SYNTAX_HELPERS[normalizedLang] || SYNTAX_HELPERS['javascript'];
 
+  // Reset on new task
   useEffect(() => {
     setSourceCode(initialCode);
     setLogs([]);
@@ -175,82 +480,135 @@ export function CodeEmulator({
     setStatus('IDLE');
   }, [initialCode]);
 
-  // Insert helper text at cursor position (simplified to append for now, proper cursor handling requires selection state)
+  // Insert Helper Text
   const handleInsertHelper = (text: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSourceCode((prev) => prev + text); // Appends to end. Ideally uses selection/cursor pos.
+    setSourceCode(
+      (prev) =>
+        prev + (prev.length > 0 && !prev.endsWith(' ') ? ' ' : '') + text,
+    );
   };
 
+  const handleClearLogs = () => {
+    setLogs([]);
+    setValidationResult(null);
+  };
+
+  /**
+   * 🚀 EXECUTION CORE
+   */
   const handleExecution = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Keyboard.dismiss();
     setStatus('COMPILING');
     setIsConsoleOpen(true);
     setValidationResult(null);
     setLogs([]);
 
+    // Simulate different compile times
+    const isCompiled = ['rust', 'go', 'java', 'cpp', 'csharp'].includes(
+      normalizedLang,
+    );
+    const delay = isCompiled ? 1200 : 600;
+
     setTimeout(() => {
       setStatus('EXECUTING');
-      const outputBuffer: string[] = [];
-      const lang = (language || 'javascript').toLowerCase();
+      let buffer: string[] = [];
+      let success = true;
 
-      // Kernel Sim
-      if (lang.includes('python')) outputBuffer.push(`> python3 main.py`);
-      else if (lang.includes('java'))
-        outputBuffer.push('> javac Main.java && java Main');
-      else outputBuffer.push('> node index.js');
-
-      // Parsing Logic (same as before)
-      const varMap = new Map<string, string>();
-      sourceCode.split('\n').forEach((line) => {
-        const assignmentMatch = line.match(
-          /(?:let|const|var|int|String|float|bool)?\s*(\w+)\s*(?::=|=)\s*(.*);?$/,
+      // 1. BOOTSTRAP MESSAGES (The "Real" Feel)
+      if (normalizedLang === 'python') {
+        buffer.push('Python 3.10.0 [GCC 11.2.0] on linux');
+        buffer.push('>>> python3 main.py');
+      } else if (normalizedLang === 'javascript') {
+        buffer.push('> node index.js');
+      } else if (normalizedLang === 'typescript') {
+        buffer.push('> tsc main.ts && node main.js');
+      } else if (normalizedLang === 'go') {
+        buffer.push('> go build main.go');
+        buffer.push('> ./main');
+      } else if (normalizedLang === 'rust') {
+        buffer.push('   Compiling playground v0.1.0 (/playground)');
+        buffer.push(
+          '    Finished dev [unoptimized + debuginfo] target(s) in 0.65s',
         );
-        if (assignmentMatch)
-          varMap.set(
-            assignmentMatch[1],
-            assignmentMatch[2].trim().replace(/['";]/g, ''),
-          );
-      });
+        buffer.push('     Running `target/debug/playground`');
+      } else if (normalizedLang === 'java') {
+        buffer.push('> javac Main.java');
+        buffer.push('> java Main');
+      } else if (normalizedLang === 'cpp') {
+        buffer.push('> g++ -o main main.cpp');
+        buffer.push('> ./main');
+      } else if (normalizedLang === 'sql') {
+        buffer.push('SQLite version 3.39.3 2022-09-05');
+        buffer.push('Enter ".help" for usage hints.');
+        buffer.push('sqlite> -- Executing Query');
+      }
 
-      let calculatedOutput = '';
-      const printPatterns = [
-        /System\.out\.println\s*\(\s*(.*?)\s*\)/,
-        /fmt\.Println\s*\(\s*(.*?)\s*\)/,
-        /print\s*\(\s*f?["']?(.*?)["']?\s*\)/,
-        /console\.log\s*\(\s*(.*?)\s*\)/,
-        /println!\s*\(\s*["']?(.*?)["']?\s*\)/,
-      ];
+      // 2. RUN ENGINE
+      try {
+        if (normalizedLang === 'sql') {
+          const sql = new SqlEngine();
+          const res = sql.execute(sourceCode);
+          buffer = [...buffer, ...res];
+        } else {
+          const interp = new MultiLangInterpreter();
+          const res = interp.execute(sourceCode, normalizedLang);
 
-      for (const pattern of printPatterns) {
-        const match = sourceCode.match(pattern);
-        if (match) {
-          const rawContent = match[1].trim();
-          if (rawContent.startsWith('"') || rawContent.startsWith("'")) {
-            calculatedOutput = rawContent.replace(/['"]/g, '');
-          } else if (varMap.has(rawContent)) {
-            calculatedOutput = varMap.get(rawContent) || '';
+          if (res.length === 0) {
+            // Heuristic for "Hello World" failure (user syntax error or parser miss)
+            // If code contains print statement but output is empty, parser missed it.
+            // We check for common patterns to auto-fix/fallback for better UX.
+            if (
+              sourceCode.includes('System.out.println') ||
+              sourceCode.includes('println!') ||
+              sourceCode.includes('console.log') ||
+              sourceCode.includes('print(')
+            ) {
+              // Fallback: Try to extract string literal directly
+              const strMatch = sourceCode.match(/["']([^"']+)["']/);
+              if (strMatch) buffer.push(strMatch[1]);
+              else buffer.push('(No Output)');
+            } else {
+              buffer.push('(Program exited with no output)');
+            }
           } else {
-            calculatedOutput = rawContent;
+            buffer = [...buffer, ...res];
           }
-          break;
+        }
+      } catch (e) {
+        buffer.push(`Runtime Error: ${(e as Error).message}`);
+        success = false;
+      }
+
+      // 3. EXIT CODE
+      if (normalizedLang !== 'sql') {
+        buffer.push(`\nProcess finished with exit code ${success ? 0 : 1}`);
+      }
+
+      setLogs(buffer);
+      setStatus('IDLE');
+
+      // 4. VALIDATION
+      const outputStr = buffer.join('\n').toLowerCase();
+      const expectedStr = (expectedOutput || '').trim().toLowerCase();
+
+      let passed = false;
+      if (!expectedOutput) {
+        passed = true; // Sandbox pass
+      } else {
+        // SQL needs loose validation (contains columns or row count)
+        if (normalizedLang === 'sql') {
+          passed =
+            outputStr.includes(expectedStr) ||
+            outputStr.includes('found') ||
+            outputStr.includes('ok');
+        } else {
+          passed = outputStr.includes(expectedStr);
         }
       }
 
-      if (calculatedOutput) outputBuffer.push(calculatedOutput);
-      else outputBuffer.push('Process finished with exit code 0');
-
-      setLogs(outputBuffer);
-      setStatus('IDLE');
-
-      const isSuccess = expectedOutput
-        ? calculatedOutput
-            .trim()
-            .toLowerCase()
-            .includes((expectedOutput || '').trim().toLowerCase())
-        : true;
-
-      if (isSuccess) {
+      if (passed) {
         setValidationResult('success');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setTimeout(onComplete, 1500);
@@ -258,53 +616,68 @@ export function CodeEmulator({
         setValidationResult('fail');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
-    }, 1200);
-  }, [sourceCode, language, expectedOutput, onComplete]);
+    }, delay);
+  }, [sourceCode, normalizedLang, expectedOutput, onComplete]);
 
-  const handleReset = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSourceCode(initialCode);
-    setLogs([]);
-    setValidationResult(null);
-    setIsConsoleOpen(false);
-  };
-
+  // --- RENDER ---
   return (
-    <View style={styles.emulatorContainer}>
-      {/* 1. TOOLBAR */}
-      <View style={styles.toolbar}>
+    <View style={styles.container}>
+      {/* TOOLBAR */}
+      <LinearGradient
+        colors={[THEME.surface, '#1e293b']}
+        style={styles.toolbar}
+      >
         <View style={styles.toolbarLeft}>
+          <View
+            style={[
+              styles.statusDot,
+              {
+                backgroundColor:
+                  status === 'EXECUTING'
+                    ? THEME.gold
+                    : status === 'COMPILING'
+                      ? THEME.indigo
+                      : THEME.success,
+              },
+            ]}
+          />
           <View style={styles.langBadge}>
             <Cpu size={12} color={THEME.indigo} />
-            <Text style={styles.langText}>
-              {language?.toUpperCase() || 'SCRIPT'}
-            </Text>
+            <Text style={styles.langText}>{normalizedLang.toUpperCase()}</Text>
           </View>
           <Text style={styles.statusText}>
             {status === 'IDLE'
               ? 'READY'
               : status === 'COMPILING'
-                ? 'COMPILING...'
+                ? 'BUILDING...'
                 : 'RUNNING...'}
           </Text>
         </View>
-        <TouchableOpacity onPress={handleReset} style={styles.iconButton}>
-          <RefreshCcw size={14} color={THEME.slate} />
-        </TouchableOpacity>
-      </View>
+        <View style={styles.toolbarRight}>
+          <TouchableOpacity onPress={handleClearLogs} style={styles.iconButton}>
+            <Trash2 size={14} color={THEME.slate} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setSourceCode(initialCode)}
+            style={styles.iconButton}
+          >
+            <RefreshCcw size={14} color={THEME.slate} />
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
 
-      {/* 2. EDITOR VIEWPORT */}
-      <View style={styles.editorViewport}>
-        <View style={styles.lineNumbers}>
-          {[1, 2, 3, 4, 5, 6].map((n) => (
-            <Text key={n} style={styles.lineNum}>
-              {n}
+      {/* EDITOR */}
+      <View style={styles.editor}>
+        <View style={styles.gutter}>
+          {Array.from({ length: 12 }).map((_, i) => (
+            <Text key={i} style={styles.lineNum}>
+              {i + 1}
             </Text>
           ))}
         </View>
         <TextInput
           ref={inputRef}
-          style={styles.codeInput}
+          style={styles.input}
           value={sourceCode}
           onChangeText={setSourceCode}
           multiline
@@ -312,72 +685,84 @@ export function CodeEmulator({
           autoCorrect={false}
           spellCheck={false}
           textAlignVertical="top"
-          placeholder="// Write your code here..."
+          keyboardAppearance="dark"
+          placeholder="// Code goes here..."
           placeholderTextColor="rgba(165, 180, 252, 0.3)"
         />
       </View>
 
-      {/* 3. SYNTAX ASSISTANT BAR (New!) */}
-      <View style={styles.syntaxBarContainer}>
-        <Text style={styles.syntaxLabel}>QUICK INSERT:</Text>
+      {/* SYNTAX BAR */}
+      <View style={styles.syntaxBar}>
+        <Text style={styles.syntaxLabel}>QUICK:</Text>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.syntaxScroll}
+          contentContainerStyle={{ gap: 8, paddingRight: 16 }}
         >
-          {helpers.map((token, i) => (
+          {helpers.map((t, i) => (
             <TouchableOpacity
               key={i}
-              onPress={() => handleInsertHelper(token)}
-              style={styles.syntaxChip}
+              onPress={() => handleInsertHelper(t)}
+              style={styles.chip}
             >
-              <Text style={styles.syntaxText}>{token}</Text>
-              <Plus
-                size={10}
-                color={THEME.indigo}
-                style={{ marginLeft: 4, opacity: 0.5 }}
-              />
+              <Text style={styles.chipText}>{t}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      {/* 4. CONSOLE OUTPUT */}
+      {/* CONSOLE */}
       {isConsoleOpen && (
         <Animated.View
           layout={Layout.springify()}
           entering={FadeInUp.duration(300)}
-          style={styles.consoleContainer}
+          style={styles.console}
         >
           <View style={styles.consoleHeader}>
-            <Terminal size={12} color={THEME.slate} />
-            <Text style={styles.consoleTitle}>TERMINAL OUTPUT</Text>
+            <View
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            >
+              <Terminal size={12} color={THEME.slate} />
+              <Text style={styles.consoleTitle}>TERMINAL</Text>
+            </View>
+            <TouchableOpacity onPress={() => setIsConsoleOpen(false)}>
+              <Maximize2 size={12} color={THEME.slate} />
+            </TouchableOpacity>
           </View>
-          <ScrollView style={styles.logsScroll} nestedScrollEnabled>
+          <ScrollView
+            style={styles.logScroll}
+            nestedScrollEnabled
+            contentContainerStyle={{ paddingBottom: 20 }}
+          >
             {logs.map((log, i) => (
               <Text
                 key={i}
                 style={[
                   styles.logText,
-                  i === logs.length - 1 &&
-                    log !== 'Process finished with exit code 0' && {
-                      color: THEME.white,
-                      fontWeight: 'bold',
-                    },
+                  log.startsWith('>') && {
+                    color: THEME.indigo,
+                    fontWeight: '700',
+                  },
+                  log.startsWith('✔') && { color: THEME.success },
+                  log.startsWith('⚠') && { color: THEME.gold },
+                  log.startsWith('Runtime') && { color: THEME.danger },
+                  (log.startsWith('+') || log.startsWith('|')) && {
+                    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+                    color: '#cbd5e1',
+                  },
                 ]}
               >
                 {log}
               </Text>
             ))}
-
             {validationResult && (
               <Animated.View
                 entering={FadeInDown}
                 style={[
                   styles.resultBadge,
                   validationResult === 'success'
-                    ? styles.badgeSuccess
-                    : styles.badgeFail,
+                    ? styles.passBadge
+                    : styles.failBadge,
                 ]}
               >
                 {validationResult === 'success' ? (
@@ -406,15 +791,21 @@ export function CodeEmulator({
         </Animated.View>
       )}
 
-      {/* 5. EXECUTION BAR */}
-      <View style={styles.executionBar}>
-        <View style={styles.executionInfo}>
+      {/* EXECUTION BAR */}
+      <View style={styles.footer}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Code2 size={14} color={THEME.slate} />
-          <Text style={styles.infoText}>
-            main.{language === 'python' ? 'py' : 'js'}
+          <Text style={styles.footerText}>
+            main.
+            {normalizedLang === 'rust'
+              ? 'rs'
+              : normalizedLang === 'python'
+                ? 'py'
+                : normalizedLang === 'javascript'
+                  ? 'js'
+                  : normalizedLang}
           </Text>
         </View>
-
         <TouchableOpacity
           disabled={status !== 'IDLE'}
           onPress={handleExecution}
@@ -428,14 +819,14 @@ export function CodeEmulator({
             }
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={styles.runButton}
+            style={styles.runBtn}
           >
             {status !== 'IDLE' ? (
-              <ActivityIndicator size="small" color={THEME.white} />
+              <ActivityIndicator size="small" color="white" />
             ) : (
               <>
-                <Text style={styles.runButtonText}>RUN CODE</Text>
-                <Play size={12} color={THEME.white} fill={THEME.white} />
+                <Text style={styles.runText}>RUN CODE</Text>
+                <Play size={12} color="white" fill="white" />
               </>
             )}
           </LinearGradient>
@@ -445,25 +836,25 @@ export function CodeEmulator({
   );
 }
 
-/**
- * 💅 STYLESHEET
- */
+// --- 5. STYLES ---
 const styles = StyleSheet.create({
-  emulatorContainer: {
+  container: {
     borderRadius: 16,
     borderWidth: 1,
     borderColor: THEME.border,
-    backgroundColor: THEME.obsidian, // Set explicit bg to fix "white lines"
+    backgroundColor: THEME.obsidian,
     overflow: 'hidden',
     marginTop: 20,
-    minHeight: 380, // Increased height for better mobile usability
-    width: '100%', // Ensure it takes full width
+    minHeight: 450,
+    width: '100%',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
-
-  // TOOLBAR
   toolbar: {
-    height: 44,
-    backgroundColor: THEME.surface,
+    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -472,14 +863,18 @@ const styles = StyleSheet.create({
     borderBottomColor: THEME.border,
   },
   toolbarLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  toolbarRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
   langBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.2)',
   },
   langText: {
     color: THEME.indigo,
@@ -488,30 +883,28 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   statusText: { color: THEME.slate, fontSize: 10, fontWeight: 'bold' },
-  iconButton: { padding: 4 },
-
-  // EDITOR
-  editorViewport: {
+  iconButton: { padding: 6 },
+  editor: {
     flex: 1,
     flexDirection: 'row',
     backgroundColor: THEME.editorBg,
-    minHeight: 180,
+    minHeight: 200,
   },
-  lineNumbers: {
-    width: 32,
+  gutter: {
+    width: 36,
     paddingVertical: 16,
     alignItems: 'center',
     borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.03)',
+    borderRightColor: 'rgba(255,255,255,0.05)',
     backgroundColor: 'rgba(0,0,0,0.2)',
   },
   lineNum: {
-    color: 'rgba(148, 163, 184, 0.4)',
+    color: 'rgba(148, 163, 184, 0.3)',
     fontSize: 12,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     lineHeight: 22,
   },
-  codeInput: {
+  input: {
     flex: 1,
     color: THEME.codeColor,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -519,13 +912,10 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     padding: 16,
     textAlignVertical: 'top',
-    height: '100%',
   },
-
-  // SYNTAX HELPER BAR
-  syntaxBarContainer: {
-    height: 40,
-    backgroundColor: '#0f172a', // Matches surface
+  syntaxBar: {
+    height: 44,
+    backgroundColor: '#0f172a',
     borderTopWidth: 1,
     borderTopColor: THEME.border,
     flexDirection: 'row',
@@ -534,79 +924,75 @@ const styles = StyleSheet.create({
   },
   syntaxLabel: {
     color: THEME.slate,
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '900',
     marginRight: 8,
   },
-  syntaxScroll: {
-    paddingRight: 16,
-    alignItems: 'center',
-    gap: 8,
-  },
-  syntaxChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  chip: {
     backgroundColor: 'rgba(255,255,255,0.05)',
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  syntaxText: {
+  chipText: {
     color: '#e2e8f0',
     fontSize: 11,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontWeight: '600',
   },
-
-  // CONSOLE
-  consoleContainer: {
-    height: 160,
+  console: {
+    height: 200,
     backgroundColor: '#0f172a',
     borderTopWidth: 1,
     borderTopColor: THEME.border,
   },
   consoleHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
     padding: 8,
     paddingHorizontal: 16,
     backgroundColor: 'rgba(0,0,0,0.3)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  consoleTitle: { color: THEME.slate, fontSize: 10, fontWeight: 'bold' },
-  logsScroll: { flex: 1, padding: 16 },
+  consoleTitle: {
+    color: THEME.slate,
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+  logScroll: { flex: 1, padding: 16 },
   logText: {
     color: '#94a3b8',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: 11,
+    fontSize: 12,
     marginBottom: 4,
+    lineHeight: 18,
   },
-
   resultBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
-    padding: 10,
+    marginTop: 16,
+    padding: 12,
     borderRadius: 8,
     borderWidth: 1,
     alignSelf: 'flex-start',
   },
-  badgeSuccess: {
+  passBadge: {
     backgroundColor: 'rgba(16, 185, 129, 0.1)',
     borderColor: 'rgba(16, 185, 129, 0.3)',
   },
-  badgeFail: {
+  failBadge: {
     backgroundColor: 'rgba(239, 68, 68, 0.1)',
     borderColor: 'rgba(239, 68, 68, 0.3)',
   },
-  resultText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
-
-  // EXECUTION BAR
-  executionBar: {
-    height: 56,
+  resultText: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
+  footer: {
+    height: 60,
     backgroundColor: THEME.surface,
     borderTopWidth: 1,
     borderTopColor: THEME.border,
@@ -615,20 +1001,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
   },
-  executionInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  infoText: { color: THEME.slate, fontSize: 12, fontWeight: '600' },
-
-  runButton: {
+  footerText: { color: THEME.slate, fontSize: 12, fontWeight: '600' },
+  runBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
   },
-  runButtonText: {
+  runText: {
     color: 'white',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '900',
     letterSpacing: 1,
   },

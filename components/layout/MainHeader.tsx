@@ -102,7 +102,6 @@ export const MainHeader: React.FC<MainHeaderProps> = ({
             )}
             {!title && (
               <Image 
-                source={require('@/assets/images/favico.png')}
                 style={{ width: 32, height: 32 }}
                 resizeMode="contain"
               />
