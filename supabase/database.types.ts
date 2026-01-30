@@ -69,8 +69,10 @@ export type Database = {
         Row: {
           created_at: string | null;
           date: string;
+          difficulty: string | null;
           id: string;
           is_completed: boolean | null;
+          language: string | null;
           tasks: Json;
           user_id: string;
           xp_earned: number | null;
@@ -78,8 +80,10 @@ export type Database = {
         Insert: {
           created_at?: string | null;
           date?: string;
+          difficulty?: string | null;
           id?: string;
           is_completed?: boolean | null;
+          language?: string | null;
           tasks?: Json;
           user_id: string;
           xp_earned?: number | null;
@@ -87,8 +91,10 @@ export type Database = {
         Update: {
           created_at?: string | null;
           date?: string;
+          difficulty?: string | null;
           id?: string;
           is_completed?: boolean | null;
+          language?: string | null;
           tasks?: Json;
           user_id?: string;
           xp_earned?: number | null;
