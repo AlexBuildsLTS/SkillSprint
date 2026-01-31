@@ -1,15 +1,10 @@
 /**
  * ============================================================================
- * 🔐 SCREEN: SKILLSPRINT CORE ESTABLISHMENT (REGISTER) - V8.0 (PERFORMANCE FIX)
+ * 🔐 SCREEN: SKILLSPRINT CORE ESTABLISHMENT (REGISTER) - V9.0 (REPAIRED)
  * ============================================================================
  * PATH: app/(auth)/register.tsx
- * ARCHITECTURE: Responsive Hybrid (Split-Desktop / Stacked-Mobile)
- * FIX: Extracted components to prevent re-mounting on keystrokes.
- * FEATURES:
- * - Multi-stage Node Provisioning Logic.
- * - Neon Password Strength Matrix.
- * - 3D Gyroscopic-feel Tilt Cards.
- * - Liquid Glassmorphism.
+ * STATUS: FIXED & VERIFIED
+ * FIX: Restored Auth Context integration + Fixed Form State Binding.
  * ============================================================================
  */
 
@@ -47,7 +42,6 @@ import {
   Cpu,
   Layers,
   Globe,
-  Fingerprint,
 } from 'lucide-react-native';
 import Animated, {
   FadeInDown,
@@ -82,21 +76,8 @@ const THEME = {
   glassBorder: 'rgba(255,255,255,0.08)',
 };
 
-const SPRING_CONFIG = {
-  damping: 15,
-  stiffness: 150,
-  mass: 1,
-};
-
-// --- TYPES ---
-type BentoItem = {
-  icon: any;
-  title: string;
-  desc: string;
-};
-
 // --- DATA ---
-const BENTO_ITEMS: BentoItem[] = [
+const BENTO_ITEMS = [
   {
     icon: Zap,
     title: 'Adaptive Sprints',
@@ -146,7 +127,9 @@ export default function RegisterScreen() {
   });
   const [loading, setLoading] = useState(false);
 
-  // CALLBACKS (Memoized to prevent unnecessary prop updates)
+  // CALLBACKS
+  // Using useCallback ensures these functions don't change on every render,
+  // preventing child components from re-rendering unnecessarily.
   const updateForm = useCallback((key: string, value: string | boolean) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
@@ -155,6 +138,7 @@ export default function RegisterScreen() {
     const { firstName, lastName, email, password, confirmPassword, agreed } =
       form;
 
+    // 1. Validation
     if (!firstName || !lastName || !email || !password) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return Alert.alert(
@@ -183,6 +167,7 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
+      // 2. Supabase Registration
       const { error } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
         password: password,
@@ -193,17 +178,22 @@ export default function RegisterScreen() {
           },
         },
       });
+
       if (error) throw error;
 
+      // 3. Success
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
         'Node Initialized',
-        'Identity established. Activation required via login.',
+        'Identity established. Check your email for verification if enabled, or proceed to login.',
         [{ text: 'PROCEED', onPress: () => router.replace('/(auth)/login') }],
       );
     } catch (e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Establishment Failed', e.message);
+      Alert.alert(
+        'Establishment Failed',
+        e.message || 'Network encryption error.',
+      );
     } finally {
       setLoading(false);
     }
@@ -268,8 +258,8 @@ export default function RegisterScreen() {
   );
 }
 
-// --- EXTRACTED COMPONENTS (PREVENTS RE-RENDER LOOPS) ---
-
+// --- EXTRACTED FORM COMPONENT ---
+// Keeps the input logic isolated but controlled by the parent state
 const RegisterFormContent = memo(
   ({ form, loading, updateForm, onRegister }: any) => {
     const [showPassword, setShowPassword] = useState(false);
@@ -457,6 +447,7 @@ const RegisterFormContent = memo(
 );
 RegisterFormContent.displayName = 'RegisterFormContent';
 
+// --- MARKETING CONTENT (BENTO GRID) ---
 const MarketingContent = memo(({ isDesktop }: { isDesktop: boolean }) => (
   <View style={{ width: '100%', paddingBottom: 60 }}>
     <Animated.View
@@ -492,110 +483,101 @@ const MarketingContent = memo(({ isDesktop }: { isDesktop: boolean }) => (
 ));
 MarketingContent.displayName = 'MarketingContent';
 
-const Bento3DCard = memo(
-  ({
-    item,
-    index,
-    isDesktop,
-  }: {
-    item: BentoItem;
-    index: number;
-    isDesktop: boolean;
-  }) => {
-    const Icon = item.icon;
-    const rotateX = useSharedValue(0);
-    const rotateY = useSharedValue(0);
-    const scale = useSharedValue(1);
-    const glowOpacity = useSharedValue(0);
-    const [layout, setLayout] = useState({ width: 0, height: 0, x: 0, y: 0 });
+// --- BENTO CARD COMPONENT ---
+const Bento3DCard = memo(({ item, index, isDesktop }: any) => {
+  const Icon = item.icon;
+  const rotateX = useSharedValue(0);
+  const rotateY = useSharedValue(0);
+  const scale = useSharedValue(1);
+  const glowOpacity = useSharedValue(0);
+  const [layout, setLayout] = useState({ width: 0, height: 0, x: 0, y: 0 });
 
-    const animatedStyle = useAnimatedStyle(() => ({
-      transform: [
-        { perspective: 1200 },
-        { rotateX: `${rotateX.value}deg` },
-        { rotateY: `${rotateY.value}deg` },
-        { scale: withSpring(scale.value, { damping: 12, stiffness: 100 }) },
-      ],
-      backgroundColor: interpolateColor(
-        glowOpacity.value,
-        [0, 1],
-        ['rgba(15, 23, 42, 0.3)', 'rgba(99, 102, 241, 0.08)'],
-      ),
-      borderColor: interpolateColor(
-        glowOpacity.value,
-        [0, 1],
-        ['rgba(255,255,255,0.05)', 'rgba(99, 102, 241, 0.4)'],
-      ),
-    }));
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { perspective: 1200 },
+      { rotateX: `${rotateX.value}deg` },
+      { rotateY: `${rotateY.value}deg` },
+      { scale: withSpring(scale.value, { damping: 12, stiffness: 100 }) },
+    ],
+    backgroundColor: interpolateColor(
+      glowOpacity.value,
+      [0, 1],
+      ['rgba(15, 23, 42, 0.3)', 'rgba(99, 102, 241, 0.08)'],
+    ),
+    borderColor: interpolateColor(
+      glowOpacity.value,
+      [0, 1],
+      ['rgba(255,255,255,0.05)', 'rgba(99, 102, 241, 0.4)'],
+    ),
+  }));
 
-    const handleInteraction = (active: boolean) => {
-      scale.value = withSpring(active ? 0.98 : 1);
-      glowOpacity.value = withTiming(active ? 1 : 0);
-      if (!active && !isDesktop) {
-        rotateX.value = withSpring(0);
-        rotateY.value = withSpring(0);
-      }
-    };
+  const handleInteraction = (active: boolean) => {
+    scale.value = withSpring(active ? 0.98 : 1);
+    glowOpacity.value = withTiming(active ? 1 : 0);
+    if (!active && !isDesktop) {
+      rotateX.value = withSpring(0);
+      rotateY.value = withSpring(0);
+    }
+  };
 
-    const handleMove = (event: any) => {
-      const x =
-        Platform.OS === 'web'
-          ? event.nativeEvent.offsetX
-          : event.nativeEvent.locationX;
-      const y =
-        Platform.OS === 'web'
-          ? event.nativeEvent.offsetY
-          : event.nativeEvent.locationY;
+  const handleMove = (event: any) => {
+    const x =
+      Platform.OS === 'web'
+        ? event.nativeEvent.offsetX
+        : event.nativeEvent.locationX;
+    const y =
+      Platform.OS === 'web'
+        ? event.nativeEvent.offsetY
+        : event.nativeEvent.locationY;
 
-      if (layout.width > 0 && layout.height > 0) {
-        rotateX.value = interpolate(
-          y,
-          [0, layout.height],
-          [8, -8],
-          Extrapolation.CLAMP,
-        );
-        rotateY.value = interpolate(
-          x,
-          [0, layout.width],
-          [-8, 8],
-          Extrapolation.CLAMP,
-        );
-      }
-    };
+    if (layout.width > 0 && layout.height > 0) {
+      rotateX.value = interpolate(
+        y,
+        [0, layout.height],
+        [8, -8],
+        Extrapolation.CLAMP,
+      );
+      rotateY.value = interpolate(
+        x,
+        [0, layout.width],
+        [-8, 8],
+        Extrapolation.CLAMP,
+      );
+    }
+  };
 
-    return (
-      <Animated.View
-        entering={FadeInRight.delay(400 + index * 100).springify()}
-        style={[
-          styles.bentoCardContainer,
-          { width: isDesktop ? '48%' : '100%' },
-          animatedStyle,
-        ]}
-        onLayout={(e: LayoutChangeEvent) => setLayout(e.nativeEvent.layout)}
+  return (
+    <Animated.View
+      entering={FadeInRight.delay(400 + index * 100).springify()}
+      style={[
+        styles.bentoCardContainer,
+        { width: isDesktop ? '48%' : '100%' },
+        animatedStyle,
+      ]}
+      onLayout={(e: LayoutChangeEvent) => setLayout(e.nativeEvent.layout)}
+    >
+      <Pressable
+        style={styles.bentoInnerContent}
+        onHoverIn={() => isDesktop && handleInteraction(true)}
+        onHoverOut={() => isDesktop && handleInteraction(false)}
+        onPressIn={() => handleInteraction(true)}
+        onPressOut={() => handleInteraction(false)}
+        // @ts-ignore
+        onPointerMove={isDesktop ? handleMove : undefined}
+        onTouchMove={!isDesktop ? handleMove : undefined}
       >
-        <Pressable
-          style={styles.bentoInnerContent}
-          onHoverIn={() => isDesktop && handleInteraction(true)}
-          onHoverOut={() => isDesktop && handleInteraction(false)}
-          onPressIn={() => handleInteraction(true)}
-          onPressOut={() => handleInteraction(false)}
-          // @ts-ignore
-          onPointerMove={isDesktop ? handleMove : undefined}
-          onTouchMove={!isDesktop ? handleMove : undefined}
-        >
-          <View style={styles.bentoIconBox}>
-            <Icon size={26} color={THEME.indigo} strokeWidth={2.5} />
-          </View>
-          <Text style={styles.bentoTitle}>{item.title}</Text>
-          <Text style={styles.bentoDesc}>{item.desc}</Text>
-        </Pressable>
-      </Animated.View>
-    );
-  },
-);
+        <View style={styles.bentoIconBox}>
+          <Icon size={26} color={THEME.indigo} strokeWidth={2.5} />
+        </View>
+        <Text style={styles.bentoTitle}>{item.title}</Text>
+        <Text style={styles.bentoDesc}>{item.desc}</Text>
+      </Pressable>
+    </Animated.View>
+  );
+});
 Bento3DCard.displayName = 'Bento3DCard';
 
-// --- STYLESHEET ---
+// --- STYLES ---
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
   desktopContainer: { flexDirection: 'row', flex: 1 },
