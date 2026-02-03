@@ -1,0 +1,24 @@
+{
+  "deno.enable": false,
+  "deno.lint": true,
+  "deno.unstable": [],
+  "deno.enablePaths": ["supabase/functions"],
+  "deno.importMap": "supabase/functions/deno.json",
+  "cSpell.words": [
+    "bento",
+    "Bento",
+    "springify",
+    "Postgrest",
+    "fkey",
+    "supabase",
+    "apikey",
+    "browserless",
+    "nativewind",
+    "reanimated"
+  ],
+  "chat.useAgentSkills": true,
+  "inlineChat.finishOnType": true,
+  "inlineChat.notebookAgent": true,
+  "chat.useNestedAgentsMdFiles": true,
+  "chat.tools.terminal.ignoreDefaultAutoApproveRules": true
+}
