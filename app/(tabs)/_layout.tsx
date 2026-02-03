@@ -78,7 +78,7 @@ export default function AdaptiveLayout() {
           <View>
             <View style={styles.brandBox}>
               <Image
-                source={require('@/assets/images/icon.png')}
+                source={require('@/assets/images/icon-sq.png')}
                 style={styles.logoImage}
                 resizeMode="contain"
               />

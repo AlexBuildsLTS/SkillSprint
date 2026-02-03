@@ -224,7 +224,7 @@ export const MainHeader: React.FC<MainHeaderProps> = ({
               )}
               {!title && (
                 <Image
-                  source={require('@/assets/images/icon.png')}
+                  source={require('@/assets/images/icon-sq.png')}
                   style={{ width: 28, height: 28 }}
                   resizeMode="contain"
                 />
