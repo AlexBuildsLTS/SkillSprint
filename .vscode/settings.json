@@ -14,7 +14,8 @@
     "apikey",
     "browserless",
     "nativewind",
-    "reanimated"
+    "reanimated",
+    "alexbuildslts"
   ],
   "chat.useAgentSkills": true,
   "inlineChat.finishOnType": true,
