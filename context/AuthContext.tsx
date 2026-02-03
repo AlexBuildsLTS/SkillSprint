@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from 'react';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { Database } from '../supabase/database.types';
@@ -24,48 +30,67 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchFullUserData = useCallback(async (userId: string) => {
     try {
+      // Parallel fetch for performance
       const [profileRes, statsRes] = await Promise.all([
-        supabase.from('profiles').select('*').eq('id', userId).single(),
-        supabase.from('user_stats').select('*').eq('user_id', userId).single(),
+        supabase.from('profiles').select('*').eq('id', userId).maybeSingle(), // Use maybeSingle to prevent throw on null
+        supabase
+          .from('user_stats')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle(),
       ]);
+
       return { profile: profileRes.data, stats: statsRes.data };
     } catch (error) {
-      console.error('Error fetching supplementary user data:', error);
+      console.error('[Auth] Error fetching user data:', error);
       return { profile: null, stats: null };
     }
   }, []);
 
-  const initializeAuth = useCallback(async (currentSession: Session | null) => {
-    setSession(currentSession);
-    if (currentSession?.user) {
-      const { profile, stats } = await fetchFullUserData(currentSession.user.id);
-      setUser({ ...currentSession.user, profile, stats });
-    } else {
-      setUser(null);
-    }
-    // CRITICAL: Only stop loading AFTER user data is fully hydrated
-    setLoading(false);
-  }, [fetchFullUserData]);
+  const initializeAuth = useCallback(
+    async (currentSession: Session | null) => {
+      setSession(currentSession);
+
+      if (currentSession?.user) {
+        const { profile, stats } = await fetchFullUserData(
+          currentSession.user.id,
+        );
+        setUser({ ...currentSession.user, profile, stats });
+      } else {
+        setUser(null);
+      }
+
+      setLoading(false);
+    },
+    [fetchFullUserData],
+  );
 
   useEffect(() => {
-    // 1. Get initial session
+    // 1. Initial Load
     supabase.auth.getSession().then(({ data: { session: initSession } }) => {
       initializeAuth(initSession);
     });
 
-    // 2. Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, _session) => {
-      // Avoid re-triggering if the user ID hasn't actually changed
-      if (_session?.user.id !== session?.user.id || _event === 'SIGNED_OUT') {
+    // 2. Real-time Subscription
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setSession(null);
+        setLoading(false);
+      } else if (newSession?.user.id !== session?.user.id) {
         setLoading(true);
-        initializeAuth(_session);
+        initializeAuth(newSession);
       }
     });
 
@@ -78,7 +103,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loading,
     signIn: async (e: string, p: string) => {
       setLoading(true);
-      const { error } = await supabase.auth.signInWithPassword({ email: e, password: p });
+      const { error } = await supabase.auth.signInWithPassword({
+        email: e,
+        password: p,
+      });
       if (error) {
         setLoading(false);
         throw error;
@@ -87,14 +115,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signOut: async () => {
       setLoading(true);
       await supabase.auth.signOut();
-      setUser(null);
-      setSession(null);
-      setLoading(false);
+      // State updates handled by onAuthStateChange
     },
     refreshUserData: async () => {
       if (session?.user.id) {
         const { profile, stats } = await fetchFullUserData(session.user.id);
-        setUser(prev => prev ? { ...prev, profile, stats } : null);
+        setUser((prev) => (prev ? { ...prev, profile, stats } : null));
       }
     },
     isAuthenticated: !!session,
