@@ -31,8 +31,14 @@ import {
 } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { CodeEmulator } from '@/components/lesson/CodeEmulator';
-import { Bento3DCard } from '@/components/ui/Bento3DCard'; // Correct Import
+import { Bento3DCard } from '@/components/ui/Bento3DCard';
 
+/**
+ * -----------------------------------------------------------------------------
+ * MODULE: THEME CONFIGURATION
+ * -----------------------------------------------------------------------------
+ * Centralized color palette for the lesson interface.
+ */
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
@@ -43,24 +49,45 @@ const THEME = {
   white: '#ffffff',
 };
 
+/**
+ * -----------------------------------------------------------------------------
+ * MODULE: MAIN COMPONENT (LessonScreen)
+ * -----------------------------------------------------------------------------
+ * Handles the lesson logic, data fetching, language detection, and UI rendering.
+ */
 export default function LessonScreen() {
+  // Navigation & Param Hooks
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const queryClient = useQueryClient();
   const lessonId = Array.isArray(id) ? id[0] : id || '';
 
+  // Local State
   const [step, setStep] = useState<'LEARN' | 'PRACTICE'>('LEARN');
   const [showSuccess, setShowSuccess] = useState(false);
+
+  // Animation Values
   const barWidth = useSharedValue(0);
 
+  /**
+   * ---------------------------------------------------------------------------
+   * SUB-MODULE: DATA FETCHING & PROCESSING
+   * ---------------------------------------------------------------------------
+   * Fetches lesson details from Supabase and normalizes data for the UI.
+   * Includes the Critical Language Detection Logic.
+   */
   const { data: context, isLoading } = useQuery({
     queryKey: ['lesson-final-sync', lessonId],
     queryFn: async () => {
+      // 1. RPC Call to Supabase
       const { data, error } = await supabase.rpc('get_lesson_details', {
         p_lesson_id: lessonId,
       });
+
       if (error) throw error;
       const res = data as any;
+
+      // 2. Parse Content JSON (Handle potential parsing errors safely)
       let content = res.lesson.content;
       if (typeof content === 'string') {
         try {
@@ -69,24 +96,76 @@ export default function LessonScreen() {
           content = { text: 'Error loading content.', starter_code: '' };
         }
       }
+
+      // 3. CRITICAL: ROBUST LANGUAGE DETECTION ENGINE
+      // Maps the human-readable "Track Title" to the "Emulator Kernel Key"
+      const rawTitle = (res.track_title || '').toLowerCase();
+      let detectedLang = 'javascript'; // Default fallback
+
+      if (rawTitle.includes('python')) {
+        detectedLang = 'python';
+      } else if (rawTitle.includes('java') && !rawTitle.includes('script')) {
+        // Strict check to ensure "JavaScript" doesn't trigger "Java" mode
+        detectedLang = 'java';
+      } else if (rawTitle.includes('sql') || rawTitle.includes('data')) {
+        detectedLang = 'sql';
+      } else if (rawTitle.includes('type') || rawTitle.includes('ts')) {
+        detectedLang = 'typescript';
+      } else if (rawTitle.includes('c++') || rawTitle.includes('cpp')) {
+        detectedLang = 'cpp';
+      } else if (rawTitle.includes('c#') || rawTitle.includes('csharp')) {
+        detectedLang = 'csharp';
+      } else if (rawTitle.includes('go')) {
+        detectedLang = 'go';
+      } else if (rawTitle.includes('rust')) {
+        detectedLang = 'rust';
+      } else if (rawTitle.includes('swift')) {
+        detectedLang = 'swift';
+      } else if (rawTitle.includes('kotlin')) {
+        detectedLang = 'kotlin';
+      } else if (rawTitle.includes('php')) {
+        detectedLang = 'php';
+      } else if (rawTitle.includes('ruby')) {
+        detectedLang = 'ruby';
+      }
+
+      // 4. Return Normalized Data Object
       return {
         title: res.lesson.title,
         text: content.text,
         starter: content.starter_code || '',
         xp: res.lesson.xp_reward || 50,
+
+        // Mission Text: From Questions Table -> Fallback string
         missionText: res.questions?.[0]?.question || 'Execute logic.',
+
+        // Hint: From Questions Table -> Fallback string
+        hint: res.questions?.[0]?.hint || 'No hint available for this task.',
+
+        // Answer: Sanitize quotes for comparison logic
         expected: res.questions?.[0]?.answer
           ? String(res.questions[0].answer).replace(/"/g, '')
           : '',
-        lang: res.track_title || 'python',
+
+        // Language: The result of the detection engine above
+        lang: detectedLang,
       };
     },
     enabled: !!lessonId,
   });
 
+  /**
+   * ---------------------------------------------------------------------------
+   * SUB-MODULE: COMPLETION HANDLER
+   * ---------------------------------------------------------------------------
+   * triggered when the Emulator validates the code successfully.
+   */
   const onComplete = () => {
     setShowSuccess(true);
+    // Animate XP Bar
     barWidth.value = withDelay(400, withTiming(1, { duration: 1200 }));
+
+    // Server-side XP Update
     supabase.auth.getUser().then(({ data }) => {
       if (data.user)
         supabase.rpc('add_xp', {
@@ -96,10 +175,12 @@ export default function LessonScreen() {
     });
   };
 
+  // Animated Style for XP Bar
   const barStyle = useAnimatedStyle(() => ({
     width: `${barWidth.value * 100}%`,
   }));
 
+  // Loading State
   if (isLoading)
     return (
       <View style={styles.center}>
@@ -107,6 +188,11 @@ export default function LessonScreen() {
       </View>
     );
 
+  /**
+   * ---------------------------------------------------------------------------
+   * SUB-MODULE: RENDER (UI)
+   * ---------------------------------------------------------------------------
+   */
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -117,6 +203,7 @@ export default function LessonScreen() {
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView style={styles.container}>
+        {/* HEADER SECTION */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -131,7 +218,7 @@ export default function LessonScreen() {
         </View>
 
         <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }}>
-          {/* MISSION CARD - Using Bento3DCard Wrapper + Inner View Pattern */}
+          {/* MISSION CARD (Bento3D Style) */}
           <Bento3DCard style={{ marginBottom: 20, width: '100%' }}>
             <View
               style={[
@@ -155,6 +242,7 @@ export default function LessonScreen() {
             </View>
           </Bento3DCard>
 
+          {/* STEP 1: LEARNING CONTENT */}
           {step === 'LEARN' ? (
             <Animated.View entering={FadeInDown}>
               <Text style={styles.bodyText}>{context?.text}</Text>
@@ -166,18 +254,20 @@ export default function LessonScreen() {
               </TouchableOpacity>
             </Animated.View>
           ) : (
+            /* STEP 2: CODE EMULATOR */
             <View>
-              {/* Single Emulator Instance */}
               <CodeEmulator
-                language={context?.lang || 'python'}
+                language={context?.lang || 'javascript'}
                 code={context?.starter || ''}
                 expectedOutput={context?.expected}
+                hint={context?.hint}
                 onComplete={onComplete}
               />
             </View>
           )}
         </ScrollView>
 
+        {/* SUCCESS MODAL & XP REWARD */}
         <Modal visible={showSuccess} transparent animationType="fade">
           <View style={styles.overlay}>
             <Animated.View
@@ -190,6 +280,7 @@ export default function LessonScreen() {
               />
               <Zap size={44} color={THEME.gold} fill={THEME.gold} />
               <Text style={styles.rewardTitle}>Mission Success</Text>
+
               <View style={styles.xpBox}>
                 <View style={styles.xpHead}>
                   <Text style={styles.xpT}>+{context?.xp} XP EARNED</Text>
@@ -199,6 +290,7 @@ export default function LessonScreen() {
                   <Animated.View style={[styles.xpFill, barStyle]} />
                 </View>
               </View>
+
               <TouchableOpacity
                 style={styles.nextBtn}
                 onPress={() => {
@@ -218,6 +310,11 @@ export default function LessonScreen() {
   );
 }
 
+/**
+ * -----------------------------------------------------------------------------
+ * MODULE: STYLESHEET
+ * -----------------------------------------------------------------------------
+ */
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: {
@@ -251,8 +348,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
   headerT: { color: 'white', fontSize: 18, fontWeight: 'bold' },
-
-  // --- GLASS CARD STYLES ---
   glassEffect: {
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
     borderColor: 'rgba(148, 163, 184, 0.1)',
@@ -276,8 +371,6 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     color: THEME.slate,
   },
-  // -------------------------
-
   missionText: {
     color: 'white',
     fontSize: 16,

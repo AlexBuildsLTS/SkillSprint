@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
+  Modal,
   View,
   Text,
   StyleSheet,
@@ -11,6 +12,7 @@ import {
   Keyboard,
   Dimensions,
   Alert,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import Animated, {
   FadeInDown,
@@ -43,10 +45,12 @@ import {
   Layers,
   Box,
   Hash,
+  HandHelping,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 
 const { width, height } = Dimensions.get('window');
 
@@ -103,37 +107,21 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'while',
     'True',
     'False',
-    'None',
     'import',
     'class',
-    'try:',
-    'except:',
-    'lambda',
-    'with',
-    'as',
-    'pass',
   ],
   javascript: [
     'function',
     'const',
     'let',
-    'var',
     'console.log()',
     'return',
     'if',
     'else',
     '=>',
-    'true',
-    'false',
-    'null',
-    'undefined',
     'async',
     'await',
-    'import',
-    'export',
     'try',
-    'catch',
-    'finally',
   ],
   typescript: [
     'interface',
@@ -146,13 +134,6 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'string',
     'boolean',
     'any',
-    'void',
-    'implements',
-    'readonly',
-    'as',
-    'enum',
-    'public',
-    'private',
   ],
   java: [
     'public',
@@ -165,14 +146,6 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'String',
     'new',
     'return',
-    'if',
-    'else',
-    'for',
-    'while',
-    'extends',
-    'implements',
-    'this',
-    'super',
   ],
   rust: [
     'fn',
@@ -181,19 +154,11 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'pub',
     'use',
     'mod',
-    'struct',
-    'enum',
-    'impl',
     'println!()',
     'match',
     'Option',
     'Result',
-    'Ok',
-    'Err',
     'vec!',
-    'String::from',
-    '&',
-    'move',
   ],
   go: [
     'func',
@@ -204,16 +169,8 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'var',
     'type',
     'struct',
-    'interface',
     'return',
     'if',
-    'else',
-    'for',
-    'range',
-    'map',
-    'make',
-    'chan',
-    'go',
   ],
   sql: [
     'SELECT',
@@ -228,11 +185,8 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'ON',
     'GROUP BY',
     'ORDER BY',
-    'HAVING',
     'LIMIT',
     'COUNT(*)',
-    'SUM()',
-    'AVG()',
     'DISTINCT',
     'AS',
   ],
@@ -244,14 +198,8 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'cin >>',
     'return 0;',
     'class',
-    'public:',
-    'private:',
     'void',
-    'int',
-    'string',
     'vector',
-    'endl',
-    'struct',
   ],
   kotlin: [
     'fun',
@@ -265,11 +213,6 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'when',
     'return',
     'null',
-    'override',
-    'companion object',
-    'List',
-    'Map',
-    'String',
   ],
   csharp: [
     'using',
@@ -282,12 +225,6 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'Console.WriteLine()',
     'int',
     'string',
-    'new',
-    'return',
-    'namespace',
-    'var',
-    'bool',
-    'foreach',
   ],
   swift: [
     'func',
@@ -296,15 +233,11 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'print()',
     'class',
     'struct',
-    'enum',
     'if',
     'else',
     'return',
     'nil',
     'guard',
-    'extension',
-    'protocol',
-    'init',
   ],
   ruby: [
     'def',
@@ -316,13 +249,8 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'end',
     'class',
     'module',
-    'require',
     'nil',
     'true',
-    'false',
-    'attr_accessor',
-    'do',
-    'yield',
   ],
   php: [
     '<?php',
@@ -332,14 +260,10 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     '$this',
     'class',
     'public',
-    'private',
-    'protected',
     'if',
     'else',
     'foreach',
     'array',
-    'null',
-    'true',
   ],
 };
 
@@ -347,18 +271,14 @@ interface CodeEmulatorProps {
   language: string;
   code: string;
   expectedOutput?: string;
+  hint?: string;
   onComplete: () => void;
 }
 
 // -----------------------------------------------------------------------------
-// 2. ADVANCED SQL ENGINE
+// 2. ADVANCED SQL ENGINE (ENHANCED)
 // -----------------------------------------------------------------------------
 
-/**
- * SQL ENGINE
- * A comprehensive in-memory relational database simulation.
- * It maintains state during the session and supports complex queries including joins (simulated).
- */
 class SqlEngine {
   // Complex Mock Database
   private tables: Record<string, any[]> = {
@@ -408,6 +328,14 @@ class SqlEngine {
         age: 40,
         created_at: '2023-05-20',
       },
+    ],
+    // ADDED CUSTOMERS TABLE TO PREVENT "TABLE NOT FOUND" ERRORS
+    customers: [
+      { id: 1, name: 'Google', city: 'Mountain View', country: 'USA' },
+      { id: 2, name: 'Spotify', city: 'Stockholm', country: 'Sweden' },
+      { id: 3, name: 'Samsung', city: 'Seoul', country: 'Korea' },
+      { id: 4, name: 'Apple', city: 'Cupertino', country: 'USA' },
+      { id: 5, name: 'Microsoft', city: 'Redmond', country: 'USA' },
     ],
     orders: [
       {
@@ -485,45 +413,46 @@ class SqlEngine {
   };
 
   execute(query: string): string[] {
-    // Sanitization and normalization
-    const clean = query.trim().replace(/;/g, '');
+    // Robust Sanitization
+    const clean = query.trim().replace(/;/g, '').replace(/\s+/g, ' ');
     const upper = clean.toUpperCase();
     const output: string[] = [];
 
     // ---------------- SELECT PARSING LOGIC ----------------
     if (upper.startsWith('SELECT')) {
-      // 1. Identify Primary Table
-      let activeTable = 'users'; // Default fallback
+      let activeTable = 'users';
       let dataset: any[] = [];
       let tableNameDisplay = '';
 
-      // Regex to find 'FROM tableName'
+      // Find 'FROM table_name'
       const fromMatch = upper.match(/FROM\s+([a-zA-Z0-9_]+)/);
+
       if (fromMatch && fromMatch[1]) {
         const tableName = fromMatch[1].toLowerCase();
         if (this.tables[tableName]) {
           activeTable = tableName;
-          dataset = [...this.tables[tableName]]; // Create a copy
+          dataset = [...this.tables[tableName]];
           tableNameDisplay = tableName;
         } else {
+          // Heuristic: Check pluralization
+          const plural = tableName + 's';
+          if (this.tables[plural]) {
+            return [
+              `⚠ Error: Table '${tableName}' does not exist. Did you mean '${plural}'?`,
+            ];
+          }
           return [`⚠ Error: Table '${tableName}' does not exist in schema.`];
         }
       } else {
         return [`⚠ Error: Syntax error. Expected 'FROM table_name'.`];
       }
 
-      // 2. JOIN LOGIC (Simulation)
-      // Supports "JOIN otherTable ON ..."
+      // JOIN LOGIC (Visual Simulation)
       if (upper.includes('JOIN')) {
         const joinMatch = upper.match(/JOIN\s+([a-zA-Z0-9_]+)\s+ON/);
         if (joinMatch && joinMatch[1]) {
           const joinTable = joinMatch[1].toLowerCase();
           if (this.tables[joinTable]) {
-            // Simplified Join: Cartesian product + filter would be real way,
-            // but here we just note the join occurred for output context or
-            // in a real app, merge datasets.
-            // For emulator visualization, we might append columns if specific IDs match.
-            // (Keeping it simple for ASCII output rendering stability)
             tableNameDisplay += ` + ${joinTable}`;
           }
         }
@@ -531,157 +460,146 @@ class SqlEngine {
 
       let results = [...dataset];
 
-      // 3. WHERE CLAUSE ENGINE
+      // WHERE CLAUSE (Robust)
       if (upper.includes('WHERE')) {
-        // Extract condition string
         const whereSection = upper
           .split('WHERE')[1]
           .split(/(GROUP|ORDER|LIMIT)/)[0]
           .trim();
 
-        // Complex Filter Logic
         results = results.filter((row) => {
           let match = true;
 
-          // Integers / ID
-          if (whereSection.includes('ID =')) {
-            const idVal = parseInt(whereSection.split('ID =')[1].trim());
-            if (!isNaN(idVal)) match = match && row.id === idVal;
-          }
-          if (whereSection.includes('ID >')) {
-            const idVal = parseInt(whereSection.split('ID >')[1].trim());
-            if (!isNaN(idVal)) match = match && row.id > idVal;
+          // Numeric: col > 5
+          const numMatch = whereSection.match(
+            /([a-zA-Z0-9_]+)\s*([=><]+)\s*(\d+)/,
+          );
+          if (numMatch) {
+            const col = numMatch[1].toLowerCase();
+            const op = numMatch[2];
+            const val = parseFloat(numMatch[3]);
+
+            if (row[col] !== undefined) {
+              if (op === '=') match = match && row[col] === val;
+              if (op === '>') match = match && row[col] > val;
+              if (op === '<') match = match && row[col] < val;
+              if (op === '>=') match = match && row[col] >= val;
+              if (op === '<=') match = match && row[col] <= val;
+            }
           }
 
-          // Active Boolean
-          if (whereSection.includes('ACTIVE = 1'))
-            match = match && row.active === 1;
-          if (whereSection.includes('ACTIVE = 0'))
-            match = match && row.active === 0;
-
-          // String Equality
-          if (whereSection.includes("CITY = '")) {
-            const city = whereSection.match(/CITY = '([^']+)'/)?.[1];
-            if (city) match = match && row.city === city;
-          }
-          if (whereSection.includes("ROLE = '")) {
-            const role = whereSection.match(/ROLE = '([^']+)'/)?.[1];
-            if (role) match = match && row.role === role;
-          }
-          if (whereSection.includes("STATUS = '")) {
-            const status = whereSection.match(/STATUS = '([^']+)'/)?.[1];
-            if (status) match = match && row.status === status;
+          // String: col = 'val'
+          const strMatch = whereSection.match(
+            /([a-zA-Z0-9_]+)\s*=\s*['"]([^'"]+)['"]/,
+          );
+          if (strMatch) {
+            const col = strMatch[1].toLowerCase();
+            const val = strMatch[2];
+            if (row[col] !== undefined) {
+              match = match && String(row[col]) === val;
+            }
           }
 
-          // Numeric Ranges
-          if (whereSection.includes('AGE >')) {
-            const val = parseInt(whereSection.split('AGE >')[1].trim());
-            if (!isNaN(val)) match = match && row.age > val;
+          // Boolean
+          if (whereSection.includes('TRUE') || whereSection.includes('1')) {
+            if (row.active !== undefined) match = match && !!row.active;
           }
-          if (whereSection.includes('SALARY >')) {
-            const val = parseInt(whereSection.split('SALARY >')[1].trim());
-            if (!isNaN(val)) match = match && row.salary > val;
-          }
-          if (whereSection.includes('PRICE <')) {
-            const val = parseInt(whereSection.split('PRICE <')[1].trim());
-            if (!isNaN(val)) match = match && row.price < val;
+          if (whereSection.includes('FALSE') || whereSection.includes('0')) {
+            if (row.active !== undefined) match = match && !row.active;
           }
 
           return match;
         });
       }
 
-      // 4. GROUP BY (Aggregation Simulation)
+      // GROUP BY (Simulated sort)
       if (upper.includes('GROUP BY')) {
-        // In a real DB, this collapses rows.
-        // For emulator, we'll just sort by the group column to show clustering
-        if (upper.includes('CATEGORY'))
+        const groupByCol = upper
+          .split('GROUP BY')[1]
+          .split(/(ORDER|LIMIT)/)[0]
+          .trim()
+          .toLowerCase();
+        if (results.length > 0 && results[0][groupByCol] !== undefined) {
           results.sort((a, b) =>
-            (a.category || '').localeCompare(b.category || ''),
+            String(a[groupByCol]).localeCompare(String(b[groupByCol])),
           );
-        if (upper.includes('CITY'))
-          results.sort((a, b) => (a.city || '').localeCompare(b.city || ''));
-      }
-
-      // 5. ORDER BY
-      if (upper.includes('ORDER BY')) {
-        if (upper.includes('AGE DESC')) results.sort((a, b) => b.age - a.age);
-        else if (upper.includes('AGE ASC'))
-          results.sort((a, b) => a.age - b.age);
-        else if (upper.includes('PRICE DESC'))
-          results.sort((a, b) => b.price - a.price);
-        else if (upper.includes('PRICE ASC'))
-          results.sort((a, b) => a.price - b.price);
-        else if (upper.includes('SALARY DESC'))
-          results.sort((a, b) => b.salary - a.salary);
-        else if (upper.includes('NAME'))
-          results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-        else if (upper.includes('DATE DESC'))
-          results.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-      }
-
-      // 6. LIMIT
-      if (upper.includes('LIMIT')) {
-        const limitMatch = upper.match(/LIMIT\s+(\d+)/);
-        if (limitMatch) {
-          const limitVal = parseInt(limitMatch[1], 10);
-          results = results.slice(0, limitVal);
         }
       }
 
-      // 7. COLUMN PROJECTION
-      let columns = Object.keys(dataset[0] || {});
-      if (!upper.includes('*')) {
-        // Extract raw column string
-        const selectIdx = clean.toUpperCase().indexOf('SELECT') + 6;
-        const fromIdx = clean.toUpperCase().indexOf('FROM');
-        const selectPart = clean.substring(selectIdx, fromIdx).trim();
+      // ORDER BY
+      if (upper.includes('ORDER BY')) {
+        const orderSection = upper
+          .split('ORDER BY')[1]
+          .split('LIMIT')[0]
+          .trim();
+        const parts = orderSection.split(' ');
+        const col = parts[0].toLowerCase();
+        const dir = parts[1] === 'DESC' ? -1 : 1;
 
-        // Parse "col1, col2"
+        results.sort((a, b) => {
+          const valA = a[col];
+          const valB = b[col];
+          if (typeof valA === 'number' && typeof valB === 'number')
+            return (valA - valB) * dir;
+          return String(valA).localeCompare(String(valB)) * dir;
+        });
+      }
+
+      // LIMIT
+      if (upper.includes('LIMIT')) {
+        const limitMatch = upper.match(/LIMIT\s+(\d+)/);
+        if (limitMatch) {
+          results = results.slice(0, parseInt(limitMatch[1], 10));
+        }
+      }
+
+      // COLUMN PROJECTION (Fix for SELECT city FROM customers)
+      let columns = Object.keys(dataset[0] || {});
+      const selectIdx = clean.toUpperCase().indexOf('SELECT') + 6;
+      const fromIdx = clean.toUpperCase().indexOf('FROM');
+      const selectPart = clean.substring(selectIdx, fromIdx).trim();
+
+      if (selectPart !== '*' && selectPart !== '') {
         const requested = selectPart
           .split(',')
           .map((c) => c.trim().toLowerCase());
 
-        // Filter available columns
-        columns = columns.filter(
-          (col) =>
-            requested.some(
-              (req) => req === col.toLowerCase() || req === 'count(*)',
-            ), // Handle Count special case
-        );
-
-        // Handle Aggregates Output (COUNT, SUM) - Special Mode
-        if (requested.includes('count(*)')) {
+        if (requested.some((r) => r.includes('count'))) {
           output.push(`| COUNT(*) |`);
           output.push(`| ${String(results.length).padEnd(8)} |`);
           return output;
         }
+
+        const validColumns = columns.filter((col) =>
+          requested.includes(col.toLowerCase()),
+        );
+        if (validColumns.length > 0) {
+          columns = validColumns;
+        } else {
+          // Case insensitive check
+          return [`⚠ Error: Unknown column(s) in '${selectPart}'`];
+        }
       }
 
-      // 8. RENDER OUTPUT
+      // RENDER OUTPUT
       output.push(
         `✔ Query OK, ${results.length} rows retrieved from '${tableNameDisplay}'`,
       );
       output.push('');
 
       if (results.length > 0) {
-        // Dynamic Column Width Calculation
         const colWidths = columns.map((c) => {
           const headerLen = c.length;
-          // Scan data for max length
           const maxDataLen = Math.max(
             ...results.map((r) => String(r[c] || '').length),
           );
-          return Math.max(headerLen, maxDataLen, 8); // Minimum 8 chars
+          return Math.max(headerLen, maxDataLen, 8);
         });
 
-        // Table Borders
         const drawLine = () =>
           '+-' +
           columns.map((c, i) => '-'.repeat(colWidths[i])).join('-+-') +
           '-+';
-
-        // Header
         const headerLine =
           '| ' +
           columns.map((c, i) => c.padEnd(colWidths[i])).join(' | ') +
@@ -691,7 +609,6 @@ class SqlEngine {
         output.push(headerLine);
         output.push(drawLine());
 
-        // Body
         results.forEach((row) => {
           const rowLine =
             '| ' +
@@ -709,44 +626,20 @@ class SqlEngine {
           output.push(rowLine);
         });
 
-        // Footer
         output.push(drawLine());
         output.push(`(${results.length} rows in set)`);
       } else {
         output.push('Empty set (0.00 sec)');
       }
     }
-    // ---------------- INSERT LOGIC ----------------
-    else if (upper.startsWith('INSERT')) {
-      if (upper.includes('INTO') && upper.includes('VALUES')) {
-        output.push('✔ Query OK, 1 row affected (0.01 sec)');
-      } else {
-        output.push(
-          '⚠ Syntax Error: INSERT INTO table_name VALUES (v1, v2, ...);',
-        );
-      }
-    }
-    // ---------------- UPDATE LOGIC ----------------
-    else if (upper.startsWith('UPDATE')) {
-      if (upper.includes('SET')) {
-        output.push('✔ Query OK, 1 row affected (0.02 sec)');
-        output.push('Rows matched: 1  Changed: 1  Warnings: 0');
-      } else {
-        output.push(
-          '⚠ Syntax Error: UPDATE table_name SET col=val WHERE condition;',
-        );
-      }
-    }
-    // ---------------- DELETE LOGIC ----------------
-    else if (upper.startsWith('DELETE')) {
-      if (upper.includes('FROM')) {
-        output.push('✔ Query OK, 1 row affected (0.01 sec)');
-      } else {
-        output.push('⚠ Syntax Error: DELETE FROM table_name WHERE condition;');
-      }
-    }
-    // ---------------- UNKNOWN ----------------
-    else {
+    // ---------------- OTHER COMMANDS ----------------
+    else if (
+      upper.startsWith('INSERT') ||
+      upper.startsWith('UPDATE') ||
+      upper.startsWith('DELETE')
+    ) {
+      output.push('✔ Query OK, 1 row affected (0.01 sec)');
+    } else {
       output.push(
         `⚠ SQL Error (1064): You have an error in your SQL syntax near '${clean.split(' ')[0]}'`,
       );
@@ -760,14 +653,6 @@ class SqlEngine {
 // 3. MULTI-LANGUAGE INTERPRETER
 // -----------------------------------------------------------------------------
 
-/**
- * Handles execution simulation for imperative/OO languages.
- * Features:
- * - Variable State Tracking (simulated memory)
- * - Print Statement Parsing (regex based)
- * - Basic Math Evaluation
- * - String Concatenation Logic
- */
 class MultiLangInterpreter {
   private variables: Map<string, string> = new Map();
 
@@ -778,26 +663,18 @@ class MultiLangInterpreter {
 
     lines.forEach((line) => {
       const trimLine = line.trim();
-
-      // Skip comments and empty lines
       if (
         !trimLine ||
         trimLine.startsWith('//') ||
         trimLine.startsWith('#') ||
-        trimLine.startsWith('/*') ||
-        trimLine.startsWith('*')
+        trimLine.startsWith('/*')
       )
         return;
 
-      // --- A. VARIABLE PARSING ---
-      // Captures standard assignment patterns across C-style and Script languages
-      // Matches: "int x = 10", "var name = 'Bob'", "x = 50", "let flag = true"
+      // Variable Assignment (supports int x = 10, var x = 10, x = 10)
       const assignRegex =
         /(?:const|let|var|int|String|float|bool|val|double|char|auto|string)\s+([a-zA-Z_]\w*)\s*(?::=|=)\s*(.*);?$/;
       const assignMatch = trimLine.match(assignRegex);
-
-      // Also handle Python/Ruby style (no keyword, simple assignment)
-      // "x = 10" (if not caught above)
       const simpleAssignMatch = trimLine.match(/^([a-zA-Z_]\w*)\s*=\s*(.*)$/);
 
       let varName, val;
@@ -811,147 +688,115 @@ class MultiLangInterpreter {
         !trimLine.startsWith('if') &&
         !trimLine.startsWith('return')
       ) {
-        // Python/Ruby specific check to avoid logic statements
         varName = simpleAssignMatch[1];
         val = simpleAssignMatch[2].trim();
       }
 
       if (varName && val) {
-        // CLEANUP: Remove trailing semicolon
         if (val.endsWith(';')) val = val.slice(0, -1);
-        // CLEANUP: Remove quotes for storage
         val = val.replace(/^["']|["']$/g, '');
         this.variables.set(varName, val);
       }
 
-      // --- B. PRINT STATEMENT DETECTION ---
+      // Print Detection
       let printContent: string | null = null;
 
-      // Regex library for print syntax across 10+ languages
-      // We use 'includes' or specific start anchors based on language rigidity
-
-      // 1. Python / Swift / Kotlin (Simple print)
-      if (
-        (lang === 'python' || lang === 'swift' || lang === 'kotlin') &&
-        /^print\s*\(/.test(trimLine)
-      ) {
+      // KOTLIN
+      if (lang === 'kotlin' && /^println\s*\(/.test(trimLine)) {
+        printContent = trimLine.match(/^println\s*\((.*)\)/)?.[1] || '';
+      }
+      // SWIFT
+      else if (lang === 'swift' && /^print\s*\(/.test(trimLine)) {
         printContent = trimLine.match(/^print\s*\((.*)\)/)?.[1] || '';
       }
-
-      // 2. JavaScript / TypeScript
+      // PYTHON
+      else if (lang === 'python' && /^print\s*\(/.test(trimLine)) {
+        printContent = trimLine.match(/^print\s*\((.*)\)/)?.[1] || '';
+      }
+      // JS/TS
       else if (
-        (lang === 'javascript' || lang === 'typescript') &&
+        (lang === 'javascript' ||
+          lang === 'typescript' ||
+          lang === 'react native') &&
         /^console\.log\s*\(/.test(trimLine)
       ) {
         printContent = trimLine.match(/^console\.log\s*\((.*)\)/)?.[1] || '';
       }
-
-      // 3. Java (System.out.println) - Handle indentation
+      // JAVA
       else if (lang === 'java' && trimLine.includes('System.out.println')) {
         printContent =
           trimLine.match(/System\.out\.println\s*\((.*)\)/)?.[1] || '';
       }
-
-      // 4. C# (Console.WriteLine)
+      // C#
       else if (lang === 'csharp' && trimLine.includes('Console.WriteLine')) {
         printContent =
           trimLine.match(/Console\.WriteLine\s*\((.*)\)/)?.[1] || '';
       }
-
-      // 5. Go (fmt.Println)
+      // GO
       else if (lang === 'go' && trimLine.includes('fmt.Println')) {
         printContent = trimLine.match(/fmt\.Println\s*\((.*)\)/)?.[1] || '';
       }
-
-      // 6. Rust (println!)
+      // RUST
       else if (lang === 'rust' && trimLine.includes('println!')) {
-        // Handle format strings: println!("{}", x);
         const raw = trimLine.match(/println!\s*\((.*)\)/)?.[1] || '';
         if (raw.includes(',')) {
-          // Basic formatting simulation
           const parts = raw.split(',');
-          const fmt = parts[0].replace(/"/g, ''); // "{}"
+          const fmt = parts[0].replace(/"/g, '');
           const variable = parts[1].trim();
           if (fmt.includes('{}') && this.variables.has(variable)) {
             printContent = fmt.replace('{}', this.variables.get(variable)!);
           } else {
-            printContent = raw; // Fallback
+            printContent = raw;
           }
         } else {
           printContent = raw;
         }
       }
-
-      // 7. C++ (std::cout)
+      // CPP
       else if (
-        lang === 'cpp' &&
+        (lang === 'cpp' || lang === 'c++') &&
         (trimLine.startsWith('cout') || trimLine.startsWith('std::cout'))
       ) {
-        // Parse: cout << "Hello" << endl;
-        // Logic: Extract everything between '<<' and ';'
         const parts = trimLine.split('<<');
-        // parts[0] is 'cout', parts[1] is content
         if (parts.length > 1) {
           let content = parts[1].trim();
-          // Handle chained outputs roughly (take first part)
           if (content.includes('<<')) content = content.split('<<')[0].trim();
           printContent = content.replace(';', '');
         }
       }
-
-      // 8. Ruby (puts)
+      // RUBY
       else if (lang === 'ruby' && /^puts\s+/.test(trimLine)) {
         printContent = trimLine.replace(/^puts\s+/, '');
       }
-
-      // 9. PHP (echo)
+      // PHP
       else if (lang === 'php' && /^echo\s+/.test(trimLine)) {
         printContent = trimLine.replace(/^echo\s+/, '').replace(';', '');
       }
 
-      // --- C. OUTPUT RESOLUTION ---
       if (printContent !== null) {
         let clean = printContent.trim();
-
-        // Remove trailing semicolon if regex caught it
         if (clean.endsWith(';')) clean = clean.slice(0, -1);
 
-        // CASE 1: Literal String ("Hello World")
         if (
           (clean.startsWith('"') && clean.endsWith('"')) ||
           (clean.startsWith("'") && clean.endsWith("'"))
         ) {
           output.push(clean.slice(1, -1));
-        }
-
-        // CASE 2: Variable Retrieval (x)
-        else if (this.variables.has(clean)) {
+        } else if (this.variables.has(clean)) {
           output.push(this.variables.get(clean)!);
-        }
-
-        // CASE 3: PHP Variable ($x)
-        else if (
+        } else if (
           clean.startsWith('$') &&
           this.variables.has(clean.substring(1))
         ) {
           output.push(this.variables.get(clean.substring(1))!);
-        }
-
-        // CASE 4: Simple Math Evaluation (5 + 5)
-        else if (/^[\d+\-*/\s().]+$/.test(clean)) {
+        } else if (/^[\d+\-*/\s().]+$/.test(clean)) {
           try {
-            // We use JS eval for math simulation.
-            // In a real app, use a dedicated math parser for security.
             // eslint-disable-next-line no-eval
             output.push(String(eval(clean)));
           } catch {
-            output.push(clean); // Fallback: print raw expression
+            output.push(clean);
           }
-        }
-
-        // CASE 5: Raw Fallback (Complex expressions or unknown vars)
-        else {
-          // If it looks like a variable but wasn't tracked, print it raw but clean quotes
+        } else {
           output.push(clean.replace(/^["']|["']$/g, ''));
         }
       }
@@ -969,8 +814,9 @@ export function CodeEmulator({
   language,
   code: initialCode,
   expectedOutput,
+  hint,
   onComplete,
-}: CodeEmulatorProps) {
+}: CodeEmulatorProps & { hint?: string }) {
   // --- STATE MANAGEMENT ---
   const [sourceCode, setSourceCode] = useState(initialCode);
   const [status, setStatus] = useState<'IDLE' | 'COMPILING' | 'EXECUTING'>(
@@ -981,30 +827,30 @@ export function CodeEmulator({
     'success' | 'fail' | null
   >(null);
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
+  const [showHint, setShowHint] = useState(false);
 
   // Refs
   const inputRef = useRef<TextInput>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // --- CONFIGURATION ---
-  // Normalize Language input to KernelType, default to 'javascript'
+  // Normalize Language input to KernelType
   const normalizedLang = (language || 'javascript').toLowerCase() as KernelType;
-
-  // Get language-specific helpers
+  // Get helpers, defaulting to javascript if not found
   const helpers =
     SYNTAX_HELPERS[normalizedLang] || SYNTAX_HELPERS['javascript'];
 
-  // Reset state when task changes (new lesson)
+  // Reset state when task changes
   useEffect(() => {
     setSourceCode(initialCode);
     setLogs([]);
     setValidationResult(null);
     setIsConsoleOpen(false);
     setStatus('IDLE');
+    setShowHint(false);
   }, [initialCode]);
 
   // --- HELPERS ---
-
   const handleInsertHelper = (text: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSourceCode(
@@ -1021,13 +867,15 @@ export function CodeEmulator({
   const copyToClipboard = async () => {
     await Clipboard.setStringAsync(sourceCode);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    // Could add a toast here
+  };
+
+  const toggleHint = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowHint(!showHint);
   };
 
   /**
    * 🚀 EXECUTION CORE
-   * Coordinates the mock compiler delay, kernel message selection,
-   * execution engine delegation, and output validation.
    */
   const handleExecution = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1040,7 +888,6 @@ export function CodeEmulator({
     setLogs([]);
 
     // 2. Simulate Compile/Build Delay
-    // Compiled languages (Rust, Go, Java, C++) get a longer "build" delay for realism
     const isCompiled = [
       'rust',
       'go',
@@ -1057,14 +904,10 @@ export function CodeEmulator({
       let buffer: string[] = [];
       let success = true;
 
-      // 3. BOOTSTRAP MESSAGES (The "Real" Feel)
-      // These mimic the actual CLI output of the respective runtimes.
+      // 3. BOOTSTRAP MESSAGES
       switch (normalizedLang) {
         case 'python':
           buffer.push('Python 3.10.0 [GCC 11.2.0] on linux');
-          buffer.push(
-            'Type "help", "copyright", "credits" or "license" for more information.',
-          );
           buffer.push('>>> python3 main.py');
           break;
         case 'javascript':
@@ -1097,8 +940,6 @@ export function CodeEmulator({
           break;
         case 'csharp':
           buffer.push('MSBuild version 17.6.3+07e294721 for .NET');
-          buffer.push('  Determining projects to restore...');
-          buffer.push('  Restored /home/user/project.csproj (in 98 ms).');
           buffer.push('> dotnet run');
           break;
         case 'kotlin':
@@ -1106,22 +947,19 @@ export function CodeEmulator({
           buffer.push('> java -jar main.jar');
           break;
         case 'ruby':
-          buffer.push(
-            'ruby 3.2.2 (2023-03-30 revision e51014f9c0) [x86_64-linux]',
-          );
+          buffer.push('ruby 3.2.2 [x86_64-linux]');
           buffer.push('> ruby main.rb');
           break;
         case 'php':
-          buffer.push('PHP 8.2.8 (cli) (built: Jul  4 2023 15:30:22) (NTS)');
+          buffer.push('PHP 8.2.8 (cli) (NTS)');
           buffer.push('> php main.php');
           break;
         case 'swift':
-          buffer.push('Welcome to Swift version 5.8.1 (swift-5.8.1-RELEASE)');
+          buffer.push('Welcome to Swift version 5.8.1');
           buffer.push('> swift main.swift');
           break;
         case 'sql':
           buffer.push('SQLite version 3.39.3 2022-09-05');
-          buffer.push('Enter ".help" for usage hints.');
           buffer.push('sqlite> -- Executing Query');
           break;
       }
@@ -1129,27 +967,22 @@ export function CodeEmulator({
       // 4. RUN ENGINE DELEGATION
       try {
         if (normalizedLang === 'sql') {
-          // A. SQL Execution Path
           const sql = new SqlEngine();
           const res = sql.execute(sourceCode);
           buffer = [...buffer, ...res];
         } else {
-          // B. General Script Execution Path
           const interp = new MultiLangInterpreter();
           const res = interp.execute(sourceCode, normalizedLang);
 
           if (res.length === 0) {
-            // Smart Fallback / Heuristics
-            // If code looks like it *should* print something but didn't (regex miss or syntax error),
-            // we simulate a fallback or error message.
+            // Heuristic fallback for non-printing code
             const hasPrintIntent =
               sourceCode.includes('print') ||
               sourceCode.includes('log') ||
               sourceCode.includes('cout') ||
               sourceCode.includes('fmt');
-
             if (hasPrintIntent) {
-              // Last ditch: Try to extract a raw string literal if it looks like "Hello"
+              // Try to extract literals if engine failed
               const strMatch = sourceCode.match(/["']([^"']+)["']/);
               if (strMatch && strMatch[1].length > 1) {
                 buffer.push(strMatch[1]);
@@ -1168,7 +1001,6 @@ export function CodeEmulator({
         success = false;
       }
 
-      // 5. EXIT CODE SIMULATION
       if (normalizedLang !== 'sql') {
         buffer.push(`\nProcess finished with exit code ${success ? 0 : 1}`);
       }
@@ -1176,23 +1008,28 @@ export function CodeEmulator({
       setLogs(buffer);
       setStatus('IDLE');
 
-      // 6. OUTPUT VALIDATION
-      const outputStr = buffer.join('\n').toLowerCase();
+      // 6. OUTPUT VALIDATION (ENHANCED)
+      const outputStr = buffer.join('\n').toLowerCase().trim();
       const expectedStr = (expectedOutput || '').trim().toLowerCase();
+      // Normalize user code: remove extra spaces/newlines for comparison
+      const codeStr = sourceCode.replace(/\s+/g, ' ').trim().toLowerCase();
 
       let passed = false;
 
       if (!expectedOutput) {
-        passed = true; // Sandbox mode / No check required
+        passed = true; // Sandbox mode
       } else {
-        // Special validation rules
         if (normalizedLang === 'sql') {
-          // SQL loose validation: check if result contains expected data OR success indicators
+          // SQL Validation:
+          // 1. Output matches expected (Result Table)
+          // 2. OR User Code contains expected statement (Code Match)
+          // 3. OR "Query OK" + Empty expectation (Action Match)
           passed =
             outputStr.includes(expectedStr) ||
+            codeStr.includes(expectedStr) ||
             (expectedStr === '' && outputStr.includes('query ok'));
         } else {
-          // Standard validation: contains expected string
+          // General Code Validation: Output must match expectation
           passed = outputStr.includes(expectedStr);
         }
       }
@@ -1200,7 +1037,6 @@ export function CodeEmulator({
       if (passed) {
         setValidationResult('success');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        // Delay onComplete to let user see success message
         setTimeout(onComplete, 1500);
       } else {
         setValidationResult('fail');
@@ -1212,7 +1048,69 @@ export function CodeEmulator({
   // --- UI RENDER ---
   return (
     <View style={styles.container}>
-      {/* 1. TOOLBAR HEADER */}
+      {/* HINT MODAL */}
+      <Modal
+        transparent
+        visible={showHint}
+        animationType="fade"
+        onRequestClose={() => setShowHint(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowHint(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <Animated.View
+                entering={FadeInDown.springify().damping(15)}
+                style={styles.hintCardWrapper}
+              >
+                <BlurView
+                  intensity={40}
+                  tint="dark"
+                  style={styles.hintGlassCard}
+                >
+                  <LinearGradient
+                    colors={[
+                      'rgba(99, 102, 241, 0.15)',
+                      'rgba(15, 23, 42, 0.9)',
+                    ]}
+                    style={styles.hintGradient}
+                  >
+                    <View style={styles.hintHeader}>
+                      <View style={styles.hintTitleRow}>
+                        <HandHelping size={18} color={THEME.gold} />
+                        <Text style={styles.hintTitle}>Mentor Hint</Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => setShowHint(false)}
+                        style={styles.closeBtn}
+                      >
+                        <XCircle size={18} color={THEME.slate} />
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView
+                      style={{ maxHeight: 200 }}
+                      indicatorStyle="white"
+                    >
+                      <Text style={styles.hintText}>
+                        {hint ||
+                          'Check the lesson content above. The answer is hidden in the syntax examples!'}
+                      </Text>
+                    </ScrollView>
+
+                    <View style={styles.hintFooter}>
+                      <Text style={styles.hintSub}>
+                        Tip: Check your syntax carefully.
+                      </Text>
+                    </View>
+                  </LinearGradient>
+                </BlurView>
+              </Animated.View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* TOOLBAR */}
       <LinearGradient
         colors={[THEME.surface, '#1e293b']}
         start={{ x: 0, y: 0 }}
@@ -1220,7 +1118,6 @@ export function CodeEmulator({
         style={styles.toolbar}
       >
         <View style={styles.toolbarLeft}>
-          {/* Status Indicator Dot */}
           <View
             style={[
               styles.statusDot,
@@ -1234,20 +1131,14 @@ export function CodeEmulator({
               },
             ]}
           />
-
-          {/* Language Badge */}
           <View style={styles.langBadge}>
             {normalizedLang === 'sql' ? (
               <Database size={12} color={THEME.indigo} />
-            ) : normalizedLang === 'java' || normalizedLang === 'kotlin' ? (
-              <Box size={12} color={THEME.indigo} />
             ) : (
               <Cpu size={12} color={THEME.indigo} />
             )}
             <Text style={styles.langText}>{normalizedLang.toUpperCase()}</Text>
           </View>
-
-          {/* Status Text */}
           <Text style={styles.statusText}>
             {status === 'IDLE'
               ? 'READY'
@@ -1259,17 +1150,27 @@ export function CodeEmulator({
 
         <View style={styles.toolbarRight}>
           <TouchableOpacity
-            onPress={copyToClipboard}
-            style={styles.iconButton}
+            onPress={toggleHint}
+            style={[
+              styles.iconButton,
+              {
+                backgroundColor: showHint
+                  ? 'rgba(251, 191, 36, 0.15)'
+                  : 'rgba(255,255,255,0.03)',
+              },
+            ]}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
+            <HandHelping
+              size={14}
+              color={showHint ? THEME.gold : THEME.slate}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={copyToClipboard} style={styles.iconButton}>
             <Copy size={14} color={THEME.slate} />
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleClearLogs}
-            style={styles.iconButton}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
+          <TouchableOpacity onPress={handleClearLogs} style={styles.iconButton}>
             <Trash2 size={14} color={THEME.slate} />
           </TouchableOpacity>
           <TouchableOpacity
@@ -1280,16 +1181,14 @@ export function CodeEmulator({
               setValidationResult(null);
             }}
             style={styles.iconButton}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <RefreshCcw size={14} color={THEME.slate} />
           </TouchableOpacity>
         </View>
       </LinearGradient>
 
-      {/* 2. CODE EDITOR VIEWPORT */}
+      {/* EDITOR */}
       <View style={styles.editor}>
-        {/* Line Numbers Gutter */}
         <View style={styles.gutter}>
           {Array.from({ length: 15 }).map((_, i) => (
             <Text key={i} style={styles.lineNum}>
@@ -1297,8 +1196,6 @@ export function CodeEmulator({
             </Text>
           ))}
         </View>
-
-        {/* Actual Input Area */}
         <TextInput
           ref={inputRef}
           style={[
@@ -1318,7 +1215,7 @@ export function CodeEmulator({
         />
       </View>
 
-      {/* 3. SYNTAX ASSISTANT BAR */}
+      {/* SYNTAX BAR */}
       <View style={styles.syntaxBar}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Hash size={12} color={THEME.slate} style={{ marginRight: 6 }} />
@@ -1343,7 +1240,7 @@ export function CodeEmulator({
         </ScrollView>
       </View>
 
-      {/* 4. CONSOLE OUTPUT (Collapsible) */}
+      {/* CONSOLE */}
       {isConsoleOpen && (
         <Animated.View
           layout={Layout.springify()}
@@ -1357,10 +1254,7 @@ export function CodeEmulator({
               <Terminal size={12} color={THEME.slate} />
               <Text style={styles.consoleTitle}>TERMINAL OUTPUT</Text>
             </View>
-            <TouchableOpacity
-              onPress={() => setIsConsoleOpen(false)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
+            <TouchableOpacity onPress={() => setIsConsoleOpen(false)}>
               <Minimize2 size={14} color={THEME.slate} />
             </TouchableOpacity>
           </View>
@@ -1369,7 +1263,6 @@ export function CodeEmulator({
             style={styles.logScroll}
             nestedScrollEnabled
             contentContainerStyle={{ paddingBottom: 20 }}
-            indicatorStyle="white"
           >
             {logs.length === 0 ? (
               <Text
@@ -1387,7 +1280,6 @@ export function CodeEmulator({
                   key={i}
                   style={[
                     styles.logText,
-                    // Dynamic Coloring Logic
                     log.startsWith('>') && {
                       color: THEME.indigo,
                       fontWeight: '700',
@@ -1395,8 +1287,6 @@ export function CodeEmulator({
                     log.startsWith('✔') && { color: THEME.success },
                     log.startsWith('⚠') && { color: THEME.gold },
                     log.startsWith('Runtime') && { color: THEME.danger },
-                    log.includes('Error') && { color: THEME.danger },
-                    // Monospace font for table art (SQL)
                     (log.startsWith('+') || log.startsWith('|')) && {
                       fontFamily:
                         Platform.OS === 'ios' ? 'Courier' : 'monospace',
@@ -1410,7 +1300,6 @@ export function CodeEmulator({
               ))
             )}
 
-            {/* Validation Badge Result */}
             {validationResult && (
               <Animated.View
                 entering={FadeInDown.springify()}
@@ -1447,7 +1336,7 @@ export function CodeEmulator({
         </Animated.View>
       )}
 
-      {/* 5. EXECUTION FOOTER */}
+      {/* FOOTER */}
       <View style={styles.footer}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {normalizedLang === 'sql' ? (
@@ -1456,26 +1345,7 @@ export function CodeEmulator({
             <Code2 size={14} color={THEME.slate} />
           )}
           <Text style={styles.footerText}>
-            main.
-            {normalizedLang === 'rust'
-              ? 'rs'
-              : normalizedLang === 'python'
-                ? 'py'
-                : normalizedLang === 'javascript'
-                  ? 'js'
-                  : normalizedLang === 'typescript'
-                    ? 'ts'
-                    : normalizedLang === 'cpp'
-                      ? 'cpp'
-                      : normalizedLang === 'csharp'
-                        ? 'cs'
-                        : normalizedLang === 'kotlin'
-                          ? 'kt'
-                          : normalizedLang === 'java'
-                            ? 'java'
-                            : normalizedLang === 'sql'
-                              ? 'sql'
-                              : 'txt'}
+            main.{normalizedLang === 'sql' ? 'sql' : 'txt'}
           </Text>
         </View>
 
@@ -1520,17 +1390,73 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.obsidian,
     overflow: 'hidden',
     marginTop: 24,
-    minHeight: 480, // Generous height for mobile coding
+    minHeight: 480,
     width: '100%',
-    // Shadow for depth
     elevation: 8,
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
   },
-
-  // TOOLBAR
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  hintCardWrapper: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.4)',
+    backgroundColor: '#0f172a',
+    shadowColor: '#fbbf24',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  hintGlassCard: { backgroundColor: 'transparent' },
+  hintGradient: { padding: 24 },
+  hintHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+    paddingBottom: 12,
+  },
+  hintTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  hintTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#fbbf24',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  closeBtn: { padding: 4 },
+  hintText: {
+    fontSize: 15,
+    color: '#e2e8f0',
+    lineHeight: 24,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  hintFooter: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  hintSub: {
+    fontSize: 12,
+    color: '#64748b',
+    fontStyle: 'italic',
+    fontWeight: '500',
+  },
   toolbar: {
     height: 48,
     flexDirection: 'row',
@@ -1540,22 +1466,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: THEME.border,
   },
-  toolbarLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  toolbarRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
+  toolbarLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  toolbarRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
   langBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1584,8 +1497,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 6,
   },
-
-  // EDITOR AREA
   editor: {
     flex: 1,
     flexDirection: 'row',
@@ -1616,8 +1527,6 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     height: '100%',
   },
-
-  // SYNTAX HELPER BAR
   syntaxBar: {
     height: 48,
     backgroundColor: '#0f172a',
@@ -1648,8 +1557,6 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontWeight: '600',
   },
-
-  // CONSOLE OUTPUT
   console: {
     height: 240,
     backgroundColor: '#020617',
@@ -1672,10 +1579,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     letterSpacing: 1,
   },
-  logScroll: {
-    flex: 1,
-    padding: 16,
-  },
+  logScroll: { flex: 1, padding: 16 },
   logText: {
     color: '#94a3b8',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -1683,8 +1587,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     lineHeight: 18,
   },
-
-  // RESULT BADGES
   resultBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1704,13 +1606,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239, 68, 68, 0.1)',
     borderColor: 'rgba(239, 68, 68, 0.3)',
   },
-  resultText: {
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-
-  // EXECUTION FOOTER
+  resultText: { fontSize: 11, fontWeight: '900', letterSpacing: 1 },
   footer: {
     height: 64,
     backgroundColor: THEME.surface,
