@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,39 +11,51 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ChevronLeft, Play, Star, Zap } from 'lucide-react-native';
+import {
+  ChevronLeft,
+  Play,
+  Star,
+  Zap,
+  Check,
+  RotateCcw,
+} from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { GlassCard } from '@/components/ui/GlassCard';
 import * as Haptics from 'expo-haptics';
+import { useFocusEffect } from '@react-navigation/native';
 
-// RESTORED: Complete color palette for production UI
+// THEME (Matches your Obsidian Palette)
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
   slate: '#94a3b8',
   emerald: '#10b981',
-  gold: '#fbbf24', // Fixed missing property
+  gold: '#fbbf24',
   border: 'rgba(255,255,255,0.06)',
+  white: '#ffffff',
 };
 
 export default function TrackDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
 
-  // FIXED: Guaranteed string conversion for TypeScript
   const trackId = Array.isArray(id) ? id[0] : id || '';
 
+  // DATA FETCHING
   const { data, isLoading, error } = useQuery({
-    queryKey: ['track-roadmap-v5', trackId],
+    queryKey: ['track-roadmap-v7', trackId],
     queryFn: async () => {
       if (!trackId) throw new Error('Missing ID');
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
       const trackRes = await supabase
         .from('tracks')
         .select('*')
         .eq('id', trackId)
         .single();
-
       if (trackRes.error) throw trackRes.error;
 
       const lessonsRes = await supabase
@@ -51,10 +63,26 @@ export default function TrackDetailScreen() {
         .select('*')
         .eq('track_id', trackId)
         .order('order', { ascending: true });
-
       if (lessonsRes.error) throw lessonsRes.error;
 
-      return { track: trackRes.data, lessons: lessonsRes.data };
+      let completedSet = new Set<string>();
+      if (user && lessonsRes.data.length > 0) {
+        const lessonIds = lessonsRes.data.map((l) => l.id);
+        const progressRes = await supabase
+          .from('user_progress')
+          .select('lesson_id')
+          .eq('user_id', user.id)
+          .eq('is_completed', true)
+          .in('lesson_id', lessonIds);
+
+        progressRes.data?.forEach((p) => completedSet.add(p.lesson_id));
+      }
+
+      return {
+        track: trackRes.data,
+        lessons: lessonsRes.data,
+        completedLessonIds: completedSet,
+      };
     },
     enabled: !!trackId,
   });
@@ -63,6 +91,12 @@ export default function TrackDetailScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push(`/lesson/${lessonId}`);
   };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }, []),
+  );
 
   if (isLoading)
     return (
@@ -104,6 +138,7 @@ export default function TrackDetailScreen() {
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}
         >
+          {/* HERO */}
           <View style={styles.hero}>
             <Text style={styles.desc}>{data.track.description}</Text>
             <View style={styles.statsRow}>
@@ -120,30 +155,74 @@ export default function TrackDetailScreen() {
 
           <Text style={styles.sectionLabel}>CURRICULUM NODES</Text>
 
-          {data.lessons.map((lesson, index) => (
-            <TouchableOpacity
-              key={lesson.id}
-              onPress={() => handleNodePress(lesson.id)}
-              activeOpacity={0.8}
-            >
-              <GlassCard style={styles.nodeCard}>
-                <View style={styles.nodeLeft}>
-                  <View style={styles.indexBox}>
-                    <Text style={styles.indexText}>{index + 1}</Text>
+          {/* NODES LIST */}
+          {data.lessons.map((lesson, index) => {
+            const isCompleted = data.completedLessonIds.has(lesson.id);
+
+            return (
+              <TouchableOpacity
+                key={lesson.id}
+                onPress={() => handleNodePress(lesson.id)}
+                activeOpacity={0.8}
+              >
+                <GlassCard
+                  intensity="heavy"
+                  style={[
+                    styles.nodeCard,
+                    isCompleted ? styles.completedBorder : {},
+                  ]}
+                >
+                  {/* --- LEFT SIDE --- */}
+                  {/* If completed: Replay Button. If New: Index Number */}
+                  <View style={styles.leftBox}>
+                    {isCompleted ? (
+                      <View style={[styles.iconBox, styles.replayBox]}>
+                        <RotateCcw size={16} color={THEME.slate} />
+                      </View>
+                    ) : (
+                      <View style={styles.iconBox}>
+                        <Text style={styles.indexText}>{index + 1}</Text>
+                      </View>
+                    )}
                   </View>
-                  <View>
-                    <Text style={styles.nodeTitle}>{lesson.title}</Text>
-                    <Text style={styles.nodeSub}>
-                      +{lesson.xp_reward || 10} XP Reward
+
+                  {/* --- CENTER TEXT --- */}
+                  <View style={{ flex: 1, paddingHorizontal: 16 }}>
+                    <Text
+                      style={[
+                        styles.nodeTitle,
+                        isCompleted && { color: THEME.slate }, // Dim title if done
+                      ]}
+                    >
+                      {lesson.title}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.nodeSub,
+                        isCompleted && { color: THEME.slate },
+                      ]}
+                    >
+                      {isCompleted ? 'COMPLETED' : `+${lesson.xp_reward} XP`}
                     </Text>
                   </View>
-                </View>
-                <View style={styles.playBox}>
-                  <Play size={14} color="white" fill="white" />
-                </View>
-              </GlassCard>
-            </TouchableOpacity>
-          ))}
+
+                  {/* --- RIGHT SIDE --- */}
+                  {/* If completed: Green Checkmark. If New: Play Button */}
+                  <View style={styles.rightBox}>
+                    {isCompleted ? (
+                      <View style={[styles.iconBox, styles.completedBox]}>
+                        <Check size={18} color="white" strokeWidth={4} />
+                      </View>
+                    ) : (
+                      <View style={[styles.iconBox, styles.playBox]}>
+                        <Play size={16} color="white" fill="white" />
+                      </View>
+                    )}
+                  </View>
+                </GlassCard>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -197,39 +276,55 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     marginBottom: 20,
   },
+
+  // NODE CARD LAYOUT
   nodeCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 18,
+    padding: 16,
     borderRadius: 24,
     marginBottom: 12,
+    minHeight: 80,
   },
-  nodeLeft: { flexDirection: 'row', alignItems: 'center', gap: 18 },
-  indexBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+  completedBorder: {
+    borderColor: 'rgba(16, 185, 129, 0.4)', // Green border when done
+    backgroundColor: 'rgba(2, 6, 23, 0.6)', // Darker bg
+  },
+  leftBox: { justifyContent: 'center', alignItems: 'center' },
+  rightBox: { justifyContent: 'center', alignItems: 'center' },
+
+  // SHARED ICON BOX STYLES
+  iconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: THEME.border,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
+  playBox: {
+    backgroundColor: THEME.indigo,
+    borderColor: THEME.indigo,
+  },
+  completedBox: {
+    backgroundColor: THEME.emerald,
+    borderColor: THEME.emerald,
+  },
+  replayBox: {
+    backgroundColor: 'transparent',
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+
+  // TEXT
   indexText: { color: THEME.slate, fontWeight: 'bold' },
-  nodeTitle: { color: 'white', fontSize: 17, fontWeight: 'bold' },
+  nodeTitle: { color: 'white', fontSize: 16, fontWeight: 'bold' },
   nodeSub: {
     color: THEME.emerald,
     fontSize: 11,
-    fontWeight: 'bold',
-    marginTop: 2,
-  },
-  playBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: THEME.indigo,
-    alignItems: 'center',
-    justifyContent: 'center',
+    fontWeight: '800',
+    marginTop: 4,
+    letterSpacing: 0.5,
   },
 });

@@ -222,6 +222,74 @@ export type Database = {
           },
         ];
       };
+      study_chapters: {
+        Row: {
+          content: string;
+          guide_id: string;
+          id: string;
+          read_time_min: number | null;
+          sort_order: number;
+          title: string;
+        };
+        Insert: {
+          content: string;
+          guide_id: string;
+          id?: string;
+          read_time_min?: number | null;
+          sort_order?: number;
+          title: string;
+        };
+        Update: {
+          content?: string;
+          guide_id?: string;
+          id?: string;
+          read_time_min?: number | null;
+          sort_order?: number;
+          title?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'study_chapters_guide_id_fkey';
+            columns: ['guide_id'];
+            isOneToOne: false;
+            referencedRelation: 'study_guides';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      study_guides: {
+        Row: {
+          color_hex: string | null;
+          created_at: string | null;
+          description: string | null;
+          difficulty: string | null;
+          icon: string | null;
+          id: string;
+          language: string;
+          title: string;
+        };
+        Insert: {
+          color_hex?: string | null;
+          created_at?: string | null;
+          description?: string | null;
+          difficulty?: string | null;
+          icon?: string | null;
+          id?: string;
+          language: string;
+          title: string;
+        };
+        Update: {
+          color_hex?: string | null;
+          created_at?: string | null;
+          description?: string | null;
+          difficulty?: string | null;
+          icon?: string | null;
+          id?: string;
+          language?: string;
+          title?: string;
+        };
+        Relationships: [];
+      };
       ticket_messages: {
         Row: {
           created_at: string | null;
@@ -488,6 +556,10 @@ export type Database = {
       };
       calculate_level: { Args: { xp_input: number }; Returns: number };
       calculate_level_from_xp: { Args: { xp_input: number }; Returns: number };
+      complete_lesson_transaction: {
+        Args: { p_lesson_id: string; p_user_id: string };
+        Returns: Json;
+      };
       get_dashboard_stats: { Args: { target_user_id: string }; Returns: Json };
       get_full_lesson_details: {
         Args: { target_lesson_id: string };

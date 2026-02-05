@@ -156,23 +156,44 @@ export default function LessonScreen() {
 
   /**
    * ---------------------------------------------------------------------------
-   * SUB-MODULE: COMPLETION HANDLER
+   * SUB-MODULE: COMPLETION HANDLER (FIXED & SECURE)
    * ---------------------------------------------------------------------------
-   * triggered when the Emulator validates the code successfully.
+   * Triggered when the Emulator validates the code successfully.
+   * Updates Supabase with the exact lesson ID to ensure Analytics work.
    */
-  const onComplete = () => {
+  const onComplete = async () => {
     setShowSuccess(true);
     // Animate XP Bar
     barWidth.value = withDelay(400, withTiming(1, { duration: 1200 }));
 
-    // Server-side XP Update
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user)
-        supabase.rpc('add_xp', {
-          amount: context?.xp || 50,
-          target_user_id: data.user.id,
-        });
-    });
+    // 🔒 SECURE TRANSACTION: Record Lesson + Award XP + Update Stats
+    try {
+      const { data: userSession } = await supabase.auth.getUser();
+
+      if (userSession?.user) {
+        // We use the new Transaction RPC to link this specific lesson to the user
+        const { data, error } = await supabase.rpc(
+          'complete_lesson_transaction',
+          {
+            p_lesson_id: lessonId,
+            p_user_id: userSession.user.id,
+          },
+        );
+
+        if (error) {
+          console.error('XP Transaction Failed:', error.message);
+        } else {
+          console.log(
+            'Lesson Recorded Successfully. New XP:',
+            (data as any)?.new_xp,
+          );
+          // Pre-fetch the dashboard stats so they are ready when user navigates back
+          queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+        }
+      }
+    } catch (err) {
+      console.error('Unexpected error during completion:', err);
+    }
   };
 
   // Animated Style for XP Bar
@@ -295,7 +316,10 @@ export default function LessonScreen() {
                 style={styles.nextBtn}
                 onPress={() => {
                   setShowSuccess(false);
-                  queryClient.invalidateQueries({ queryKey: ['user_stats'] });
+                  // Critical: Refresh Dashboard Stats to show new XP Breakdown
+                  queryClient.invalidateQueries({
+                    queryKey: ['dashboard-stats'],
+                  });
                   router.back();
                 }}
               >

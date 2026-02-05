@@ -5,6 +5,11 @@ import expoConfig from "eslint-config-expo/flat/default.js";
 export default defineConfig([
   expoConfig,
   {
-    ignores: ["dist/*"],
+    ignores: ['dist/*', 'metro.config.js'],
+    rules: {
+      'prettier/prettier': [
+        'error', { endOfLine: 'auto' }
+      ]
+    }
   }
 ]);

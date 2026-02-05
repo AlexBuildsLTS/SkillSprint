@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ScrollView,
   useWindowDimensions,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,7 +15,6 @@ import * as Haptics from 'expo-haptics';
 import {
   Code,
   Cpu,
-  Globe,
   Database,
   Terminal,
   Zap,
@@ -34,6 +34,10 @@ import Animated, { FadeInDown, SlideInRight } from 'react-native-reanimated';
 import { Bento3DCard } from '@/components/ui/Bento3DCard';
 import { GlassCard } from '@/components/ui/GlassCard';
 
+// ────────────────────────────────────────────────────────────────────────
+// 🎨 THEME & CONSTANTS
+// ────────────────────────────────────────────────────────────────────────
+
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
@@ -42,9 +46,17 @@ const THEME = {
   rose: '#f43f5e',
   slate: '#94a3b8',
   white: '#ffffff',
+} as const;
+
+type Language = {
+  id: string;
+  name: string;
+  icon: React.ElementType;
+  color: string;
+  desc: string;
 };
 
-const LANGUAGES = [
+const LANGUAGES: Language[] = [
   {
     id: 'python',
     name: 'Python',
@@ -55,49 +67,49 @@ const LANGUAGES = [
   {
     id: 'javascript',
     name: 'JavaScript',
-    icon: Braces, // "Braces" represents JS syntax better
+    icon: Braces,
     color: '#eab308',
     desc: 'Web & Async',
   },
   {
     id: 'typescript',
     name: 'TypeScript',
-    icon: ShieldAlert, // Represents "Type Safety"
+    icon: ShieldAlert,
     color: '#3178c6',
     desc: 'Type Safety',
   },
   {
     id: 'rust',
     name: 'Rust',
-    icon: Zap, // "Zap" for Blazing Speed/Safety
+    icon: Zap,
     color: '#f97316',
     desc: 'Systems & Memory',
   },
   {
     id: 'java',
     name: 'Java',
-    icon: Code, // Generic Code fits Java's verbosity
+    icon: Code,
     color: '#ef4444',
     desc: 'Enterprise OOP',
   },
   {
     id: 'cpp',
     name: 'C++',
-    icon: Cpu, // CPU for high performance
+    icon: Cpu,
     color: '#00599c',
     desc: 'High Performance',
   },
   {
     id: 'csharp',
     name: 'C#',
-    icon: Hash, // "Hash" literally fits C-Sharp
+    icon: Hash,
     color: '#178600',
     desc: '.NET Ecosystem',
   },
   {
     id: 'go',
     name: 'Go',
-    icon: Box, // "Box" for Containers/Go Routines
+    icon: Box,
     color: '#06b6d4',
     desc: 'Concurrency',
   },
@@ -111,53 +123,79 @@ const LANGUAGES = [
   {
     id: 'swift',
     name: 'Swift',
-    icon: Smartphone, // Mobile specific
+    icon: Smartphone,
     color: '#F05138',
     desc: 'Apple & iOS',
   },
   {
     id: 'kotlin',
     name: 'Kotlin',
-    icon: Smartphone, // Mobile specific
+    icon: Smartphone,
     color: '#7F52FF',
     desc: 'Modern Android',
   },
   {
     id: 'php',
     name: 'PHP',
-    icon: Server, // Server specific
+    icon: Server,
     color: '#777BB4',
     desc: 'Server-side Web',
   },
   {
     id: 'ruby',
     name: 'Ruby',
-    icon: Gem, // "Gem" fits Ruby perfectly
+    icon: Gem,
     color: '#CC342D',
     desc: 'Dev Happiness',
   },
 ];
 
-const DIFFICULTIES = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'];
+const DIFFICULTIES = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as const;
+type Difficulty = (typeof DIFFICULTIES)[number];
+
+// ────────────────────────────────────────────────────────────────────────
+// 🚀 COMPONENT: SPRINT SETUP SCREEN
+// ────────────────────────────────────────────────────────────────────────
 
 export default function SprintSetupScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
 
-  // Responsive Grid Logic
-  const isDesktop = width >= 1024;
+  // 📐 LAYOUT CALCULATION
+  // We use useMemo to recalculate only when screen width changes.
+  const { cardWidth, numColumns, gap } = useMemo(() => {
+    const isDesktop = width >= 1024;
+    const columns = isDesktop ? 3 : 2;
+    const gridGap = 12;
+    const paddingHorizontal = 40; // 20px left + 20px right from styles.scrollContent
 
-  // Columns: 3 on Desktop, 2 on Mobile/Tablet
-  const numColumns = isDesktop ? 3 : 2;
-  const gap = 12;
-  const containerWidth = isDesktop ? 1000 : width - 40;
-  const cardWidth = (containerWidth - gap * (numColumns - 1)) / numColumns;
+    // Determine the actual width available for the grid
+    // If desktop, we cap at 1000px, otherwise it's screen width minus padding
+    const availableWidth = isDesktop ? 1000 : width - paddingHorizontal;
 
-  const [selectedLang, setSelectedLang] = useState(LANGUAGES[0]);
-  const [difficulty, setDifficulty] = useState('INTERMEDIATE');
+    // ⚡ CRITICAL FIX: Math.floor prevents sub-pixel wrapping on high-density screens (like Pixel 7)
+    // Formula: (TotalWidth - TotalGap) / Columns
+    const calculatedCardWidth = Math.floor(
+      (availableWidth - gridGap * (columns - 1)) / columns,
+    );
+
+    return {
+      cardWidth: calculatedCardWidth,
+      numColumns: columns,
+      gap: gridGap,
+    };
+  }, [width]);
+
+  // State
+  const [selectedLang, setSelectedLang] = useState<Language>(LANGUAGES[0]);
+  const [difficulty, setDifficulty] = useState<Difficulty>('INTERMEDIATE');
 
   const handleStart = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // Light haptic feedback for confirmation
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+
     router.push({
       pathname: '/sprint',
       params: {
@@ -169,22 +207,26 @@ export default function SprintSetupScreen() {
 
   return (
     <View style={styles.root}>
+      {/* Background Gradient */}
       <LinearGradient
         colors={[THEME.obsidian, '#0f172a', '#000000']}
         style={StyleSheet.absoluteFill}
       />
 
       <SafeAreaView style={{ flex: 1 }}>
+        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.backBtn}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <ChevronLeft size={24} color={THEME.slate} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>CONFIGURE SPRINT</Text>
         </View>
 
+        {/* Main Content */}
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
@@ -192,6 +234,7 @@ export default function SprintSetupScreen() {
           ]}
           showsVerticalScrollIndicator={false}
         >
+          {/* Max Width Container for Desktop Alignment */}
           <View style={{ width: '100%', maxWidth: 1000 }}>
             <Animated.View
               entering={FadeInDown.delay(100)}
@@ -206,6 +249,7 @@ export default function SprintSetupScreen() {
             <Text style={styles.sectionLabel}>TARGET LANGUAGE</Text>
 
             {/* LANGUAGE GRID */}
+            {/* The gap is applied via style prop, supported in RN 0.71+ */}
             <View style={[styles.grid, { gap }]}>
               {LANGUAGES.map((lang, index) => {
                 const isSelected = selectedLang.id === lang.id;
@@ -217,11 +261,11 @@ export default function SprintSetupScreen() {
                     entering={FadeInDown.delay(200 + index * 50)}
                     style={{ width: cardWidth, height: 140 }}
                   >
-                    {/* Direct onPress on BentoCard to avoid touch conflicts */}
+                    {/* Bento3DCard provides the 3D tilt effect */}
                     <Bento3DCard
                       style={{ flex: 1 }}
                       onPress={() => {
-                        Haptics.selectionAsync();
+                        if (Platform.OS !== 'web') Haptics.selectionAsync();
                         setSelectedLang(lang);
                       }}
                     >
@@ -230,17 +274,12 @@ export default function SprintSetupScreen() {
                           styles.langCard,
                           isSelected && {
                             borderColor: lang.color,
-                            backgroundColor: `${lang.color}15`,
+                            backgroundColor: `${lang.color}15`, // 15 = ~8% opacity
                           },
                         ]}
                       >
-                        <View
-                          style={{
-                            flexDirection: 'row',
-                            justifyContent: 'space-between',
-                            alignItems: 'flex-start',
-                          }}
-                        >
+                        {/* Header: Icon + Checkbox */}
+                        <View style={styles.cardHeader}>
                           <View
                             style={[
                               styles.iconBox,
@@ -261,6 +300,7 @@ export default function SprintSetupScreen() {
                           )}
                         </View>
 
+                        {/* Footer: Name + Desc */}
                         <View>
                           <Text
                             style={[
@@ -282,6 +322,7 @@ export default function SprintSetupScreen() {
               })}
             </View>
 
+            {/* DIFFICULTY SELECTION */}
             <Text style={[styles.sectionLabel, { marginTop: 30 }]}>
               COMPLEXITY LEVEL
             </Text>
@@ -292,7 +333,7 @@ export default function SprintSetupScreen() {
                   <TouchableOpacity
                     key={diff}
                     onPress={() => {
-                      Haptics.selectionAsync();
+                      if (Platform.OS !== 'web') Haptics.selectionAsync();
                       setDifficulty(diff);
                     }}
                     style={[styles.diffBtn, active && styles.diffBtnActive]}
@@ -309,17 +350,9 @@ export default function SprintSetupScreen() {
           </View>
         </ScrollView>
 
+        {/* Sticky Footer */}
         <Animated.View entering={SlideInRight.delay(500)} style={styles.footer}>
-          <View
-            style={{
-              width: '100%',
-              maxWidth: 1000,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              alignSelf: 'center',
-            }}
-          >
+          <View style={styles.footerInner}>
             <View style={styles.footerInfo}>
               <Text style={styles.footerLabel}>POTENTIAL REWARD</Text>
               <Text style={styles.xpText}>
@@ -349,6 +382,10 @@ export default function SprintSetupScreen() {
   );
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// 🖌️ STYLES
+// ────────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
   header: { flexDirection: 'row', alignItems: 'center', padding: 20, gap: 16 },
@@ -366,7 +403,10 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 2,
   },
-  scrollContent: { padding: 20, paddingBottom: 120 },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 120, // Space for footer
+  },
 
   heroSection: { marginBottom: 30 },
   heroTitle: {
@@ -386,7 +426,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap' },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    // Gap is applied dynamically via inline styles for grid logic
+  },
 
   langCard: {
     flex: 1,
@@ -396,6 +440,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.05)',
     backgroundColor: 'rgba(30, 41, 59, 0.4)',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
   iconBox: {
     width: 40,
@@ -445,6 +494,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(2, 6, 23, 0.95)',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.05)',
+  },
+  footerInner: {
+    width: '100%',
+    maxWidth: 1000,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    alignSelf: 'center',
   },
   footerInfo: { gap: 4 },
   footerLabel: {

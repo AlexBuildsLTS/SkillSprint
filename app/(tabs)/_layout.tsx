@@ -18,11 +18,11 @@ import {
   Bot,
   Framer,
   BrainCircuit,
+  School, // <--- CONFIRMED IMPORT
 } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { BlurView } from 'expo-blur';
-import * as Haptics from 'expo-haptics';
-import { MainHeader } from '@/components/layout/MainHeader'; // Using your specific MainHeader
+import { MainHeader } from '@/components/layout/MainHeader';
 
 const DESKTOP_WIDTH = 1024;
 
@@ -66,6 +66,7 @@ export default function AdaptiveLayout() {
     const navItems = [
       { label: 'HOME', path: '/(tabs)/', icon: Grid },
       { label: 'TRACKS', path: '/(tabs)/tracks', icon: Framer },
+      { label: 'COURSES', path: '/(tabs)/courses', icon: School }, // <--- DESKTOP ENTRY
       { label: 'AI', path: '/(tabs)/ai-chat', icon: BrainCircuit },
       { label: 'SUPPORT', path: '/(tabs)/support', icon: LifeBuoy },
       { label: 'SETTINGS', path: '/(tabs)/settings', icon: Settings },
@@ -115,12 +116,9 @@ export default function AdaptiveLayout() {
 
         {/* MAIN CONTENT AREA */}
         <View style={{ flex: 1, backgroundColor: THEME.obsidian }}>
-          {/* PERSISTENT HEADER (Z-Index 50 ensures dropdown is on top) */}
           <View style={{ zIndex: 50 }}>
             <MainHeader />
           </View>
-
-          {/* PAGE CONTENT */}
           <View style={{ flex: 1, zIndex: 1 }}>
             <Slot />
           </View>
@@ -132,16 +130,14 @@ export default function AdaptiveLayout() {
   // --- MOBILE LAYOUT ---
   return (
     <View style={{ flex: 1, backgroundColor: THEME.obsidian }}>
-      {/* PERSISTENT HEADER (Fixed at top) */}
       <View style={{ zIndex: 50 }}>
         <MainHeader />
       </View>
 
-      {/* TABS NAVIGATOR */}
       <View style={{ flex: 1, zIndex: 1 }}>
         <Tabs
           screenOptions={{
-            headerShown: false, // We use MainHeader above instead
+            headerShown: false,
             tabBarShowLabel: true,
             tabBarActiveTintColor: THEME.indigo,
             tabBarInactiveTintColor: THEME.slate,
@@ -163,6 +159,7 @@ export default function AdaptiveLayout() {
             },
           }}
         >
+          {/* 1. HOME */}
           <Tabs.Screen
             name="index"
             options={{
@@ -170,6 +167,8 @@ export default function AdaptiveLayout() {
               tabBarIcon: ({ color }) => <Grid size={24} color={color} />,
             }}
           />
+
+          {/* 2. TRACKS */}
           <Tabs.Screen
             name="tracks"
             options={{
@@ -177,25 +176,37 @@ export default function AdaptiveLayout() {
               tabBarIcon: ({ color }) => <Framer size={24} color={color} />,
             }}
           />
+
+          {/* 3. COURSES (The new Knowledge Base) */}
+          <Tabs.Screen
+            name="courses"
+            options={{
+              title: 'Courses',
+              tabBarIcon: ({ color }) => <School size={24} color={color} />,
+            }}
+          />
+
+          {/* 4. AI CHAT */}
           <Tabs.Screen
             name="ai-chat"
             options={{
               title: 'AI Coach',
-              tabBarIcon: ({ color }) => <BrainCircuit size={24} color={color} />,
+              tabBarIcon: ({ color }) => (
+                <BrainCircuit size={24} color={color} />
+              ),
             }}
           />
 
           {/* HIDDEN ROUTES */}
           <Tabs.Screen name="settings" options={{ href: null }} />
           <Tabs.Screen name="settings/profile-view" options={{ href: null }} />
-           <Tabs.Screen name="support" options={{ href: null }} />
+          <Tabs.Screen name="support" options={{ href: null }} />
 
-          {/* ADMIN TAB: Completely Hidden from Mobile Tab Bar */}
+          {/* ADMIN: Hidden */}
           <Tabs.Screen
             name="admin"
             options={{
-              tabBarButton: () => null,
-              tabBarItemStyle: { display: 'none' },
+              href: null,
             }}
           />
         </Tabs>
@@ -218,7 +229,7 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
     paddingHorizontal: 24,
     justifyContent: 'space-between',
-    zIndex: 60, // Sidebar stays above content
+    zIndex: 60,
   },
   brandBox: {
     alignItems: 'center',

@@ -1,3 +1,15 @@
+/**
+ * ============================================================================
+ * SCREEN: SETTINGS (MAIN)
+ * ============================================================================
+ * PATH: app/(tabs)/settings/index.tsx
+ * * UPDATES:
+ * - Added <Stack.Screen headerShown: false> to remove native header/border.
+ * - Verified Router Push to Profile View.
+ * - Optimized Header layout.
+ * ============================================================================
+ */
+
 import React from 'react';
 import {
   View,
@@ -8,27 +20,31 @@ import {
   Alert,
   StyleSheet,
   StatusBar,
+  Image,
+  Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, Stack } from 'expo-router'; // Added Stack import
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import {
   Lock,
   Fingerprint,
   Bell,
   Moon,
-  Globe,
   Shield,
   ChevronRight,
   User,
   LogOut,
   CreditCard,
   LifeBuoy,
+  Cog,
 } from 'lucide-react-native';
+
 import { useAuth } from '@/context/AuthContext';
 import { GlassCard } from '@/components/ui/GlassCard';
-import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 
+// --- THEME CONSTANTS ---
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
@@ -39,8 +55,14 @@ const THEME = {
   border: 'rgba(255, 255, 255, 0.08)',
 };
 
+/**
+ * -----------------------------------------------------------------------------
+ * COMPONENT: SETTINGS MENU ITEM
+ * Reusable row component for settings lists.
+ * -----------------------------------------------------------------------------
+ */
 interface SettingsMenuItemProps {
-  icon: React.ComponentType<any>;
+  icon: React.ElementType;
   label: string;
   value?: string | boolean;
   onPress?: () => void;
@@ -64,7 +86,7 @@ const SettingsMenuItem: React.FC<SettingsMenuItemProps> = ({
     <TouchableOpacity
       onPress={() => {
         if (onPress) {
-          Haptics.selectionAsync();
+          if (Platform.OS !== 'web') Haptics.selectionAsync();
           onPress();
         }
       }}
@@ -73,6 +95,7 @@ const SettingsMenuItem: React.FC<SettingsMenuItemProps> = ({
       activeOpacity={0.7}
     >
       <View style={styles.menuItemLeft}>
+        {/* Icon Container with dynamic background tint */}
         <View
           style={[
             styles.iconContainer,
@@ -85,6 +108,8 @@ const SettingsMenuItem: React.FC<SettingsMenuItemProps> = ({
         >
           <Icon size={20} color={isDestructive ? THEME.danger : color} />
         </View>
+
+        {/* Text Content */}
         <View style={styles.menuTextContainer}>
           <Text
             style={[styles.menuLabel, isDestructive && { color: THEME.danger }]}
@@ -96,15 +121,24 @@ const SettingsMenuItem: React.FC<SettingsMenuItemProps> = ({
           )}
         </View>
       </View>
+
+      {/* Right Side Actions/Chevron */}
       {rightComponent ||
         (showChevron && <ChevronRight size={16} color={THEME.slate} />)}
     </TouchableOpacity>
   );
 };
 
+/**
+ * -----------------------------------------------------------------------------
+ * MAIN COMPONENT: SETTINGS SCREEN
+ * -----------------------------------------------------------------------------
+ */
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, signOut } = useAuth();
+
+  // Local state for UI toggles
   const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = React.useState(true);
 
@@ -116,56 +150,74 @@ export default function SettingsScreen() {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
-      {/* Background Gradient */}
+
+      {/* CRITICAL: This hides the default "Settings" header and the white line border. 
+        It allows our custom Cog header to be the only one visible.
+      */}
+      <Stack.Screen options={{ headerShown: false }} />
+
+      {/* Global Background Gradient */}
       <LinearGradient
         colors={[THEME.obsidian, '#0f172a']}
         style={StyleSheet.absoluteFill}
       />
 
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        {/* Header */}
+        {/* --- CUSTOM HEADER (Cog Only) --- */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Settings</Text>
+          <Cog size={28} color={THEME.white} />
         </View>
 
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* PROFILE CARD */}
+          {/* --- PROFILE CARD (Clickable) --- */}
           <TouchableOpacity
             activeOpacity={0.9}
-            onPress={() => router.push('/(tabs)/settings/profile-view')} // Go to detailed view
+            onPress={() => {
+              if (Platform.OS !== 'web') Haptics.selectionAsync();
+              // Navigate to Profile View
+              router.push('/(tabs)/settings/profile-view');
+            }}
           >
             <GlassCard intensity="heavy" style={styles.profileCard}>
               <View style={styles.profileRow}>
-                <View style={styles.avatar}>
+                {/* Avatar Logic: Image -> Initials -> Fallback Icon */}
+                <View style={styles.avatarContainer}>
                   {user?.profile?.avatar_url ? (
-                    // If you have an Image component, use it here. Text fallback:
-                    <Text style={styles.avatarText}>
-                      {user.email?.[0].toUpperCase()}
-                    </Text>
+                    <Image
+                      source={{ uri: user.profile.avatar_url }}
+                      style={styles.avatarImage}
+                      resizeMode="cover"
+                    />
                   ) : (
-                    <User size={28} color={THEME.indigo} />
+                    <Text style={styles.avatarText}>
+                      {user?.email?.charAt(0).toUpperCase() || 'U'}
+                    </Text>
                   )}
                 </View>
+
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.profileName}>
+                  <Text style={styles.profileName} numberOfLines={1}>
                     {user?.profile?.full_name || 'SkillSprint User'}
                   </Text>
-                  <Text style={styles.profileEmail}>{user?.email}</Text>
+                  <Text style={styles.profileEmail} numberOfLines={1}>
+                    {user?.email}
+                  </Text>
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>
                       {user?.profile?.role || 'MEMBER'}
                     </Text>
                   </View>
                 </View>
+
                 <ChevronRight size={20} color={THEME.slate} />
               </View>
             </GlassCard>
           </TouchableOpacity>
 
-          {/* GENERAL */}
+          {/* --- SECTION: GENERAL --- */}
           <SectionHeader title="GENERAL" />
           <GlassCard intensity="light" style={styles.menuGroup}>
             <SettingsMenuItem
@@ -177,12 +229,14 @@ export default function SettingsScreen() {
               icon={CreditCard}
               label="Subscription"
               value="Free Plan"
-              onPress={() => Alert.alert('Premium', 'Upgrade coming soon.')}
+              onPress={() =>
+                Alert.alert('Premium', 'Upgrade functionality coming soon.')
+              }
               color="#f59e0b"
             />
           </GlassCard>
 
-          {/* PREFERENCES */}
+          {/* --- SECTION: PREFERENCES --- */}
           <SectionHeader title="PREFERENCES" />
           <GlassCard intensity="light" style={styles.menuGroup}>
             <SettingsMenuItem
@@ -193,7 +247,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={notificationsEnabled}
                   onValueChange={(v) => {
-                    Haptics.selectionAsync();
+                    if (Platform.OS !== 'web') Haptics.selectionAsync();
                     setNotificationsEnabled(v);
                   }}
                   trackColor={{ false: '#334155', true: THEME.indigo }}
@@ -209,7 +263,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={darkModeEnabled}
                   onValueChange={(v) => {
-                    Haptics.selectionAsync();
+                    if (Platform.OS !== 'web') Haptics.selectionAsync();
                     setDarkModeEnabled(v);
                   }}
                   trackColor={{ false: '#334155', true: THEME.indigo }}
@@ -219,24 +273,24 @@ export default function SettingsScreen() {
             />
           </GlassCard>
 
-          {/* SECURITY */}
+          {/* --- SECTION: SECURITY --- */}
           <SectionHeader title="SECURITY" />
           <GlassCard intensity="light" style={styles.menuGroup}>
             <SettingsMenuItem
               icon={Lock}
               label="Change Password"
-              onPress={() => router.push('/(tabs)/settings/change-password')} // Ensure this route exists or alert
+              onPress={() => router.push('/(tabs)/settings/change-password')}
               color="#10b981"
             />
             <SettingsMenuItem
               icon={Fingerprint}
               label="Biometrics"
-              onPress={() => Alert.alert('Security', 'Biometrics enabled.')}
+              onPress={() => router.push('/(tabs)/settings/biometric')}
               color="#10b981"
             />
           </GlassCard>
 
-          {/* SUPPORT */}
+          {/* --- SECTION: SUPPORT --- */}
           <SectionHeader title="SUPPORT" />
           <GlassCard intensity="light" style={styles.menuGroup}>
             <SettingsMenuItem
@@ -248,26 +302,35 @@ export default function SettingsScreen() {
             <SettingsMenuItem
               icon={Shield}
               label="Privacy & Terms"
-              onPress={() => {}}
+              onPress={() => {
+                /* TODO: Open Web Browser */
+              }}
               color="#8b5cf6"
             />
           </GlassCard>
 
-          {/* LOGOUT */}
+          {/* --- LOGOUT AREA --- */}
           <View style={{ marginTop: 24 }}>
             <TouchableOpacity
               style={styles.logoutButton}
+              activeOpacity={0.8}
               onPress={async () => {
-                Haptics.notificationAsync(
-                  Haptics.NotificationFeedbackType.Warning,
-                );
-                await signOut();
+                if (Platform.OS !== 'web') {
+                  Haptics.notificationAsync(
+                    Haptics.NotificationFeedbackType.Warning,
+                  );
+                }
+                Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Sign Out', style: 'destructive', onPress: signOut },
+                ]);
               }}
             >
               <LogOut size={20} color={THEME.danger} />
               <Text style={styles.logoutText}>Log Out</Text>
             </TouchableOpacity>
-            <Text style={styles.versionText}>v1.0.0 (Build 42)</Text>
+
+            <Text style={styles.versionText}>v1.0.4 (Build 204)</Text>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -275,21 +338,29 @@ export default function SettingsScreen() {
   );
 }
 
+/**
+ * ============================================================================
+ * STYLESHEET
+ * ============================================================================
+ */
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
+
+  // HEADER
   header: {
     paddingHorizontal: 24,
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: THEME.border,
+    alignItems: 'center', // Center Horizontally
+    justifyContent: 'center', // Center Vertically
+    // No border here (Native header hidden via Stack.Screen)
   },
-  headerTitle: { color: 'white', fontSize: 28, fontWeight: '800' },
+
   scrollContent: { padding: 20, paddingBottom: 100 },
 
-  // Profile Card
+  // PROFILE CARD
   profileCard: { marginBottom: 24, padding: 20, borderRadius: 24 },
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  avatar: {
+  avatarContainer: {
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -298,10 +369,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(99, 102, 241, 0.3)',
+    overflow: 'hidden', // Ensures image stays circular
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarText: { fontSize: 24, fontWeight: 'bold', color: THEME.indigo },
+
   profileName: { color: 'white', fontSize: 18, fontWeight: '700' },
   profileEmail: { color: THEME.slate, fontSize: 13, marginBottom: 6 },
+
   badge: {
     backgroundColor: 'rgba(255,255,255,0.1)',
     alignSelf: 'flex-start',
@@ -311,7 +389,7 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: THEME.slate, fontSize: 10, fontWeight: '800' },
 
-  // Sections
+  // SECTIONS
   sectionHeader: {
     color: THEME.slate,
     fontSize: 11,
@@ -323,7 +401,7 @@ const styles = StyleSheet.create({
   },
   menuGroup: { borderRadius: 20, overflow: 'hidden', marginBottom: 16 },
 
-  // Menu Item
+  // MENU ITEMS
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -349,7 +427,7 @@ const styles = StyleSheet.create({
   menuLabel: { fontSize: 15, fontWeight: '600', color: 'white' },
   menuValue: { fontSize: 12, color: THEME.slate, marginTop: 2 },
 
-  // Logout
+  // LOGOUT
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',

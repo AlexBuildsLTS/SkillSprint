@@ -61,7 +61,12 @@ function RootLayoutNav() {
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: '#0A192F' },
+        animation: 'slide_from_right',
+        gestureEnabled: true,
+        gestureDirection: 'horizontal',
+        cardOverlayEnabled:true,
+        cardStyle: { backgroundColor: '#020617' },
+        cardShadowEnabled: true,
       }}
     >
       <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
