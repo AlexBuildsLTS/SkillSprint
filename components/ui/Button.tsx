@@ -1,14 +1,15 @@
 import React from 'react';
-import { TouchableOpacity, Text, View } from 'react-native';
+import { TouchableOpacity, Text, View, ViewStyle } from 'react-native';
 import { clsx } from 'clsx';
 
 interface ButtonProps {
-  onPress?: () => void;
+  onPress?: () => void | Promise<void>;
   children: React.ReactNode;
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
   size?: 'sm' | 'md' | 'lg';
   fullWidth?: boolean;
   className?: string;
+  style?: ViewStyle;
   disabled?: boolean;
 }
 
@@ -19,6 +20,7 @@ const Button: React.FC<ButtonProps> = ({
   size = 'md',
   fullWidth = false,
   className = '',
+  style,
   disabled = false,
 }) => {
   const baseStyles = "items-center justify-center rounded-xl transition-all active:opacity-80";
@@ -53,6 +55,7 @@ const Button: React.FC<ButtonProps> = ({
     <TouchableOpacity
       onPress={onPress}
       disabled={disabled}
+      style={style}
       className={clsx(
         baseStyles,
         variants[variant],

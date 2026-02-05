@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Alert,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -25,12 +26,21 @@ import {
   X,
   ShieldAlert,
   Clock,
+  MoreVertical,
+  Mail,
+  Fingerprint,
 } from 'lucide-react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Bento3DCard } from '@/components/ui/Bento3DCard';
-import Animated, { FadeIn, FadeInDown, SlideInUp } from 'react-native-reanimated';
+import { GlassCard } from '@/components/ui/GlassCard'; // Imported for Modal/Card effects
+import Animated, {
+  FadeInDown,
+  SlideInUp,
+  FadeIn,
+} from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
 const isDesktop = width >= 768;
@@ -56,7 +66,7 @@ interface UserProfile {
   avatar_url: string | null;
   role: UserRole;
   status?: 'active' | 'banned' | 'suspended';
-  banned_until?: string; // For temporary bans
+  banned_until?: string;
   created_at: string;
 }
 
@@ -72,7 +82,6 @@ export default function AdminUsersScreen() {
   const [roleModalVisible, setRoleModalVisible] = useState(false);
   const [banModalVisible, setBanModalVisible] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
-  const [banDate, setBanDate] = useState(''); // Simple text input for date YYYY-MM-DD
 
   const loadUsers = async () => {
     try {
@@ -102,13 +111,11 @@ export default function AdminUsersScreen() {
 
   const handleRoleUpdate = async (newRole: UserRole) => {
     if (!selectedUser) return;
+    triggerHaptic('selection');
     setRoleModalVisible(false);
     setProcessingId(selectedUser.id);
 
     try {
-      // Direct SQL update via RPC is faster/safer if you have it, 
-      // otherwise use the edge function pattern you established.
-      // We'll assume the RPC for roles as it's cleaner for simple updates.
       const { error } = await supabase.rpc('admin_update_user_role', {
         target_user_id: selectedUser.id,
         new_role: newRole,
@@ -116,7 +123,11 @@ export default function AdminUsersScreen() {
 
       if (error) throw error;
 
-      setUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, role: newRole } : u));
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === selectedUser.id ? { ...u, role: newRole } : u,
+        ),
+      );
       Alert.alert('Role Updated', `${selectedUser.username} is now ${newRole}`);
     } catch (e: any) {
       Alert.alert('Update Failed', e.message);
@@ -128,165 +139,255 @@ export default function AdminUsersScreen() {
 
   const executeBan = async (durationDays: number | null) => {
     if (!selectedUser) return;
+    triggerHaptic('warning');
     setBanModalVisible(false);
     setProcessingId(selectedUser.id);
 
-    // Calculate date if duration provided, else permanent (null date or far future)
     let banUntil = null;
     if (durationDays) {
-        const d = new Date();
-        d.setDate(d.getDate() + durationDays);
-        banUntil = d.toISOString();
+      const d = new Date();
+      d.setDate(d.getDate() + durationDays);
+      banUntil = d.toISOString();
     }
 
     try {
-        // Call your Edge Function for deactivation
-        const { error } = await supabase.functions.invoke('admin-deactivate', {
-            body: { 
-                userId: selectedUser.id, 
-                banUntil: banUntil // Pass this to your function if it supports it
-            }
-        });
+      const { error } = await supabase.functions.invoke('admin-deactivate', {
+        body: {
+          userId: selectedUser.id,
+          banUntil: banUntil,
+        },
+      });
 
-        if (error) throw error;
+      if (error) throw error;
 
-        setUsers(prev => prev.map(u => 
-            u.id === selectedUser.id ? { ...u, status: 'banned', banned_until: banUntil || undefined } : u
-        ));
-        
-        Alert.alert('User Deactivated', `${selectedUser.username} has been restricted.`);
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === selectedUser.id
+            ? { ...u, status: 'banned', banned_until: banUntil || undefined }
+            : u,
+        ),
+      );
+
+      Alert.alert(
+        'User Restricted',
+        `${selectedUser.username} access has been revoked.`,
+      );
     } catch (e: any) {
-        Alert.alert('Deactivation Failed', e.message);
+      Alert.alert('Deactivation Failed', e.message);
     } finally {
-        setProcessingId(null);
-        setSelectedUser(null);
+      setProcessingId(null);
+      setSelectedUser(null);
     }
   };
 
   const handleUnban = async (user: UserProfile) => {
-      setProcessingId(user.id);
-      try {
-          // Reactivate via RPC or Function
-          const { error } = await supabase.rpc('admin_update_user_status', {
-              target_user_id: user.id,
-              new_status: 'active'
-          });
-          if (error) throw error;
+    triggerHaptic('success');
+    setProcessingId(user.id);
+    try {
+      const { error } = await supabase.rpc('admin_update_user_status', {
+        target_user_id: user.id,
+        new_status: 'active',
+      });
+      if (error) throw error;
 
-          setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: 'active' } : u));
-      } catch (e: any) {
-          Alert.alert('Error', e.message);
-      } finally {
-          setProcessingId(null);
-      }
+      setUsers((prev) =>
+        prev.map((u) => (u.id === user.id ? { ...u, status: 'active' } : u)),
+      );
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   const handleDelete = (user: UserProfile) => {
+    triggerHaptic('warning');
     Alert.alert(
-        'Critical Action',
-        `Permanently delete ${user.username}? This cannot be undone.`,
-        [
-            { text: 'Cancel', style: 'cancel' },
-            { 
-                text: 'DELETE', 
-                style: 'destructive',
-                onPress: async () => {
-                    setProcessingId(user.id);
-                    try {
-                        const { error } = await supabase.functions.invoke('admin-delete', {
-                            body: { userId: user.id }
-                        });
-                        if (error) throw error;
-                        
-                        setUsers(prev => prev.filter(u => u.id !== user.id));
-                        Alert.alert('Deleted', 'User removed from database.');
-                    } catch (e: any) {
-                        Alert.alert('Delete Failed', e.message);
-                    } finally {
-                        setProcessingId(null);
-                    }
-                }
+      'Permanent Deletion',
+      `Are you sure you want to delete ${user.username}? All data will be wiped.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'DELETE USER',
+          style: 'destructive',
+          onPress: async () => {
+            setProcessingId(user.id);
+            try {
+              const { error } = await supabase.functions.invoke(
+                'admin-delete',
+                {
+                  body: { userId: user.id },
+                },
+              );
+              if (error) throw error;
+
+              setUsers((prev) => prev.filter((u) => u.id !== user.id));
+            } catch (e: any) {
+              Alert.alert('Delete Failed', e.message);
+            } finally {
+              setProcessingId(null);
             }
-        ]
+          },
+        },
+      ],
     );
   };
 
-  // --- RENDER ITEM ---
+  const triggerHaptic = (type: 'selection' | 'success' | 'warning') => {
+    if (Platform.OS !== 'web') {
+      if (type === 'selection') Haptics.selectionAsync();
+      if (type === 'success')
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (type === 'warning')
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
+  };
 
-  const renderUserCard = ({ item }: { item: UserProfile }) => {
+  // --- RENDER CARD ---
+
+  const renderUserCard = ({
+    item,
+    index,
+  }: {
+    item: UserProfile;
+    index: number;
+  }) => {
     const isBanned = item.status === 'banned';
+
+    // Determine Role Color
+    const roleColor =
+      item.role === 'ADMIN'
+        ? THEME.danger
+        : item.role === 'MODERATOR'
+          ? THEME.success
+          : item.role === 'PREMIUM'
+            ? THEME.warning
+            : THEME.slate;
+
     return (
-      <Animated.View entering={FadeInDown.duration(400)} style={{ marginBottom: 12 }}>
-        <Bento3DCard style={{ width: '100%' }}>
-          <View style={[styles.cardContent, isBanned && styles.cardBanned]}>
-            
-            {/* LEFT: INFO */}
-            <View style={styles.cardLeft}>
-              {item.avatar_url ? (
-                <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarText}>{item.username?.[0]?.toUpperCase()}</Text>
-                </View>
-              )}
-              
-              <View style={{ marginLeft: 12 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={[styles.userName, isBanned && styles.textBanned]}>
-                    {item.full_name || item.username}
-                  </Text>
-                  {/* Role Badge */}
-                  <View style={[
-                    styles.roleBadge, 
-                    item.role === 'ADMIN' ? { backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: THEME.danger } : 
-                    item.role === 'MODERATOR' ? { backgroundColor: 'rgba(16, 185, 129, 0.2)', borderColor: THEME.success } : {}
-                  ]}>
-                    <Text style={[
-                      styles.roleText, 
-                      item.role === 'ADMIN' ? { color: THEME.danger } : 
-                      item.role === 'MODERATOR' ? { color: THEME.success } : { color: THEME.slate }
-                    ]}>
-                      {item.role}
+      <Animated.View
+        entering={FadeInDown.delay(index * 50).springify()}
+        style={styles.cardContainer}
+      >
+        <Bento3DCard style={{ flex: 1 }}>
+          <View style={[styles.cardInner, isBanned && styles.cardBanned]}>
+            {/* ROW 1: INFO & AVATAR */}
+            <View style={styles.cardHeaderRow}>
+              <View style={styles.userInfoLeft}>
+                {item.avatar_url ? (
+                  <Image
+                    source={{ uri: item.avatar_url }}
+                    style={styles.avatar}
+                  />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarText}>
+                      {item.username?.[0]?.toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.textStack}>
+                  <View style={styles.nameRow}>
+                    <Text
+                      style={[
+                        styles.userName,
+                        isBanned && styles.strikethrough,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {item.full_name || item.username}
+                    </Text>
+                    <View
+                      style={[
+                        styles.rolePill,
+                        {
+                          borderColor: roleColor + '40',
+                          backgroundColor: roleColor + '10',
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.roleText, { color: roleColor }]}>
+                        {item.role}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.metaRow}>
+                    <Mail size={10} color={THEME.slate} />
+                    <Text style={styles.metaText} numberOfLines={1}>
+                      {item.username}
+                    </Text>
+                  </View>
+                  <View style={styles.metaRow}>
+                    <Fingerprint size={10} color={THEME.slate} />
+                    <Text style={styles.metaText}>
+                      ID: {item.id.slice(0, 8)}
                     </Text>
                   </View>
                 </View>
-                <Text style={styles.userEmail}>ID: {item.id.slice(0, 8)}... • Joined {new Date(item.created_at).toLocaleDateString()}</Text>
               </View>
             </View>
 
-            {/* RIGHT: ACTIONS */}
-            <View style={styles.cardActions}>
-              <TouchableOpacity 
-                onPress={() => { setSelectedUser(item); setRoleModalVisible(true); }}
-                style={styles.iconBtn}
+            {/* SEPARATOR */}
+            <View style={styles.separator} />
+
+            {/* ROW 2: ACTIONS (Big Touch Targets) */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => {
+                  setSelectedUser(item);
+                  setRoleModalVisible(true);
+                }}
               >
                 <UserCog size={18} color={THEME.indigo} />
+                <Text style={styles.actionText}>Role</Text>
               </TouchableOpacity>
 
               {isBanned ? (
-                 <TouchableOpacity 
-                    onPress={() => handleUnban(item)}
-                    style={[styles.iconBtn, { borderColor: THEME.success }]}
-                 >
-                    {processingId === item.id ? <ActivityIndicator size="small" color={THEME.success} /> : <CheckCircle size={18} color={THEME.success} />}
-                 </TouchableOpacity>
-              ) : (
-                <TouchableOpacity 
-                    onPress={() => { setSelectedUser(item); setBanModalVisible(true); }}
-                    style={[styles.iconBtn, { borderColor: THEME.warning }]}
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => handleUnban(item)}
                 >
-                    <Ban size={18} color={THEME.warning} />
+                  {processingId === item.id ? (
+                    <ActivityIndicator size="small" color={THEME.success} />
+                  ) : (
+                    <CheckCircle size={18} color={THEME.success} />
+                  )}
+                  <Text style={[styles.actionText, { color: THEME.success }]}>
+                    Activate
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => {
+                    setSelectedUser(item);
+                    setBanModalVisible(true);
+                  }}
+                >
+                  <Ban size={18} color={THEME.warning} />
+                  <Text style={[styles.actionText, { color: THEME.warning }]}>
+                    Ban
+                  </Text>
                 </TouchableOpacity>
               )}
 
-              <TouchableOpacity 
+              <TouchableOpacity
+                style={styles.actionBtn}
                 onPress={() => handleDelete(item)}
-                style={[styles.iconBtn, { borderColor: THEME.danger, backgroundColor: 'rgba(239,68,68,0.1)' }]}
               >
-                 {processingId === item.id && item.status !== 'banned' ? <ActivityIndicator size="small" color={THEME.danger} /> : <Trash2 size={18} color={THEME.danger} />}
+                {processingId === item.id && item.status !== 'banned' ? (
+                  <ActivityIndicator size="small" color={THEME.danger} />
+                ) : (
+                  <Trash2 size={18} color={THEME.danger} />
+                )}
+                <Text style={[styles.actionText, { color: THEME.danger }]}>
+                  Delete
+                </Text>
               </TouchableOpacity>
             </View>
-
           </View>
         </Bento3DCard>
       </Animated.View>
@@ -295,265 +396,407 @@ export default function AdminUsersScreen() {
 
   return (
     <View style={styles.root}>
-        {/* BACKGROUND GRADIENT */}
-        <LinearGradient
-            colors={[THEME.obsidian, '#0f172a']}
-            style={StyleSheet.absoluteFill}
-        />
+      <LinearGradient
+        colors={[THEME.obsidian, '#0f172a']}
+        style={StyleSheet.absoluteFill}
+      />
 
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        {/* HEADER */}
+        {/* TOP HEADER */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backBtn}
+          >
             <ChevronLeft size={24} color={THEME.white} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>User Directory</Text>
+          <View>
+            <Text style={styles.headerTitle}>User Directory</Text>
+            <Text style={styles.headerSub}>{users.length} Active Accounts</Text>
+          </View>
         </View>
 
-        {/* SEARCH BAR */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchBar}>
+        {/* SEARCH & FILTER */}
+        <View style={styles.searchSection}>
+          <GlassCard style={styles.searchBar} intensity="light">
             <Search size={20} color={THEME.slate} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search by username or ID..."
+              placeholder="Search users..."
               placeholderTextColor={THEME.slate}
               value={search}
               onChangeText={setSearch}
             />
-          </View>
+            {search.length > 0 && (
+              <TouchableOpacity onPress={() => setSearch('')}>
+                <X size={16} color={THEME.slate} />
+              </TouchableOpacity>
+            )}
+          </GlassCard>
         </View>
 
-        {/* USER LIST */}
+        {/* LIST */}
         <FlatList
-          data={users.filter(u => 
-            u.username.toLowerCase().includes(search.toLowerCase()) || 
-            u.full_name?.toLowerCase().includes(search.toLowerCase())
+          data={users.filter(
+            (u) =>
+              u.username.toLowerCase().includes(search.toLowerCase()) ||
+              u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+              u.id.includes(search),
           )}
-          keyExtractor={item => item.id}
+          keyExtractor={(item) => item.id}
           renderItem={renderUserCard}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={loadUsers} tintColor={THEME.indigo} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={loadUsers}
+              tintColor={THEME.indigo}
+            />
           }
           ListEmptyComponent={
-            <View style={{ alignItems: 'center', marginTop: 50 }}>
-                <Text style={{ color: THEME.slate }}>No users found.</Text>
+            <View style={styles.emptyState}>
+              <UsersIconPlaceholder />
+              <Text style={styles.emptyText}>No users matching "{search}"</Text>
             </View>
           }
         />
 
-        {/* ROLE MODAL */}
-        <Modal visible={roleModalVisible} transparent animationType="fade">
-            <View style={styles.modalOverlay}>
-                <Animated.View entering={SlideInUp.springify()} style={styles.modalBox}>
-                    <Text style={styles.modalTitle}>Change Role</Text>
-                    <Text style={styles.modalSub}>Select new access level for <Text style={{color: THEME.indigo}}>{selectedUser?.username}</Text></Text>
-                    
-                    <View style={styles.roleGrid}>
-                        {['MEMBER', 'PREMIUM', 'MODERATOR', 'ADMIN'].map((role) => (
-                            <TouchableOpacity 
-                                key={role}
-                                style={[styles.roleOption, selectedUser?.role === role && styles.roleOptionActive]}
-                                onPress={() => handleRoleUpdate(role as UserRole)}
-                            >
-                                <Text style={[styles.roleOptionText, selectedUser?.role === role && { color: THEME.white }]}>{role}</Text>
-                                {selectedUser?.role === role && <CheckCircle size={16} color={THEME.white} />}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                    <TouchableOpacity onPress={() => setRoleModalVisible(false)} style={styles.cancelBtn}>
-                        <Text style={styles.cancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                </Animated.View>
-            </View>
-        </Modal>
+        {/* --- MODALS (Using GlassCard for UI Consistency) --- */}
 
-        {/* BAN/DEACTIVATE MODAL */}
-        <Modal visible={banModalVisible} transparent animationType="fade">
-            <View style={styles.modalOverlay}>
-                <Animated.View entering={SlideInUp.springify()} style={styles.modalBox}>
-                    <View style={{ alignItems: 'center', marginBottom: 16 }}>
-                        <ShieldAlert size={40} color={THEME.warning} />
-                    </View>
-                    <Text style={styles.modalTitle}>Restrict Access</Text>
-                    <Text style={styles.modalSub}>
-                        Select restriction duration for <Text style={{color: THEME.warning}}>{selectedUser?.username}</Text>.
-                        This will log the user out immediately.
+        {/* 1. ROLE MODAL */}
+        <Modal
+          visible={roleModalVisible}
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+        >
+          <View style={styles.modalOverlay}>
+            <GlassCard style={styles.modalCard} intensity="heavy">
+              <View style={styles.modalHeader}>
+                <UserCog size={32} color={THEME.indigo} />
+                <Text style={styles.modalTitle}>Modify Access Level</Text>
+                <Text style={styles.modalSub}>
+                  Updating role for{' '}
+                  <Text style={{ color: THEME.white, fontWeight: 'bold' }}>
+                    {selectedUser?.username}
+                  </Text>
+                </Text>
+              </View>
+
+              <View style={styles.roleList}>
+                {['MEMBER', 'PREMIUM', 'MODERATOR', 'ADMIN'].map((role) => (
+                  <TouchableOpacity
+                    key={role}
+                    style={[
+                      styles.modalOption,
+                      selectedUser?.role === role && styles.modalOptionActive,
+                    ]}
+                    onPress={() => handleRoleUpdate(role as UserRole)}
+                  >
+                    <Text
+                      style={[
+                        styles.modalOptionText,
+                        selectedUser?.role === role && { color: THEME.white },
+                      ]}
+                    >
+                      {role}
                     </Text>
-
-                    <View style={{ gap: 10, width: '100%', marginBottom: 20 }}>
-                        <TouchableOpacity style={styles.banOption} onPress={() => executeBan(1)}>
-                            <Clock size={18} color={THEME.slate} />
-                            <Text style={styles.banOptionText}>24 Hours (Timeout)</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.banOption} onPress={() => executeBan(7)}>
-                            <Calendar size={18} color={THEME.slate} />
-                            <Text style={styles.banOptionText}>7 Days (Suspension)</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[styles.banOption, { borderColor: THEME.danger }]} onPress={() => executeBan(null)}>
-                            <Ban size={18} color={THEME.danger} />
-                            <Text style={[styles.banOptionText, { color: THEME.danger }]}>Permanent Ban</Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    <TouchableOpacity onPress={() => setBanModalVisible(false)} style={styles.cancelBtn}>
-                        <Text style={styles.cancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                </Animated.View>
-            </View>
+                    {selectedUser?.role === role && (
+                      <CheckCircle size={18} color={THEME.white} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TouchableOpacity
+                onPress={() => setRoleModalVisible(false)}
+                style={styles.modalCancel}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </GlassCard>
+          </View>
         </Modal>
 
+        {/* 2. BAN MODAL */}
+        <Modal
+          visible={banModalVisible}
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+        >
+          <View style={styles.modalOverlay}>
+            <GlassCard style={styles.modalCard} intensity="heavy">
+              <View style={styles.modalHeader}>
+                <ShieldAlert size={32} color={THEME.warning} />
+                <Text style={styles.modalTitle}>Restrict Account</Text>
+                <Text style={styles.modalSub}>
+                  This will force log out the user.
+                </Text>
+              </View>
+
+              <View style={styles.actionList}>
+                <TouchableOpacity
+                  style={styles.modalOption}
+                  onPress={() => executeBan(1)}
+                >
+                  <Clock size={20} color={THEME.slate} />
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={styles.modalOptionText}>24 Hour Timeout</Text>
+                    <Text style={styles.modalOptionSub}>
+                      Temporary restriction
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.modalOption}
+                  onPress={() => executeBan(7)}
+                >
+                  <Calendar size={20} color={THEME.slate} />
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={styles.modalOptionText}>7 Day Suspension</Text>
+                    <Text style={styles.modalOptionSub}>Standard penalty</Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modalOption,
+                    {
+                      borderColor: 'rgba(239, 68, 68, 0.3)',
+                      backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                    },
+                  ]}
+                  onPress={() => executeBan(null)}
+                >
+                  <Ban size={20} color={THEME.danger} />
+                  <View style={{ marginLeft: 12 }}>
+                    <Text
+                      style={[styles.modalOptionText, { color: THEME.danger }]}
+                    >
+                      Permanent Ban
+                    </Text>
+                    <Text
+                      style={[
+                        styles.modalOptionSub,
+                        { color: 'rgba(239,68,68,0.6)' },
+                      ]}
+                    >
+                      Indefinite restriction
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setBanModalVisible(false)}
+                style={styles.modalCancel}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </GlassCard>
+          </View>
+        </Modal>
       </SafeAreaView>
     </View>
   );
 }
 
+// Helper for empty state icon
+const UsersIconPlaceholder = () => (
+  <View
+    style={{
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      backgroundColor: 'rgba(255,255,255,0.05)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 12,
+    }}
+  >
+    <Search size={30} color={THEME.slate} />
+  </View>
+);
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
-  
+
+  // HEADER
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 16,
     gap: 16,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: THEME.white,
-    letterSpacing: 0.5,
-  },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: THEME.white },
+  headerSub: { fontSize: 12, color: THEME.slate, fontWeight: '600' },
 
-  searchContainer: { paddingHorizontal: 20, marginBottom: 20 },
+  // SEARCH
+  searchSection: { paddingHorizontal: 24, marginBottom: 20 },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(30, 41, 59, 0.5)',
     paddingHorizontal: 16,
-    height: 50,
-    borderRadius: 16,
+    height: 54,
+    borderRadius: 18,
+    gap: 12,
+  },
+  searchInput: { flex: 1, color: THEME.white, fontSize: 16, height: '100%' },
+
+  // LIST
+  listContent: { paddingHorizontal: 24, paddingBottom: 100, gap: 16 },
+
+  // CARD STYLES
+  cardContainer: { height: 160 }, // Fixed height for consistency
+  cardInner: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: 'rgba(30, 41, 59, 0.4)', // Dark glass base
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: THEME.border,
-  },
-  searchInput: { flex: 1, marginLeft: 12, color: THEME.white, fontSize: 16 },
-
-  listContent: { paddingHorizontal: 20, paddingBottom: 100 },
-
-  // User Card Styles
-  cardContent: {
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderRadius: 16,
   },
   cardBanned: {
     backgroundColor: 'rgba(239, 68, 68, 0.05)',
     borderColor: 'rgba(239, 68, 68, 0.2)',
-    borderWidth: 1,
   },
-  cardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  avatar: { width: 42, height: 42, borderRadius: 14 },
+
+  // Card Top Row
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  userInfoLeft: { flexDirection: 'row', gap: 14, flex: 1 },
+  avatar: { width: 50, height: 50, borderRadius: 16 },
   avatarPlaceholder: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: 'rgba(99, 102, 241, 0.2)',
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.2)',
   },
-  avatarText: { color: THEME.indigo, fontWeight: 'bold', fontSize: 16 },
-  userName: { color: THEME.white, fontWeight: '700', fontSize: 15 },
-  textBanned: { textDecorationLine: 'line-through', color: THEME.slate, opacity: 0.7 },
-  userEmail: { color: THEME.slate, fontSize: 11, marginTop: 2 },
-  
-  roleBadge: {
-    paddingHorizontal: 6,
+  avatarText: { color: THEME.indigo, fontWeight: '800', fontSize: 20 },
+
+  textStack: { flex: 1, justifyContent: 'center', gap: 4 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  userName: {
+    color: THEME.white,
+    fontWeight: '700',
+    fontSize: 16,
+    maxWidth: '60%',
+  },
+  strikethrough: { textDecorationLine: 'line-through', opacity: 0.6 },
+
+  rolePill: {
+    paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  roleText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  metaText: { color: THEME.slate, fontSize: 11, fontWeight: '500' },
+
+  separator: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginVertical: 8,
+  },
+
+  // Card Actions
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.03)',
   },
-  roleText: { fontSize: 9, fontWeight: '800' },
+  actionText: { fontSize: 11, fontWeight: '700', color: THEME.slate },
 
-  cardActions: { flexDirection: 'row', gap: 8 },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-  },
+  // EMPTY STATE
+  emptyState: { alignItems: 'center', marginTop: 60, opacity: 0.6 },
+  emptyText: { color: THEME.slate, fontSize: 14, fontWeight: '600' },
 
-  // Modal Styles
+  // MODAL STYLES
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.8)', // Darker dim for focus
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
-  modalBox: {
-    width: Math.min(width - 40, 400),
-    backgroundColor: '#1e293b',
-    borderRadius: 24,
+  modalCard: {
+    width: '100%',
+    maxWidth: 400,
     padding: 24,
+    borderRadius: 28,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 10,
   },
-  modalTitle: { fontSize: 22, fontWeight: 'bold', color: THEME.white, textAlign: 'center', marginBottom: 8 },
-  modalSub: { fontSize: 14, color: THEME.slate, textAlign: 'center', marginBottom: 24, lineHeight: 20 },
-  
-  roleGrid: { gap: 8, width: '100%' },
-  roleOption: {
+  modalHeader: { alignItems: 'center', marginBottom: 24 },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: THEME.white,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  modalSub: {
+    fontSize: 13,
+    color: THEME.slate,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+
+  roleList: { gap: 10, marginBottom: 20 },
+  actionList: { gap: 10, marginBottom: 20 },
+
+  modalOption: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 16,
+    borderRadius: 16,
     backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.05)',
   },
-  roleOptionActive: {
-    backgroundColor: 'rgba(99, 102, 241, 0.2)',
+  modalOptionActive: {
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
     borderColor: THEME.indigo,
   },
-  roleOptionText: { color: THEME.slate, fontWeight: '600', fontSize: 14 },
-  
-  banOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+  modalOptionText: { fontSize: 15, fontWeight: '600', color: THEME.slate },
+  modalOptionSub: {
+    fontSize: 11,
+    color: THEME.slate,
+    marginTop: 2,
+    opacity: 0.7,
   },
-  banOptionText: { color: THEME.white, fontWeight: '600', fontSize: 14 },
 
-  cancelBtn: { marginTop: 16, alignItems: 'center', padding: 10 },
-  cancelText: { color: THEME.slate, fontWeight: 'bold' },
+  modalCancel: { paddingVertical: 12, alignItems: 'center' },
+  modalCancelText: { color: THEME.slate, fontWeight: '700', fontSize: 14 },
 });

@@ -447,14 +447,22 @@ export default function SupportScreen() {
 
   // --- RENDERERS ---
 
-  // 1. FAQ Render 
+  // 1. FAQ Render
   const renderFAQ = () => (
     <View style={styles.sectionContainer}>
-        {/* Added paddingHorizontal: 20 to push content inward from the edges */}
-        <View style={{ flexDirection: 'row', marginBottom: 16, paddingHorizontal: 20, alignItems: 'center', gap: 10 }}>
-          <LifeBuoy size={24} color={THEME.indigo} />
-          <Text style={styles.sectionTitle}>Knowledge Base</Text>
-        </View>
+      {/* Added paddingHorizontal: 20 to push content inward from the edges */}
+      <View
+        style={{
+          flexDirection: 'row',
+          marginBottom: 16,
+          paddingHorizontal: 20,
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        <LifeBuoy size={24} color={THEME.indigo} />
+        <Text style={styles.sectionTitle}>Knowledge Base</Text>
+      </View>
       <View style={styles.faqList}>
         {FAQ_DATA.map((item, index) => {
           const Icon = item.icon;
@@ -745,6 +753,7 @@ export default function SupportScreen() {
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         >
           {/* TICKET LIST */}
           {viewMode === 'list' && (
@@ -1156,14 +1165,29 @@ export default function SupportScreen() {
   );
 }
 
+
+// ============================================================================
+// 9. STYLESHEET
+// ============================================================================
+
+// ============================================================================
+// 9. STYLESHEET
+// ============================================================================
+
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: THEME.obsidian },
+  root: { 
+    flex: 1, 
+    backgroundColor: THEME.obsidian 
+  },
+
+  // --- HEADER ---
   headerContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 24,
+    paddingVertical: 16,
+    zIndex: 10,
   },
   headerTitle: {
     fontSize: 28,
@@ -1180,18 +1204,24 @@ const styles = StyleSheet.create({
   createBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 30,
-    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 24,
+    gap: 6,
     overflow: 'hidden',
   },
-  createBtnText: { color: THEME.white, fontWeight: 'bold', fontSize: 14 },
+  createBtnText: { 
+    color: THEME.white, 
+    fontWeight: 'bold', 
+    fontSize: 13 
+  },
+
+  // --- TABS ---
   tabContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
     gap: 10,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   tabBtn: {
     paddingVertical: 8,
@@ -1199,46 +1229,56 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
-  tabBtnActive: { backgroundColor: THEME.indigo },
-  tabText: { color: THEME.slate, fontWeight: 'bold', fontSize: 12 },
-  tabTextActive: { color: 'white' },
-  sectionContainer: { marginBottom: 30 },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 16,
+  tabBtnActive: { 
+    backgroundColor: THEME.indigo 
   },
-  sectionTitle: { color: THEME.white, fontSize: 18, fontWeight: 'bold' },
-  faqList: { gap: 12, paddingHorizontal: 20 },
-  faqContent: { flexDirection: 'row', alignItems: 'center', padding: 20 },
-  faqIconBg: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+  tabText: { 
+    color: THEME.slate, 
+    fontWeight: 'bold', 
+    fontSize: 12 
   },
-  faqQuestion: {
-    color: THEME.white,
-    fontWeight: 'bold',
-    fontSize: 15,
-    marginBottom: 4,
+  tabTextActive: { 
+    color: 'white' 
   },
-  faqAnswer: { color: THEME.slate, fontSize: 12, lineHeight: 18 },
-  searchBarContainer: { paddingHorizontal: 20, marginBottom: 16 },
+
+  // --- LIST & SEARCH ---
+  sectionContainer: { 
+    marginBottom: 30 
+  },
+  sectionTitle: { 
+    color: THEME.white, 
+    fontSize: 18, 
+    fontWeight: 'bold' 
+  },
+  searchBarContainer: { 
+    paddingHorizontal: 20, 
+    marginBottom: 16 
+  },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(30, 41, 59, 0.5)',
     borderRadius: 16,
     paddingHorizontal: 16,
-    height: 50,
+    height: 48,
     borderWidth: 1,
     borderColor: THEME.glassBorder,
   },
-  searchInput: { flex: 1, marginLeft: 12, color: THEME.white },
-  ticketCardContent: { padding: 16 },
+  searchInput: { 
+    flex: 1, 
+    marginLeft: 12, 
+    color: THEME.white 
+  },
+  emptyText: { 
+    color: THEME.slate, 
+    textAlign: 'center', 
+    marginTop: 20 
+  },
+
+  // --- TICKET CARD ---
+  ticketCardContent: { 
+    padding: 16 
+  },
   ticketCardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1251,7 +1291,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 4,
   },
-  ticketSub: { color: THEME.slate, fontSize: 12 },
+  ticketSub: { 
+    color: THEME.slate, 
+    fontSize: 12 
+  },
   ticketCardBottom: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1266,18 +1309,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 6,
   },
-  statusText: { fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
-  ticketDate: { color: THEME.slate, fontSize: 11 },
-  emptyText: { color: THEME.slate, textAlign: 'center', marginTop: 20 },
+  statusText: { 
+    fontSize: 10, 
+    fontWeight: '900', 
+    letterSpacing: 0.5 
+  },
+  ticketDate: { 
+    color: THEME.slate, 
+    fontSize: 11 
+  },
+
+  // --- CHAT DETAIL HEADER ---
   chatHeader: {
     padding: 16,
     borderBottomWidth: 1,
     borderColor: THEME.glassBorder,
     borderRadius: 0,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
   },
-  chatHeaderTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  chatHeaderTop: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 12 
+  },
   backBtn: {
     width: 40,
     height: 40,
@@ -1286,8 +1339,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chatTitle: { color: THEME.white, fontWeight: 'bold', fontSize: 16 },
-  chatSub: { color: THEME.slate, fontSize: 11 },
+  chatTitle: { 
+    color: THEME.white, 
+    fontWeight: 'bold', 
+    fontSize: 16 
+  },
+  chatSub: { 
+    color: THEME.slate, 
+    fontSize: 11 
+  },
   deleteBtn: {
     width: 40,
     height: 40,
@@ -1315,89 +1375,89 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 8,
   },
-  actionBtnText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
-  chatContent: { padding: 20, paddingBottom: 20 },
+  actionBtnText: { 
+    color: 'white', 
+    fontWeight: 'bold', 
+    fontSize: 12 
+  },
+
+  // --- MESSAGES LIST ---
+  chatContent: { 
+    padding: 20, 
+    paddingBottom: 40 
+  },
   msgRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    marginBottom: 16,
-    gap: 8,
+    marginBottom: 20,
+    gap: 12,
   },
-  chatAvatar: { width: 28, height: 28, borderRadius: 14 },
+  // AVATAR
+  chatAvatar: { 
+    width: 42, 
+    height: 42, 
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder
+  },
   chatAvatarPlaceholder: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: THEME.indigo,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  chatAvatarPlaceholderMe: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: THEME.slate,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: THEME.glassBorder
   },
   roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 4,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: 4,
     borderWidth: 1,
     marginLeft: 4,
   },
-  roleText: { fontSize: 8, fontWeight: '900', marginLeft: 2 },
-  msgBubble: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 20 },
-  internalLabel: {
-    color: '#facc15',
-    fontSize: 9,
-    fontWeight: '900',
-    marginBottom: 4,
+  roleText: { 
+    fontSize: 8, 
+    fontWeight: '900', 
+    marginLeft: 2 
   },
+  msgBubble: { 
+    paddingHorizontal: 16, 
+    paddingVertical: 12, 
+    borderRadius: 18 
+  },
+
+  // --- INPUT AREA (FIXED FOR MOBILE TAB BAR) ---
   inputArea: {
-    padding: 12,
+    padding: 16,
     borderTopWidth: 1,
     borderColor: THEME.glassBorder,
-    borderRadius: 0,
+    backgroundColor: THEME.obsidian,
+    paddingBottom: Platform.OS === 'ios' ? 84 : 74, 
+    position: 'relative',
+    zIndex: 50,
   },
-  chatInput: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    color: THEME.white,
-    maxHeight: 100,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: THEME.glassBorder,
+  internalInputContainer: { 
+    flexDirection: 'row', 
+    marginBottom: 12,
+    gap: 8
   },
-  sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: THEME.indigo,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  internalInputContainer: { flexDirection: 'row', marginBottom: 12 },
   internalInput: {
     flex: 1,
     backgroundColor: 'rgba(234, 179, 8, 0.1)',
     color: '#facc15',
     borderRadius: 12,
     paddingHorizontal: 12,
-    height: 40,
+    height: 44,
     borderWidth: 1,
     borderColor: 'rgba(234, 179, 8, 0.3)',
-    marginRight: 8,
   },
   internalSendBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 12,
     backgroundColor: 'rgba(234, 179, 8, 0.2)',
     alignItems: 'center',
@@ -1405,6 +1465,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(234, 179, 8, 0.4)',
   },
+  chatInput: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    color: THEME.white,
+    maxHeight: 120,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    fontSize: 15,
+  },
+  sendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: THEME.indigo,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: THEME.indigo,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+
+  // --- CREATE FORM ---
   createInput: {
     backgroundColor: 'rgba(30, 41, 59, 0.5)',
     borderRadius: 12,
@@ -1422,6 +1510,37 @@ const styles = StyleSheet.create({
     borderColor: THEME.slate,
     backgroundColor: 'rgba(0,0,0,0.2)',
   },
+
+  // --- FAQ ---
+  faqList: { 
+    gap: 12, 
+    paddingHorizontal: 20 
+  },
+  faqContent: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    padding: 20 
+  },
+  faqIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  faqQuestion: {
+    color: THEME.white,
+    fontWeight: 'bold',
+    fontSize: 15,
+    marginBottom: 4,
+  },
+  faqAnswer: { 
+    color: THEME.slate, 
+    fontSize: 12, 
+    lineHeight: 18 
+  },
+
+  // --- MODALS ---
   modalOverlayCenter: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.8)',
