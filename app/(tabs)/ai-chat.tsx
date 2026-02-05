@@ -309,8 +309,7 @@ export default function AIChatScreen() {
           {
             id: 'init-link',
             role: 'assistant',
-            content:
-              'Neural link stable. I am SprintBot ⚡. Ready to architect.',
+            content: 'Sprint Link Stable. I am SprintBot⚡, Ready to assist',
             created_at: new Date().toISOString(),
           },
         ]);
