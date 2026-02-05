@@ -137,15 +137,7 @@ export type Database = {
           track_id?: string;
           xp_reward?: number | null;
         };
-        Relationships: [
-          {
-            foreignKeyName: 'lessons_track_id_fkey';
-            columns: ['track_id'];
-            isOneToOne: false;
-            referencedRelation: 'tracks';
-            referencedColumns: ['id'];
-          },
-        ];
+        Relationships: [];
       };
       profiles: {
         Row: {
@@ -191,6 +183,7 @@ export type Database = {
           answer: Json;
           created_at: string | null;
           explanation: string | null;
+          hint: string | null;
           id: string;
           lesson_id: string;
           options: Json | null;
@@ -201,6 +194,7 @@ export type Database = {
           answer: Json;
           created_at?: string | null;
           explanation?: string | null;
+          hint?: string | null;
           id?: string;
           lesson_id: string;
           options?: Json | null;
@@ -211,6 +205,7 @@ export type Database = {
           answer?: Json;
           created_at?: string | null;
           explanation?: string | null;
+          hint?: string | null;
           id?: string;
           lesson_id?: string;
           options?: Json | null;
@@ -316,7 +311,7 @@ export type Database = {
           color_gradient: string | null;
           created_at: string | null;
           description: string | null;
-          difficulty: Database['public']['Enums']['difficulty_level'] | null;
+          difficulty: string | null;
           icon: string | null;
           id: string;
           is_premium: boolean | null;
@@ -330,7 +325,7 @@ export type Database = {
           color_gradient?: string | null;
           created_at?: string | null;
           description?: string | null;
-          difficulty?: Database['public']['Enums']['difficulty_level'] | null;
+          difficulty?: string | null;
           icon?: string | null;
           id?: string;
           is_premium?: boolean | null;
@@ -344,7 +339,7 @@ export type Database = {
           color_gradient?: string | null;
           created_at?: string | null;
           description?: string | null;
-          difficulty?: Database['public']['Enums']['difficulty_level'] | null;
+          difficulty?: string | null;
           icon?: string | null;
           id?: string;
           is_premium?: boolean | null;
@@ -524,8 +519,12 @@ export type Database = {
       };
     };
     Enums: {
-      difficulty_level: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
-      question_type: 'mcq' | 'true_false' | 'input' | 'info';
+      difficulty_level:
+        | 'BEGINNER'
+        | 'INTERMEDIATE'
+        | 'ADVANCED'
+        | 'FUNDAMENTALS';
+      question_type: 'mcq' | 'true_false' | 'input' | 'info' | 'code';
       user_role: 'MEMBER' | 'PREMIUM' | 'MODERATOR' | 'ADMIN';
     };
     CompositeTypes: {
@@ -657,8 +656,13 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      difficulty_level: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'],
-      question_type: ['mcq', 'true_false', 'input', 'info'],
+      difficulty_level: [
+        'BEGINNER',
+        'INTERMEDIATE',
+        'ADVANCED',
+        'FUNDAMENTALS',
+      ],
+      question_type: ['mcq', 'true_false', 'input', 'info', 'code'],
       user_role: ['MEMBER', 'PREMIUM', 'MODERATOR', 'ADMIN'],
     },
   },
