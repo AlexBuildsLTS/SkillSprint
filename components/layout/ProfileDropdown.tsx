@@ -117,7 +117,7 @@ export const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
         onPress: () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           onClose();
-          router.push('/(tabs)/admin/');
+          router.push('/(tabs)/admin');
         },
         color: '#10b981', // Emerald green for admin
       });
@@ -212,7 +212,7 @@ export const ProfileDropdown: React.FC<ProfileDropdownProps> = ({
           style={{
             position: 'absolute',
             // On desktop, align to anchor; fallback to fixed right for mobile
-            top: anchorPosition.y + 10,
+            top: anchorPosition.y + 50,
             right: isDesktop ? width - anchorPosition.x - 40 : 20,
             width: 260,
             borderRadius: 16,
@@ -250,11 +250,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  avatar: { width: 40, height: 40, borderRadius: 20 },
+  avatar: { width: 40, height: 40, borderRadius: 30 },
   avatarPlaceholder: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 30,
     backgroundColor: 'rgba(99, 102, 241, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',

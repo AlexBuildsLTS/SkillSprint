@@ -40,6 +40,8 @@ import {
   Shield,
   ShieldCheck,
   ChevronDown,
+  Bandage,
+  PhoneCall,
   X,
 } from 'lucide-react-native';
 import Animated, {
@@ -73,7 +75,13 @@ const THEME = {
 
 const STAFF_ROLES = ['ADMIN', 'MODERATOR'];
 
-type TicketStatus = 'open' | 'in_progress' | 'pending' | 'resolved' | 'closed';
+type TicketStatus =
+  | 'open'
+  | 'under review'
+  | 'in progress'
+  | 'resolved'
+  | 'closed';
+type TicketPriority = 'low' | 'medium' | 'high';
 type UserRole = 'MEMBER' | 'PREMIUM' | 'MODERATOR' | 'ADMIN';
 
 interface TicketUI {
@@ -209,9 +217,9 @@ export default function SupportScreen() {
   const isAdmin = realRole === 'ADMIN';
 
   // --- STATE ---
-  const [activeTab, setActiveTab] = useState<'my_tickets' | 'queue' | 'faq'>(
-    'my_tickets',
-  );
+  const [activeTab, setActiveTab] = useState<
+    'my_tickets' | 'queue' | 'faq' | 'all_tickets'
+  >('my_tickets');
 
   useEffect(() => {
     if (isStaff) setActiveTab('queue');
@@ -242,7 +250,11 @@ export default function SupportScreen() {
   const flatListRef = useRef<FlatList>(null);
 
   // --- DATA LOADING ---
-  
+
+  /**
+   * @module DataLoading
+   * Handles tab-based filtering and Premium-first sorting logic.
+   */
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -250,28 +262,42 @@ export default function SupportScreen() {
       let query = supabase
         .from('tickets')
         .select(
-          `
-          *,
-          user:profiles!tickets_user_id_fkey (full_name, role, avatar_url)
-        `,
-        )
-        .order('created_at', { ascending: false });
+          `*, user:profiles!tickets_user_id_fkey (full_name, role, avatar_url)`,
+        );
 
+      // 1. FILTERING LOGIC
       if (!isStaff) {
         query = query.eq('user_id', user.id);
       } else {
         if (activeTab === 'my_tickets') {
           query = query.eq('user_id', user.id);
+        } else if (activeTab === 'queue') {
+          query = query.in('status', ['open', 'in progress', 'under review']);
         }
+        // all_tickets has no extra filters for staff
       }
 
-      const { data, error } = await query;
+      const { data, error } = await query.order('created_at', {
+        ascending: false,
+      });
       if (error) throw error;
 
-      const safeData: TicketUI[] = (data || []).map((t: any) => ({
+      let safeData: TicketUI[] = (data || []).map((t: any) => ({
         ...t,
         user: t.user || { full_name: 'Unknown', role: 'MEMBER' },
       }));
+
+      // 2. SORTING LOGIC (PREMIUM FIRST IN QUEUE)
+      if (activeTab === 'queue') {
+        safeData = safeData.sort((a, b) => {
+          const scoreA = a.user?.role === 'PREMIUM' ? 1 : 0;
+          const scoreB = b.user?.role === 'PREMIUM' ? 1 : 0;
+          if (scoreA !== scoreB) return scoreB - scoreA;
+          return (
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+        });
+      }
 
       setTickets(safeData);
       setFilteredTickets(safeData);
@@ -415,34 +441,61 @@ export default function SupportScreen() {
     }
   };
 
-  const handleDeleteTicket = (id: string) => {
-    if (!isAdmin) return;
-    Alert.alert(
-      'Delete Ticket',
-      'Are you sure? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            await supabase.from('tickets').delete().eq('id', id);
+  const handleDeleteTicket = async (id: string) => {
+    Alert.alert('Delete Ticket', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          const { data, error } = await supabase
+            .from('tickets')
+            .delete()
+            .eq('id', id)
+            .select();
+          if (error) Alert.alert('Error', error.message);
+          else if (!data || data.length === 0)
+            Alert.alert(
+              'Failed',
+              'Permission Denied: Database blocked deletion.',
+            );
+          else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setViewMode('list');
             loadData();
-          },
+          }
         },
-      ],
-    );
+      },
+    ]);
   };
 
   const handleStatusChange = async (newStatus: TicketStatus) => {
     if (!selectedTicket) return;
-    await supabase
+    const { error } = await supabase
       .from('tickets')
       .update({ status: newStatus })
       .eq('id', selectedTicket.id);
+    if (error) {
+      Alert.alert('Update Failed', error.message);
+      return;
+    }
     setSelectedTicket((prev) => (prev ? { ...prev, status: newStatus } : null));
-    setStatusModalVisible(false);
+    loadData();
+  };
+
+  const handlePriorityChange = async (newPriority: TicketPriority) => {
+    if (!selectedTicket) return;
+    const { error } = await supabase
+      .from('tickets')
+      .update({ priority: newPriority })
+      .eq('id', selectedTicket.id);
+    if (error) {
+      Alert.alert('Update Failed', error.message);
+      return;
+    }
+    setSelectedTicket((prev) =>
+      prev ? { ...prev, priority: newPriority } : null,
+    );
     loadData();
   };
 
@@ -495,7 +548,7 @@ export default function SupportScreen() {
     </View>
   );
 
-  // 2. Ticket Item
+  // 2. Ticket Item - REFINED WITH IDENTITY
   const renderTicketItem = ({
     item,
     index,
@@ -503,12 +556,8 @@ export default function SupportScreen() {
     item: TicketUI;
     index: number;
   }) => {
-    const statusColor =
-      item.status === 'open'
-        ? THEME.success
-        : item.status === 'closed'
-          ? THEME.slate
-          : THEME.warning;
+    const statusColor = getStatusColor(item.status);
+
     return (
       <Animated.View entering={FadeInUp.delay(index * 100).springify()}>
         <Bento3DCard
@@ -517,30 +566,47 @@ export default function SupportScreen() {
         >
           <View style={styles.ticketCardContent}>
             <View style={styles.ticketCardTop}>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 8,
-                  flex: 1,
-                }}
-              >
-                <MessageSquare
-                  size={18}
-                  color={THEME.indigo}
-                  style={{ opacity: 0.8 }}
-                />
-                <View>
+              <View style={{ flex: 1 }}>
+                {/* USER IDENTITY ROW - Added this for Queue visibility */}
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginBottom: 8,
+                    gap: 8,
+                  }}
+                >
+                  <RoleBadge role={item.user?.role || 'MEMBER'} />
+                  <Text
+                    style={{
+                      color: THEME.slate,
+                      fontSize: 12,
+                      fontWeight: 'bold',
+                    }}
+                  >
+                    {item.user?.full_name}
+                  </Text>
+                </View>
+
+                <View
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                >
+                  <MessageSquare
+                    size={16}
+                    color={THEME.indigo}
+                    style={{ opacity: 0.6 }}
+                  />
                   <Text style={styles.ticketTitle} numberOfLines={1}>
                     {item.subject}
                   </Text>
-                  <Text style={styles.ticketSub}>
-                    #{item.id.slice(0, 6)} • {item.category}
-                  </Text>
                 </View>
+                <Text style={styles.ticketSub}>
+                  #{item.id.slice(0, 8)} • {item.category}
+                </Text>
               </View>
               <ChevronRight size={18} color={THEME.slate} opacity={0.5} />
             </View>
+
             <View style={styles.ticketCardBottom}>
               <View
                 style={[
@@ -573,7 +639,6 @@ export default function SupportScreen() {
       </Animated.View>
     );
   };
-
   // 3. Chat Message (Dynamic Role Colors)
   const renderChatMessage = ({
     item,
@@ -735,6 +800,8 @@ export default function SupportScreen() {
         return THEME.success;
       case 'in_progress':
         return THEME.warning;
+      case 'underreview':
+        return THEME.warning;
       case 'resolved':
         return THEME.indigo;
       case 'closed':
@@ -772,20 +839,20 @@ export default function SupportScreen() {
                 entering={FadeInDown}
                 style={styles.headerContainer}
               >
-                <View>
-                  <Text style={styles.headerTitle}>Support Hub</Text>
-                  <Text style={styles.headerSub}>
-                    Logged in as{' '}
-                    <Text style={{ color: THEME.indigo }}>{realRole}</Text>
-                  </Text>
-                </View>
+                 <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        {/* --- CUSTOM HEADER (Cog Only) --- */}
+        <View style={styles.headerCenter }>
+          <PhoneCall size={22} color={THEME.success} />
+        </View>
+      </SafeAreaView>
+
                 {(!isStaff || activeTab === 'my_tickets') && (
                   <TouchableOpacity
                     style={styles.createBtn}
                     onPress={() => setViewMode('create')}
                   >
                     <LinearGradient
-                      colors={[THEME.indigo, '#818cf8']}
+                      colors={[THEME.success, '#818cf8']}
                       style={StyleSheet.absoluteFill}
                     />
                     <Plus size={20} color={THEME.white} />
@@ -793,25 +860,45 @@ export default function SupportScreen() {
                   </TouchableOpacity>
                 )}
               </Animated.View>
-
+              {/* Tab Navigation The 4-Tabs*/}
               <View style={styles.tabContainer}>
                 {isStaff && (
-                  <TouchableOpacity
-                    onPress={() => setActiveTab('queue')}
-                    style={[
-                      styles.tabBtn,
-                      activeTab === 'queue' && styles.tabBtnActive,
-                    ]}
-                  >
-                    <Text
+                  <>
+                    <TouchableOpacity
+                      onPress={() => setActiveTab('queue')}
                       style={[
-                        styles.tabText,
-                        activeTab === 'queue' && styles.tabTextActive,
+                        styles.tabBtn,
+                        activeTab === 'queue' && styles.tabBtnActive,
                       ]}
                     >
-                      Queue
-                    </Text>
-                  </TouchableOpacity>
+                      <Text
+                        style={[
+                          styles.tabText,
+                          activeTab === 'queue' && styles.tabTextActive,
+                        ]}
+                      >
+                        Queue
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* NEW: All Tickets Tab for broader oversight */}
+                    <TouchableOpacity
+                      onPress={() => setActiveTab('all_tickets')}
+                      style={[
+                        styles.tabBtn,
+                        activeTab === 'all_tickets' && styles.tabBtnActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.tabText,
+                          activeTab === 'all_tickets' && styles.tabTextActive,
+                        ]}
+                      >
+                        All Tickets
+                      </Text>
+                    </TouchableOpacity>
+                  </>
                 )}
                 <TouchableOpacity
                   onPress={() => setActiveTab('my_tickets')}
@@ -846,7 +933,6 @@ export default function SupportScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
-
               {activeTab === 'faq' ? (
                 renderFAQ()
               ) : (
@@ -889,23 +975,46 @@ export default function SupportScreen() {
           {viewMode === 'detail' && selectedTicket && (
             <View style={{ flex: 1 }}>
               <GlassCard style={styles.chatHeader} intensity="heavy">
-                <View style={styles.chatHeaderTop}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
                   <TouchableOpacity
                     onPress={() => setViewMode('list')}
                     style={styles.backBtn}
                   >
                     <ChevronLeft size={24} color={THEME.white} />
                   </TouchableOpacity>
+
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.chatTitle} numberOfLines={1}>
-                      {selectedTicket.subject}
-                    </Text>
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 8,
+                        marginBottom: 2,
+                      }}
+                    >
+                      <Text style={styles.chatTitle} numberOfLines={1}>
+                        {selectedTicket.subject}
+                      </Text>
+                      {/* ROLE BADGE OF THE CREATOR */}
+                      <RoleBadge role={selectedTicket.user?.role || 'MEMBER'} />
+                    </View>
                     <Text style={styles.chatSub}>
-                      #{selectedTicket.id.slice(0, 6)} •{' '}
-                      {selectedTicket.category}
+                      Opened by{' '}
+                      <Text style={{ color: THEME.white, fontWeight: 'bold' }}>
+                        {selectedTicket.user?.full_name}
+                      </Text>{' '}
+                      • {selectedTicket.category}
                     </Text>
                   </View>
-                  <View
+
+                  <TouchableOpacity
+                    onPress={() => isStaff && setStatusModalVisible(true)}
                     style={[
                       styles.statusBadge,
                       { borderColor: getStatusColor(selectedTicket.status) },
@@ -917,33 +1026,26 @@ export default function SupportScreen() {
                         { color: getStatusColor(selectedTicket.status) },
                       ]}
                     >
-                      {selectedTicket.status.toUpperCase().replace('_', ' ')}
+                      {selectedTicket.status.toUpperCase()}
                     </Text>
-                  </View>
-                  {isAdmin && (
+                    {isStaff && (
+                      <ChevronDown
+                        size={14}
+                        color={getStatusColor(selectedTicket.status)}
+                        style={{ marginLeft: 4 }}
+                      />
+                    )}
+                  </TouchableOpacity>
+
+                  {(isAdmin || selectedTicket.user_id === user?.id) && (
                     <TouchableOpacity
                       onPress={() => handleDeleteTicket(selectedTicket.id)}
-                      style={styles.deleteBtn}
+                      style={[styles.deleteBtn, { marginLeft: 4 }]}
                     >
-                      <Trash2 size={18} color={THEME.danger} />
+                      <Trash2 size={22} color={THEME.danger} />
                     </TouchableOpacity>
                   )}
                 </View>
-                {isStaff && (
-                  <View style={styles.staffControls}>
-                    <Text style={styles.staffLabel}>STAFF ACTIONS</Text>
-                    <View
-                      style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}
-                    >
-                      <TouchableOpacity
-                        onPress={() => setStatusModalVisible(true)}
-                        style={styles.actionBtn}
-                      >
-                        <Text style={styles.actionBtnText}>Change Status</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
               </GlassCard>
 
               <FlatList
@@ -1126,37 +1228,102 @@ export default function SupportScreen() {
             </View>
           )}
 
-          <Modal
-            visible={statusModalVisible}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setStatusModalVisible(false)}
-          >
+          <Modal visible={statusModalVisible} transparent animationType="fade">
             <TouchableOpacity
               activeOpacity={1}
               onPress={() => setStatusModalVisible(false)}
               style={styles.modalOverlayCenter}
             >
               <View style={styles.statusSheet}>
+                {/* STATUS SECTION */}
                 <Text style={styles.statusTitle}>Update Status</Text>
-                {['open', 'in_progress', 'resolved', 'closed'].map((status) => (
-                  <TouchableOpacity
-                    key={status}
-                    onPress={() => handleStatusChange(status as TicketStatus)}
-                    style={[
-                      styles.statusOption,
-                      selectedTicket?.status === status &&
-                        styles.statusOptionActive,
-                    ]}
+                <View style={{ marginBottom: 20 }}>
+                  {[
+                    { key: 'open', label: 'Open' },
+                    { key: 'in_progress', label: 'In Progress' },
+                    { key: 'underreview', label: 'Under Review' },
+                    { key: 'resolved', label: 'Resolved' },
+                    { key: 'closed', label: 'Closed' },
+                  ].map((item) => (
+                    <TouchableOpacity
+                      key={item.key}
+                      onPress={() =>
+                        handleStatusChange(item.key as TicketStatus)
+                      }
+                      style={[
+                        styles.statusOption,
+                        selectedTicket?.status === item.key &&
+                          styles.statusOptionActive,
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: 'white',
+                          fontWeight: 'bold',
+                          fontSize: 12,
+                        }}
+                      >
+                        {item.label.toUpperCase()}
+                      </Text>
+                      {selectedTicket?.status === item.key && (
+                        <CheckCircle2 size={18} color={THEME.indigo} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* PRIORITY SECTION */}
+                <Text style={styles.statusTitle}>Set Priority Level</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {['low', 'medium', 'high'].map((p) => (
+                    <TouchableOpacity
+                      key={p}
+                      onPress={() => handlePriorityChange(p as TicketPriority)}
+                      style={{
+                        flex: 1,
+                        paddingVertical: 12,
+                        borderRadius: 12,
+                        alignItems: 'center',
+                        backgroundColor:
+                          selectedTicket?.priority === p
+                            ? p === 'high'
+                              ? THEME.danger
+                              : THEME.indigo
+                            : 'rgba(255,255,255,0.05)',
+                        borderWidth: 1,
+                        borderColor:
+                          selectedTicket?.priority === p
+                            ? 'transparent'
+                            : 'rgba(255,255,255,0.1)',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: 'white',
+                          fontWeight: '900',
+                          fontSize: 10,
+                        }}
+                      >
+                        {p.toUpperCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TouchableOpacity
+                  onPress={() => setStatusModalVisible(false)}
+                  style={{ marginTop: 24, padding: 12 }}
+                >
+                  <Text
+                    style={{
+                      color: THEME.slate,
+                      textAlign: 'center',
+                      fontWeight: 'bold',
+                    }}
                   >
-                    <Text style={styles.statusOptionText}>
-                      {status.replace('_', ' ')}
-                    </Text>
-                    {selectedTicket?.status === status && (
-                      <CheckCircle2 size={20} color={THEME.indigo} />
-                    )}
-                  </TouchableOpacity>
-                ))}
+                    Close
+                  </Text>
+                </TouchableOpacity>
               </View>
             </TouchableOpacity>
           </Modal>
@@ -1166,19 +1333,14 @@ export default function SupportScreen() {
   );
 }
 
-
-// ============================================================================
-// 9. STYLESHEET
-// ============================================================================
-
 // ============================================================================
 // 9. STYLESHEET
 // ============================================================================
 
 const styles = StyleSheet.create({
-  root: { 
-    flex: 1, 
-    backgroundColor: THEME.obsidian 
+  root: {
+    flex: 1,
+    backgroundColor: THEME.obsidian,
   },
 
   // --- HEADER ---
@@ -1189,6 +1351,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     zIndex: 10,
+  },
+  headerCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 28,
@@ -1211,10 +1378,10 @@ const styles = StyleSheet.create({
     gap: 6,
     overflow: 'hidden',
   },
-  createBtnText: { 
-    color: THEME.white, 
-    fontWeight: 'bold', 
-    fontSize: 13 
+  createBtnText: {
+    color: THEME.white,
+    fontWeight: 'bold',
+    fontSize: 13,
   },
 
   // --- TABS ---
@@ -1230,30 +1397,30 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
-  tabBtnActive: { 
-    backgroundColor: THEME.indigo 
+  tabBtnActive: {
+    backgroundColor: THEME.indigo,
   },
-  tabText: { 
-    color: THEME.slate, 
-    fontWeight: 'bold', 
-    fontSize: 12 
+  tabText: {
+    color: THEME.slate,
+    fontWeight: 'bold',
+    fontSize: 12,
   },
-  tabTextActive: { 
-    color: 'white' 
+  tabTextActive: {
+    color: 'white',
   },
 
   // --- LIST & SEARCH ---
-  sectionContainer: { 
-    marginBottom: 30 
+  sectionContainer: {
+    marginBottom: 30,
   },
-  sectionTitle: { 
-    color: THEME.white, 
-    fontSize: 18, 
-    fontWeight: 'bold' 
+  sectionTitle: {
+    color: THEME.white,
+    fontSize: 18,
+    fontWeight: 'bold',
   },
-  searchBarContainer: { 
-    paddingHorizontal: 20, 
-    marginBottom: 16 
+  searchBarContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
   },
   searchBar: {
     flexDirection: 'row',
@@ -1265,20 +1432,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: THEME.glassBorder,
   },
-  searchInput: { 
-    flex: 1, 
-    marginLeft: 12, 
-    color: THEME.white 
+  searchInput: {
+    flex: 1,
+    marginLeft: 12,
+    color: THEME.white,
   },
-  emptyText: { 
-    color: THEME.slate, 
-    textAlign: 'center', 
-    marginTop: 20 
+  emptyText: {
+    color: THEME.slate,
+    textAlign: 'center',
+    marginTop: 20,
   },
 
   // --- TICKET CARD ---
-  ticketCardContent: { 
-    padding: 16 
+  ticketCardContent: {
+    padding: 16,
   },
   ticketCardTop: {
     flexDirection: 'row',
@@ -1292,9 +1459,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 4,
   },
-  ticketSub: { 
-    color: THEME.slate, 
-    fontSize: 12 
+  ticketSub: {
+    color: THEME.slate,
+    fontSize: 12,
   },
   ticketCardBottom: {
     flexDirection: 'row',
@@ -1310,14 +1477,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 6,
   },
-  statusText: { 
-    fontSize: 10, 
-    fontWeight: '900', 
-    letterSpacing: 0.5 
+  statusText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
-  ticketDate: { 
-    color: THEME.slate, 
-    fontSize: 11 
+  ticketDate: {
+    color: THEME.slate,
+    fontSize: 11,
   },
 
   // --- CHAT DETAIL HEADER ---
@@ -1327,10 +1494,10 @@ const styles = StyleSheet.create({
     borderColor: THEME.glassBorder,
     borderRadius: 0,
   },
-  chatHeaderTop: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 12 
+  chatHeaderTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   backBtn: {
     width: 40,
@@ -1340,14 +1507,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chatTitle: { 
-    color: THEME.white, 
-    fontWeight: 'bold', 
-    fontSize: 16 
+  chatTitle: {
+    color: THEME.white,
+    fontWeight: 'bold',
+    fontSize: 16,
   },
-  chatSub: { 
-    color: THEME.slate, 
-    fontSize: 11 
+  chatSub: {
+    color: THEME.slate,
+    fontSize: 11,
   },
   deleteBtn: {
     width: 40,
@@ -1376,16 +1543,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 8,
   },
-  actionBtnText: { 
-    color: 'white', 
-    fontWeight: 'bold', 
-    fontSize: 12 
+  actionBtnText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 12,
   },
 
   // --- MESSAGES LIST ---
-  chatContent: { 
-    padding: 20, 
-    paddingBottom: 40 
+  chatContent: {
+    padding: 20,
+    paddingBottom: 40,
   },
   msgRow: {
     flexDirection: 'row',
@@ -1394,12 +1561,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   // AVATAR
-  chatAvatar: { 
-    width: 42, 
-    height: 42, 
+  chatAvatar: {
+    width: 42,
+    height: 42,
     borderRadius: 21,
     borderWidth: 1,
-    borderColor: THEME.glassBorder
+    borderColor: THEME.glassBorder,
   },
   chatAvatarPlaceholder: {
     width: 42,
@@ -1409,7 +1576,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: THEME.glassBorder
+    borderColor: THEME.glassBorder,
   },
   roleBadge: {
     flexDirection: 'row',
@@ -1420,15 +1587,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginLeft: 4,
   },
-  roleText: { 
-    fontSize: 8, 
-    fontWeight: '900', 
-    marginLeft: 2 
+  roleText: {
+    fontSize: 8,
+    fontWeight: '900',
+    marginLeft: 2,
   },
-  msgBubble: { 
-    paddingHorizontal: 16, 
-    paddingVertical: 12, 
-    borderRadius: 18 
+  msgBubble: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 18,
   },
 
   // --- INPUT AREA (FIXED FOR MOBILE TAB BAR) ---
@@ -1437,14 +1604,14 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: THEME.glassBorder,
     backgroundColor: THEME.obsidian,
-    paddingBottom: Platform.OS === 'ios' ? 84 : 74, 
+    paddingBottom: Platform.OS === 'ios' ? 84 : 74,
     position: 'relative',
     zIndex: 50,
   },
-  internalInputContainer: { 
-    flexDirection: 'row', 
+  internalInputContainer: {
+    flexDirection: 'row',
     marginBottom: 12,
-    gap: 8
+    gap: 8,
   },
   internalInput: {
     flex: 1,
@@ -1513,14 +1680,14 @@ const styles = StyleSheet.create({
   },
 
   // --- FAQ ---
-  faqList: { 
-    gap: 12, 
-    paddingHorizontal: 20 
+  faqList: {
+    gap: 12,
+    paddingHorizontal: 20,
   },
-  faqContent: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    padding: 20 
+  faqContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
   },
   faqIconBg: {
     width: 48,
@@ -1535,10 +1702,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginBottom: 4,
   },
-  faqAnswer: { 
-    color: THEME.slate, 
-    fontSize: 12, 
-    lineHeight: 18 
+  faqAnswer: {
+    color: THEME.slate,
+    fontSize: 12,
+    lineHeight: 18,
   },
 
   // --- MODALS ---
@@ -1546,6 +1713,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 24,
   },
   statusSheet: {
@@ -1554,6 +1722,8 @@ const styles = StyleSheet.create({
     padding: 24,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
+    width: '100%',
+    maxWidth: 400,
   },
   statusTitle: {
     color: 'white',

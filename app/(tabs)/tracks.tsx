@@ -26,6 +26,7 @@ import {
   Zap,
   Lock,
   Star,
+  NotebookPen,
 } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
@@ -179,10 +180,9 @@ export default function TracksScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>CHOOSE YOUR PATH</Text>
-            <Text style={styles.headerTitle}>Learning Paths</Text>
           </View>
           <TouchableOpacity style={styles.searchBtn}>
-            <Zap size={20} color="white" />
+            <NotebookPen size={20} color="green" />
           </TouchableOpacity>
         </View>
 

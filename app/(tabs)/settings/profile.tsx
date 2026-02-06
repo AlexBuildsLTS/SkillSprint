@@ -2,7 +2,9 @@
  * =============================================================
  * 👤 PROFILE EDIT PAGE
  * =============================================================
- * Edit user profile information
+ * Purpose: Enterprise-grade profile management interface.
+ * Features: Balanced Pill Toast, Supabase Storage integration,
+ * and responsive layout orchestration.
  * =============================================================
  */
 
@@ -16,68 +18,85 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, Mail, Camera, Save } from 'lucide-react-native';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import { User, Mail, Camera, Save, CheckCircle2 } from 'lucide-react-native';
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+  FadeOut,
+  FadeOutDown,
+  FadeOutUp,
+} from 'react-native-reanimated';
+import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
+import { decode } from 'base64-arraybuffer';
+
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { GlassCard } from '@/components/ui/GlassCard';
 import Button from '@/components/ui/Button';
-import * as ImagePicker from 'expo-image-picker';
-import { decode } from 'base64-arraybuffer';
-import * as Haptics from 'expo-haptics';
 
 export default function ProfileEditScreen() {
+  // --- Hooks & Context ---
   const { user, refreshUserData } = useAuth();
+  const insets = useSafeAreaInsets();
+
+  // --- Local State ---
   const [fullName, setFullName] = useState(user?.profile?.full_name || '');
   const [username, setUsername] = useState(user?.profile?.username || '');
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showToast, setShowToast] = useState(false);
 
+  /**
+   * @module NotificationSystem
+   * Triggers haptic feedback and a refined, balanced confirmation toast.
+   */
+  const triggerSuccess = () => {
+    setShowToast(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setShowToast(false), 3000);
+  };
+
+  /**
+   * @module AvatarManagement
+   * Handles binary image upload to Supabase 'avatars' bucket.
+   */
   const uploadAvatar = async () => {
-    if (!user) {
-      Alert.alert(
-        'Authentication Error',
-        'You must be logged in to upload an avatar.',
-      );
-      return;
-    }
+    if (!user) return;
     try {
       setUploading(true);
-
-      // 1. Pick Image
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.5,
+        quality: 0.6,
         base64: true,
       });
 
-      if (result.canceled || !result.assets || !result.assets[0].base64) {
-        return; // User cancelled
-      }
+      if (result.canceled || !result.assets?.[0].base64) return;
 
       const image = result.assets[0];
-      const fileExt = image.uri.split('.').pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-      const filePath = `${fileName}`;
+      const fileName = `${user.id}/avatar_${Date.now()}.${image.uri.split('.').pop()}`;
 
-      // 2. Upload to Supabase Storage (avatars bucket)
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(filePath, decode(image.base64!), {
+        .upload(fileName, decode(image.base64!), {
           contentType: image.mimeType ?? 'image/jpeg',
+          upsert: true,
         });
 
       if (uploadError) throw uploadError;
 
-      // 3. Get Public URL
       const {
         data: { publicUrl },
-      } = supabase.storage.from('avatars').getPublicUrl(filePath);
-
-      // 4. Update Profile Record
+      } = supabase.storage.from('avatars').getPublicUrl(fileName);
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ avatar_url: publicUrl })
@@ -85,35 +104,25 @@ export default function ProfileEditScreen() {
 
       if (updateError) throw updateError;
 
-      // 5. Refresh Context
       await refreshUserData();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Success', 'Profile picture updated.');
+      triggerSuccess();
     } catch (error: any) {
-      Alert.alert('Upload Failed', error.message);
+      Alert.alert('Upload Error', error.message);
     } finally {
       setUploading(false);
     }
   };
 
+  /**
+   * @module ProfilePersistence
+   * Updates PostgreSQL profile data via Supabase.
+   */
   const handleSave = async () => {
     if (!user) return;
-
-    // Validation
-    if (!username.trim()) {
-      Alert.alert('Error', 'Username is required');
-      return;
-    }
-
-    if (username.length < 3) {
-      Alert.alert('Error', 'Username must be at least 3 characters');
-      return;
-    }
-
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    if (!username.trim() || username.length < 3) {
       Alert.alert(
-        'Error',
-        'Username can only contain letters, numbers, and underscores',
+        'Validation Error',
+        'Username must be at least 3 characters.',
       );
       return;
     }
@@ -121,32 +130,13 @@ export default function ProfileEditScreen() {
     setSaving(true);
     try {
       const updates: { full_name?: string; username?: string } = {};
-
-      if (fullName.trim() !== user.profile?.full_name) {
+      if (fullName.trim() !== user.profile?.full_name)
         updates.full_name = fullName.trim();
-      }
-
-      if (username.trim() !== user.profile?.username) {
-        // Check if username is already taken
-        const { data: existing } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('username', username.trim())
-          .neq('id', user.id)
-          .single();
-
-        if (existing) {
-          Alert.alert('Error', 'Username is already taken');
-          setSaving(false);
-          return;
-        }
-
+      if (username.trim() !== user.profile?.username)
         updates.username = username.trim();
-      }
 
       if (Object.keys(updates).length === 0) {
-        Alert.alert('Info', 'No changes to save');
-        setSaving(false);
+        triggerSuccess(); // Indicate completion even if no diff
         return;
       }
 
@@ -154,14 +144,12 @@ export default function ProfileEditScreen() {
         .from('profiles')
         .update(updates)
         .eq('id', user.id);
-
       if (error) throw error;
 
       await refreshUserData();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Success', 'Profile updated successfully');
+      triggerSuccess();
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update profile');
+      Alert.alert('Save Error', error.message);
     } finally {
       setSaving(false);
     }
@@ -169,126 +157,140 @@ export default function ProfileEditScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-[#020617]" edges={['top']}>
-      <ScrollView contentContainerStyle={{ padding: 24 }}>
-        {/* Avatar Section */}
-        <GlassCard intensity="light" className="mb-6">
-          <View className="p-6">
-            <View className="items-center mb-6">
-              <TouchableOpacity
-                onPress={uploadAvatar}
-                disabled={uploading}
-                className="relative"
-              >
-                <View className="items-center justify-center w-32 h-32 overflow-hidden border-2 border-indigo-500/30 bg-indigo-500/10 rounded-3xl">
-                  {uploading ? (
-                    <ActivityIndicator color="#6366f1" />
-                  ) : user?.profile?.avatar_url ? (
-                    <Image
-                      source={{ uri: user.profile.avatar_url }}
-                      className="w-full h-full"
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <Text className="text-5xl font-black text-indigo-400">
-                      {user?.profile?.username?.[0]?.toUpperCase() || 'U'}
+      {/* 🟢 CENTERED PILL SUCCESS TOAST */}
+      {showToast && (
+        <View
+          style={{ top: insets.top + 165 }}
+          className="absolute left-0 right-0 z-[100] items-center justify-center px-4"
+        >
+          <Animated.View
+            entering={FadeInUp.springify().damping(60)}
+            exiting={FadeOut.duration(400)}
+            className="flex-row items-center bg-[#064e3b] border border-[#10b981]/40 py-3 px-6 rounded-full shadow-2xl"
+          >
+            <View className="bg-[#10b981] p-1 rounded-full mr-3">
+              <CheckCircle2 size={16} color="#011709" />
+            </View>
+            <View>
+              <Text className="text-sm font-bold text-green-400">
+                Successful
+              </Text>
+              <Text className="text-emerald-200/60 text-[13px] leading-3">
+                Profile synced
+              </Text>
+            </View>
+          </Animated.View>
+        </View>
+      )}
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
+        <ScrollView
+          contentContainerStyle={{
+            paddingHorizontal: 24,
+            paddingTop: 32,
+            paddingBottom: Platform.OS === 'ios' ? 140 : 100,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* @module UI_AvatarSection */}
+          <View className="items-center mb-10">
+            <TouchableOpacity
+              onPress={uploadAvatar}
+              disabled={uploading}
+              activeOpacity={0.8}
+              className="relative"
+            >
+              <View className="w-32 h-32 rounded-[36px] border-4 border-indigo-500/20 bg-indigo-500/10 overflow-hidden items-center justify-center">
+                {uploading ? (
+                  <ActivityIndicator color="#10b981" />
+                ) : user?.profile?.avatar_url ? (
+                  <Image
+                    source={{ uri: user.profile.avatar_url }}
+                    className="w-full h-full"
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Text className="text-5xl font-black text-indigo-400">
+                    {user?.profile?.username?.[0]?.toUpperCase() || 'U'}
+                  </Text>
+                )}
+              </View>
+              <View className="absolute bottom-0 right-0 bg-indigo-600 p-2.5 rounded-2xl border-4 border-[#020617]">
+                <Camera size={18} color="white" />
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* @module UI_FormFields */}
+          <GlassCard intensity="light" className="mb-8">
+            <View className="p-6">
+              <Text className="text-[10px] font-black uppercase tracking-[2px] text-indigo-400 mb-6">
+                Account Identity
+              </Text>
+
+              <View className="gap-y-5">
+                <View>
+                  <Text className="mb-2 ml-1 text-xs font-bold text-slate-400">
+                    Full Name
+                  </Text>
+                  <TextInput
+                    value={fullName}
+                    onChangeText={setFullName}
+                    placeholder="Enter full name"
+                    placeholderTextColor="#475569"
+                    className="px-4 py-4 font-medium text-white border bg-slate-950/40 border-slate-800/60 rounded-2xl"
+                  />
+                </View>
+
+                <View>
+                  <Text className="mb-2 ml-1 text-xs font-bold text-slate-400">
+                    Username
+                  </Text>
+                  <TextInput
+                    value={username}
+                    onChangeText={setUsername}
+                    autoCapitalize="none"
+                    placeholder="Username"
+                    placeholderTextColor="#475569"
+                    className="px-4 py-4 font-medium text-white border bg-slate-950/40 border-slate-800/60 rounded-2xl"
+                  />
+                </View>
+
+                <View>
+                  <Text className="mb-2 ml-1 text-xs font-bold text-slate-400">
+                    Email (Verified)
+                  </Text>
+                  <View className="flex-row items-center px-4 py-4 border bg-slate-900/30 border-slate-800/30 rounded-2xl">
+                    <Mail size={16} color="#475569" />
+                    <Text className="ml-3 font-medium text-slate-500">
+                      {user?.email}
                     </Text>
-                  )}
+                  </View>
                 </View>
-
-                {/* Edit Badge */}
-                <View className="absolute bottom-[-6px] right-[-6px] bg-indigo-500 p-2 rounded-xl border-4 border-[#020617]">
-                  <Camera size={16} color="white" />
-                </View>
-              </TouchableOpacity>
-
-              <Text className="text-sm text-slate-400 mt-4 text-center">
-                Tap to change profile picture
-              </Text>
-            </View>
-          </View>
-        </GlassCard>
-
-        {/* Profile Information */}
-        <GlassCard intensity="light" className="mb-6">
-          <View className="p-6">
-            <View className="mb-6">
-              <View className="flex-row items-center gap-3 mb-4">
-                <View className="w-10 h-10 rounded-full bg-indigo-500/20 items-center justify-center">
-                  <User size={20} color="#6366f1" />
-                </View>
-                <Text className="text-lg font-black text-white">
-                  Profile Information
-                </Text>
               </View>
             </View>
+          </GlassCard>
 
-            {/* Full Name */}
-            <View className="mb-4">
-              <Text className="text-sm font-bold text-slate-300 mb-2">
-                Full Name
-              </Text>
-              <TextInput
-                value={fullName}
-                onChangeText={setFullName}
-                placeholder="Enter your full name"
-                placeholderTextColor="#64748b"
-                className="bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-base"
-                autoCapitalize="words"
-              />
-            </View>
-
-            {/* Username */}
-            <View className="mb-4">
-              <Text className="text-sm font-bold text-slate-300 mb-2">
-                Username
-              </Text>
-              <TextInput
-                value={username}
-                onChangeText={setUsername}
-                placeholder="Enter username"
-                placeholderTextColor="#64748b"
-                className="bg-white/5 border border-white/10 rounded-2xl px-4 py-4 text-white text-base"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <Text className="text-xs text-slate-500 mt-2">
-                Username can only contain letters, numbers, and underscores
-              </Text>
-            </View>
-
-            {/* Email (Read-only) */}
-            <View className="mb-4">
-              <Text className="text-sm font-bold text-slate-300 mb-2">
-                Email
-              </Text>
-              <View className="flex-row items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-4 py-4">
-                <Mail size={20} color="#64748b" />
-                <Text className="text-base text-slate-400 flex-1">
-                  {user?.email}
-                </Text>
-              </View>
-              <Text className="text-xs text-slate-500 mt-2">
-                Email cannot be changed here. Use change password to update
-                email.
-              </Text>
-            </View>
+          {/* @module UI_ActionSection */}
+          <View className="px-6">
+            <Button onPress={handleSave} disabled={saving} variant="primary">
+              {saving ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <View className="flex-row items-center justify-center py-1">
+                  <Save size={18} color="white" />
+                  <Text className="ml-2 text-base font-extrabold text-white">
+                    Save Profile
+                  </Text>
+                </View>
+              )}
+            </Button>
           </View>
-        </GlassCard>
-
-        {/* Save Button */}
-        <Button onPress={handleSave} disabled={saving} className="mb-6">
-          {saving ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <View className="flex-row items-center gap-2">
-              <Save size={20} color="#ffffff" />
-              <Text className="text-base font-black text-white">
-                Save Changes
-              </Text>
-            </View>
-          )}
-        </Button>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

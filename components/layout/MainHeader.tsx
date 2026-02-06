@@ -17,13 +17,7 @@ import {
 } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  Menu,
-  Bell,
-  Settings,
-  User,
-  ChevronLeft,
-} from 'lucide-react-native';
+import { Menu, Bell, Settings, User, ChevronLeft } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
@@ -65,13 +59,25 @@ export const MainHeader: React.FC<MainHeaderProps> = ({
   const handleProfile = (event: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (avatarRef.current) {
-      avatarRef.current.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
-        setAvatarPosition({ x: pageX, y: pageY });
-        setDropdownVisible(true);
-      });
+      avatarRef.current.measure(
+        (
+          x: number,
+          y: number,
+          width: number,
+          height: number,
+          pageX: number,
+          pageY: number,
+        ) => {
+          setAvatarPosition({ x: pageX, y: pageY });
+          setDropdownVisible(true);
+        },
+      );
     } else {
       // Fallback for web/desktop
-      const { pageX, pageY } = event?.nativeEvent || { pageX: width - 100, pageY: 80 };
+      const { pageX, pageY } = event?.nativeEvent || {
+        pageX: width - 100,
+        pageY: 80,
+      };
       setAvatarPosition({ x: pageX, y: pageY });
       setDropdownVisible(true);
     }
@@ -101,10 +107,7 @@ export const MainHeader: React.FC<MainHeaderProps> = ({
               <Text className="text-xl font-black text-white">{title}</Text>
             )}
             {!title && (
-              <Image 
-                style={{ width: 32, height: 32 }}
-                resizeMode="contain"
-              />
+              <Image style={{ width: 32, height: 32 }} resizeMode="contain" />
             )}
           </View>
 
@@ -149,7 +152,11 @@ export const MainHeader: React.FC<MainHeaderProps> = ({
   return (
     <SafeAreaView edges={['top']} className="bg-transparent">
       {Platform.OS === 'ios' ? (
-        <BlurView tint="dark" intensity={30} className="border-b border-white/5">
+        <BlurView
+          tint="dark"
+          intensity={30}
+          className="border-b border-white/5"
+        >
           <View className="flex-row items-center justify-between px-4 h-14">
             {/* Left Section */}
             <View className="flex-row items-center flex-1 gap-3">
@@ -162,7 +169,10 @@ export const MainHeader: React.FC<MainHeaderProps> = ({
                 </TouchableOpacity>
               )}
               {title && (
-                <Text className="flex-1 text-lg font-black text-white" numberOfLines={1}>
+                <Text
+                  className="flex-1 text-lg font-black text-white"
+                  numberOfLines={1}
+                >
                   {title}
                 </Text>
               )}
@@ -218,7 +228,10 @@ export const MainHeader: React.FC<MainHeaderProps> = ({
                 </TouchableOpacity>
               )}
               {title && (
-                <Text className="flex-1 text-lg font-black text-white" numberOfLines={1}>
+                <Text
+                  className="flex-1 text-lg font-black text-white"
+                  numberOfLines={1}
+                >
                   {title}
                 </Text>
               )}
@@ -266,7 +279,7 @@ export const MainHeader: React.FC<MainHeaderProps> = ({
           </View>
         </View>
       )}
-      
+
       {/* Profile Dropdown */}
       <ProfileDropdown
         visible={dropdownVisible}
