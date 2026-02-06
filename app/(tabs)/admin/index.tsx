@@ -336,7 +336,7 @@ export default function AdminDashboard() {
             </Bento3DCard>
 
             {/* Card 3: Revenue (Full Width) */}
-            <Bento3DCard style={{ width: '100%', height: 100 }}>
+            <Bento3DCard style={{ width: gridWidth, height: 120 }}>
               <View style={styles.revenueRow}>
                 <View style={{ flex: 1 }}>
                   <View
@@ -352,7 +352,7 @@ export default function AdminDashboard() {
                   </View>
                   <Text style={styles.bentoLabel}>PREMIUM SUBSCRIBERS</Text>
                 </View>
-                <BarChart3 size={40} color={THEME.success} opacity={0.2} />
+                <BarChart3 size={0} color={THEME.success} opacity={0.2} />
               </View>
             </Bento3DCard>
           </View>

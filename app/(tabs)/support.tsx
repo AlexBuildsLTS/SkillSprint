@@ -242,6 +242,7 @@ export default function SupportScreen() {
   const flatListRef = useRef<FlatList>(null);
 
   // --- DATA LOADING ---
+  
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);

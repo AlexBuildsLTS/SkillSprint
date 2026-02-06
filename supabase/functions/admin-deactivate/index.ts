@@ -7,80 +7,65 @@ const supabaseAdmin = createClient(
 );
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const token = authHeader.replace("Bearer ", "");
+    const token = authHeader?.replace("Bearer ", "");
     const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
 
-    if (userError) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    if (userError || !user) throw new Error("Unauthorized");
+
+    // Case-insensitive check to match your ADMIN/admin role
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (!profile || profile.role.toLowerCase() !== "admin") {
+      return new Response(JSON.stringify({ error: "Forbidden" }), { 
+        status: 403, 
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
       });
     }
 
-    if (!user) {
-      return new Response(JSON.stringify({ error: "User not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Match your frontend payload: { userId, banUntil }
+    const { userId, banUntil } = await req.json();
+
+    let duration = "none";
+    if (banUntil) {
+      // Calculate hours from ISO string for Supabase ban_duration
+      const diffMs = new Date(banUntil).getTime() - new Date().getTime();
+      const hours = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60)));
+      duration = `${hours}h`;
     }
 
+    // 1. Apply ban to Auth User (Forces logout and blocks login)
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
+      userId,
+      { ban_duration: duration }
+    );
+    if (authError) throw authError;
 
-    const { data: callerProfile, error: pErr } = await supabaseAdmin.from("profiles").select("role").eq("id", user.id).single();
-    if (pErr) {
-        console.error('Error fetching caller profile:', pErr);
-        return new Response(JSON.stringify({ error: "Failed to fetch caller profile" }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-    }
-    if (callerProfile?.role !== "admin") {
-        return new Response(JSON.stringify({ error: "forbidden" }), {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-    }
-
-    const { userId } = await req.json();
-    if (!userId) {
-        return new Response(JSON.stringify({ error: "userId required" }), {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-    }
-
-    // try revoke tokens (may not be available in some runtimes)
-    try {
-        const { error: revokeErr } = await supabaseAdmin.auth.admin.signOut(userId);
-        if (revokeErr) throw revokeErr;
-    } catch (e) {
-        console.warn("signOut unavailable or failed", e);
-    }
+    // 2. Sync Profile Table status (matches your 'active' | 'banned' check constraint)
+    const { error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .update({ 
+        status: banUntil ? "banned" : "active"
+      })
+      .eq("id", userId);
     
-    // Deactivating a user by setting their role to 'user'
-    const { error } = await supabaseAdmin.from("profiles").update({ role: 'user' }).eq("id", userId);
-    if (error) throw error;
+    if (profileError) throw profileError;
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (e) {
-    console.error(e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "unknown" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+
+  } catch (error: unknown) {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });

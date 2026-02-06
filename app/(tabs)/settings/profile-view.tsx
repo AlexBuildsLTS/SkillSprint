@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -63,7 +63,6 @@ interface MenuItemProps {
 /**
  * ============================================================================
  * SUB-COMPONENT: MENU ITEM ROW
- * Renders a clickable row with icon, label, subtitle, and chevron.
  * ============================================================================
  */
 const MenuItem: React.FC<MenuItemProps> = ({
@@ -98,21 +97,20 @@ const MenuItem: React.FC<MenuItemProps> = ({
 /**
  * ============================================================================
  * MAIN SCREEN: PROFILE VIEW
- * Handles avatar upload, user details display, and navigation to sub-settings.
  * ============================================================================
  */
 export default function ProfileViewScreen() {
   const router = useRouter();
-  const { user, signOut, refreshUserData } = useAuth();
+  const { user, signOut: supabaseSignOut, refreshUserData } = useAuth();
   const [uploading, setUploading] = useState(false);
 
-  // Role Determination Logic
+  // Role Determination
   const role = user?.profile?.role || 'MEMBER';
   const isStaff = role === 'ADMIN' || role === 'MODERATOR';
   const isPremium = role === 'PREMIUM' || isStaff;
 
   /**
-   * Handles Image Selection & Upload to Supabase Storage
+   * Handles Image Upload
    */
   const uploadAvatar = async () => {
     if (!user) return;
@@ -123,7 +121,7 @@ export default function ProfileViewScreen() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.5, // Optimize for network performance
+        quality: 0.5,
         base64: true,
       });
 
@@ -137,7 +135,6 @@ export default function ProfileViewScreen() {
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
-      // Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(filePath, decode(image.base64!), {
@@ -147,12 +144,10 @@ export default function ProfileViewScreen() {
 
       if (uploadError) throw uploadError;
 
-      // Get Public URL
       const {
         data: { publicUrl },
       } = supabase.storage.from('avatars').getPublicUrl(filePath);
 
-      // Update Profile Table
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ avatar_url: publicUrl })
@@ -164,17 +159,14 @@ export default function ProfileViewScreen() {
       Alert.alert('Success', 'Profile picture updated successfully.');
     } catch (error: any) {
       console.error('Upload error:', error);
-      Alert.alert(
-        'Upload Failed',
-        error.message || 'An unknown error occurred.',
-      );
+      Alert.alert('Upload Failed', error.message);
     } finally {
       setUploading(false);
     }
   };
 
   /**
-   * Handles User Sign Out
+   * Handles Sign Out
    */
   const handleSignOut = async () => {
     if (Platform.OS !== 'web') {
@@ -187,7 +179,7 @@ export default function ProfileViewScreen() {
         text: 'Sign Out',
         style: 'destructive',
         onPress: async () => {
-          await signOut();
+          await supabaseSignOut();
           router.replace('/(auth)/login');
         },
       },
@@ -215,15 +207,15 @@ export default function ProfileViewScreen() {
           <View style={styles.headerIconBox}>
             <SlidersHorizontal size={18} color={THEME.white} />
           </View>
-          <View style={{ width: 40 }} /* Spacer for balance */ />
+          <View style={{ width: 40 }} />
         </View>
 
-        {/* --- SCROLLABLE CONTENT --- */}
+        {/* --- CONTENT --- */}
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* PROFILE SUMMARY SECTION */}
+          {/* PROFILE IMAGE SECTION */}
           <View style={styles.profileSection}>
             <TouchableOpacity
               onPress={uploadAvatar}
@@ -293,9 +285,8 @@ export default function ProfileViewScreen() {
             </View>
           </View>
 
-          {/* MENU GROUPS */}
+          {/* MENU ITEMS */}
           <View style={styles.menuGroup}>
-            {/* GROUP 1: ACCOUNT MANAGEMENT */}
             <GlassCard intensity="light" style={styles.card}>
               <MenuItem
                 icon={User}
@@ -304,7 +295,6 @@ export default function ProfileViewScreen() {
                 onPress={() => router.push('/(tabs)/settings/profile')}
                 color={THEME.indigo}
               />
-
               {isStaff && (
                 <MenuItem
                   icon={ShieldAlert}
@@ -314,7 +304,6 @@ export default function ProfileViewScreen() {
                   color={THEME.success}
                 />
               )}
-
               <MenuItem
                 icon={Settings}
                 label="Advanced Settings"
@@ -325,7 +314,6 @@ export default function ProfileViewScreen() {
               />
             </GlassCard>
 
-            {/* GROUP 2: SUPPORT & BILLING */}
             <GlassCard intensity="light" style={styles.card}>
               <MenuItem
                 icon={LifeBuoy}
@@ -338,9 +326,7 @@ export default function ProfileViewScreen() {
                 icon={CreditCard}
                 label="Subscription"
                 subtitle={isPremium ? 'Manage Premium Plan' : 'Upgrade to Pro'}
-                onPress={() => {
-                  /* TODO: Implement Billing Portal */
-                }}
+                onPress={() => {}}
                 color={THEME.warning}
                 isLast={true}
               />
@@ -403,13 +389,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.03)',
   },
 
-  // CONTENT CONTAINER
+  // SCROLL CONTENT
   scrollContent: {
     padding: 24,
     paddingBottom: 100,
   },
 
-  // PROFILE HEADER SECTION
+  // PROFILE SECTION
   profileSection: {
     alignItems: 'center',
     marginBottom: 32,
@@ -419,42 +405,53 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginBottom: 16,
     shadowColor: THEME.indigo,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 0,
   },
   avatarContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
-    borderWidth: 2,
-    borderColor: 'rgba(99, 102, 241, 0.3)',
+    width: 120, // Increased size for modern look
+    height: 120,
+    borderRadius: 60, // Perfectly round
+    backgroundColor: '#05091B', // Darker indigo background
+    borderWidth: 6,
+    borderColor: 'rgba(5, 9, 27, 1.00)',
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
+    overflow: 'hidden', // Ensures content stays inside circle
   },
-  avatarImage: { width: '100%', height: '100%' },
-  avatarText: { fontSize: 36, fontWeight: '800', color: THEME.indigo },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 60, // Force rounded image corners for Android compat
+  },
+  avatarText: {
+    fontSize: 40,
+    fontWeight: '800',
+    color: THEME.indigo,
+  },
   editBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
+    bottom: 2,
+    right: 2,
     backgroundColor: THEME.indigo,
     padding: 8,
-    borderRadius: 20,
+    borderRadius: 30,
     borderWidth: 3,
     borderColor: THEME.obsidian,
   },
+
+  // TEXT STYLES
   nameText: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
     color: 'white',
     marginBottom: 4,
     textAlign: 'center',
+    letterSpacing: -0.5,
   },
   handleText: {
-    fontSize: 14,
+    fontSize: 15,
     color: THEME.slate,
     fontWeight: '500',
     marginBottom: 16,
@@ -463,15 +460,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
-  roleText: { fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  roleText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
 
-  // MENUS
+  // MENU
   menuGroup: { gap: 20 },
   card: { padding: 16, borderRadius: 24, overflow: 'hidden' },
   menuItem: {
@@ -483,29 +484,29 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   menuItemLast: {
-    borderBottomWidth: 0, // Remove border for last item
+    borderBottomWidth: 0,
   },
   menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   menuLabel: { fontSize: 16, fontWeight: '600', color: 'white' },
-  menuSub: { fontSize: 12, color: THEME.slate, marginTop: 2 },
+  menuSub: { fontSize: 13, color: THEME.slate, marginTop: 2 },
 
-  // FOOTER ACTIONS
+  // LOGOUT BUTTON
   logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    borderRadius: 16,
+    padding: 18,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.2)',
-    backgroundColor: 'rgba(239, 68, 68, 0.05)',
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
     marginTop: 10,
   },
   logoutText: { fontSize: 16, fontWeight: '700', color: THEME.danger },
