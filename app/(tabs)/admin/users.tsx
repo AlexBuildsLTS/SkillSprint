@@ -26,24 +26,19 @@ import {
   X,
   ShieldAlert,
   Clock,
-  MoreVertical,
   Mail,
   Fingerprint,
+  AlertTriangle, // Added for Delete Modal
 } from 'lucide-react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Bento3DCard } from '@/components/ui/Bento3DCard';
-import { GlassCard } from '@/components/ui/GlassCard'; // Imported for Modal/Card effects
-import Animated, {
-  FadeInDown,
-  SlideInUp,
-  FadeIn,
-} from 'react-native-reanimated';
+import { GlassCard } from '@/components/ui/GlassCard';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
-const isDesktop = width >= 768;
 
 const THEME = {
   obsidian: '#020617',
@@ -81,6 +76,7 @@ export default function AdminUsersScreen() {
   // Modals
   const [roleModalVisible, setRoleModalVisible] = useState(false);
   const [banModalVisible, setBanModalVisible] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false); // NEW STATE
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
 
   const loadUsers = async () => {
@@ -154,7 +150,7 @@ export default function AdminUsersScreen() {
       const { error } = await supabase.functions.invoke('admin-deactivate', {
         body: {
           userId: selectedUser.id,
-          banUntil: banUntil,
+          banUntil: banUntil, // Matches your fixed Edge Function payload
         },
       });
 
@@ -170,7 +166,7 @@ export default function AdminUsersScreen() {
 
       Alert.alert(
         'User Restricted',
-        `${selectedUser.username} access has been revoked.`,
+        `${selectedUser.username} access revoked.`,
       );
     } catch (e: any) {
       Alert.alert('Deactivation Failed', e.message);
@@ -184,15 +180,16 @@ export default function AdminUsersScreen() {
     triggerHaptic('success');
     setProcessingId(user.id);
     try {
-      const { error } = await supabase.rpc('admin_update_user_status', {
-        target_user_id: user.id,
-        new_status: 'active',
+      // Use the Edge Function for unban to ensure Auth status is cleared
+      const { error } = await supabase.functions.invoke('admin-deactivate', {
+        body: { userId: user.id, banUntil: null },
       });
       if (error) throw error;
 
       setUsers((prev) =>
         prev.map((u) => (u.id === user.id ? { ...u, status: 'active' } : u)),
       );
+      Alert.alert('Success', 'User unbanned successfully.');
     } catch (e: any) {
       Alert.alert('Error', e.message);
     } finally {
@@ -200,37 +197,33 @@ export default function AdminUsersScreen() {
     }
   };
 
-  const handleDelete = (user: UserProfile) => {
+  // TRIGGER DELETE MODAL INSTEAD OF NATIVE ALERT
+  const handleDeleteTrigger = (user: UserProfile) => {
     triggerHaptic('warning');
-    Alert.alert(
-      'Permanent Deletion',
-      `Are you sure you want to delete ${user.username}? All data will be wiped.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'DELETE USER',
-          style: 'destructive',
-          onPress: async () => {
-            setProcessingId(user.id);
-            try {
-              const { error } = await supabase.functions.invoke(
-                'admin-delete',
-                {
-                  body: { userId: user.id },
-                },
-              );
-              if (error) throw error;
+    setSelectedUser(user);
+    setDeleteModalVisible(true);
+  };
 
-              setUsers((prev) => prev.filter((u) => u.id !== user.id));
-            } catch (e: any) {
-              Alert.alert('Delete Failed', e.message);
-            } finally {
-              setProcessingId(null);
-            }
-          },
-        },
-      ],
-    );
+  const executeDelete = async () => {
+    if (!selectedUser) return;
+    setDeleteModalVisible(false);
+    setProcessingId(selectedUser.id);
+
+    try {
+      const { error } = await supabase.functions.invoke('admin-delete', {
+        body: { userId: selectedUser.id },
+      });
+
+      if (error) throw error;
+
+      setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
+      Alert.alert('Success', 'User deleted permanently.');
+    } catch (e: any) {
+      Alert.alert('Delete Failed', e.message);
+    } finally {
+      setProcessingId(null);
+      setSelectedUser(null);
+    }
   };
 
   const triggerHaptic = (type: 'selection' | 'success' | 'warning') => {
@@ -244,7 +237,6 @@ export default function AdminUsersScreen() {
   };
 
   // --- RENDER CARD ---
-
   const renderUserCard = ({
     item,
     index,
@@ -253,8 +245,6 @@ export default function AdminUsersScreen() {
     index: number;
   }) => {
     const isBanned = item.status === 'banned';
-
-    // Determine Role Color
     const roleColor =
       item.role === 'ADMIN'
         ? THEME.danger
@@ -271,22 +261,22 @@ export default function AdminUsersScreen() {
       >
         <Bento3DCard style={{ flex: 1 }}>
           <View style={[styles.cardInner, isBanned && styles.cardBanned]}>
-            {/* ROW 1: INFO & AVATAR */}
             <View style={styles.cardHeaderRow}>
               <View style={styles.userInfoLeft}>
-                {item.avatar_url ? (
-                  <Image
-                    source={{ uri: item.avatar_url }}
-                    style={styles.avatar}
-                  />
-                ) : (
-                  <View style={styles.avatarPlaceholder}>
-                    <Text style={styles.avatarText}>
-                      {item.username?.[0]?.toUpperCase()}
-                    </Text>
-                  </View>
-                )}
-
+                <View style={styles.avatarWrapper}>
+                  {item.avatar_url ? (
+                    <Image
+                      source={{ uri: item.avatar_url }}
+                      style={styles.avatar}
+                    />
+                  ) : (
+                    <View style={styles.avatarPlaceholder}>
+                      <Text style={styles.avatarText}>
+                        {item.username?.[0]?.toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 <View style={styles.textStack}>
                   <View style={styles.nameRow}>
                     <Text
@@ -298,21 +288,26 @@ export default function AdminUsersScreen() {
                     >
                       {item.full_name || item.username}
                     </Text>
-                    <View
-                      style={[
-                        styles.rolePill,
-                        {
-                          borderColor: roleColor + '40',
-                          backgroundColor: roleColor + '10',
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.roleText, { color: roleColor }]}>
-                        {item.role}
-                      </Text>
-                    </View>
+                    {isBanned ? (
+                      <View style={styles.bannedBadge}>
+                        <Text style={styles.bannedText}>BANNED</Text>
+                      </View>
+                    ) : (
+                      <View
+                        style={[
+                          styles.rolePill,
+                          {
+                            borderColor: roleColor + '40',
+                            backgroundColor: roleColor + '10',
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.roleText, { color: roleColor }]}>
+                          {item.role}
+                        </Text>
+                      </View>
+                    )}
                   </View>
-
                   <View style={styles.metaRow}>
                     <Mail size={10} color={THEME.slate} />
                     <Text style={styles.metaText} numberOfLines={1}>
@@ -329,10 +324,8 @@ export default function AdminUsersScreen() {
               </View>
             </View>
 
-            {/* SEPARATOR */}
             <View style={styles.separator} />
 
-            {/* ROW 2: ACTIONS (Big Touch Targets) */}
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={styles.actionBtn}
@@ -376,7 +369,7 @@ export default function AdminUsersScreen() {
 
               <TouchableOpacity
                 style={styles.actionBtn}
-                onPress={() => handleDelete(item)}
+                onPress={() => handleDeleteTrigger(item)}
               >
                 {processingId === item.id && item.status !== 'banned' ? (
                   <ActivityIndicator size="small" color={THEME.danger} />
@@ -400,7 +393,6 @@ export default function AdminUsersScreen() {
         colors={[THEME.obsidian, '#0f172a']}
         style={StyleSheet.absoluteFill}
       />
-
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         {/* TOP HEADER */}
         <View style={styles.header}>
@@ -416,7 +408,7 @@ export default function AdminUsersScreen() {
           </View>
         </View>
 
-        {/* SEARCH & FILTER */}
+        {/* SEARCH */}
         <View style={styles.searchSection}>
           <GlassCard style={styles.searchBar} intensity="light">
             <Search size={20} color={THEME.slate} />
@@ -440,7 +432,6 @@ export default function AdminUsersScreen() {
           data={users.filter(
             (u) =>
               u.username.toLowerCase().includes(search.toLowerCase()) ||
-              u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
               u.id.includes(search),
           )}
           keyExtractor={(item) => item.id}
@@ -462,7 +453,7 @@ export default function AdminUsersScreen() {
           }
         />
 
-        {/* --- MODALS (Using GlassCard for UI Consistency) --- */}
+        {/* --- MODALS --- */}
 
         {/* 1. ROLE MODAL */}
         <Modal
@@ -483,7 +474,6 @@ export default function AdminUsersScreen() {
                   </Text>
                 </Text>
               </View>
-
               <View style={styles.roleList}>
                 {['MEMBER', 'PREMIUM', 'MODERATOR', 'ADMIN'].map((role) => (
                   <TouchableOpacity
@@ -534,7 +524,6 @@ export default function AdminUsersScreen() {
                   This will force log out the user.
                 </Text>
               </View>
-
               <View style={styles.actionList}>
                 <TouchableOpacity
                   style={styles.modalOption}
@@ -586,9 +575,50 @@ export default function AdminUsersScreen() {
                   </View>
                 </TouchableOpacity>
               </View>
-
               <TouchableOpacity
                 onPress={() => setBanModalVisible(false)}
+                style={styles.modalCancel}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </GlassCard>
+          </View>
+        </Modal>
+
+        {/* 3. DELETE MODAL (NEW GLASS CARD POPUP) */}
+        <Modal
+          visible={deleteModalVisible}
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+        >
+          <View style={styles.modalOverlay}>
+            <GlassCard style={styles.modalCard} intensity="heavy">
+              <View style={styles.modalHeader}>
+                <AlertTriangle size={40} color={THEME.danger} />
+                <Text
+                  style={[
+                    styles.modalTitle,
+                    { color: THEME.danger, marginTop: 16 },
+                  ]}
+                >
+                  Permanent Deletion
+                </Text>
+                <Text style={styles.modalSub}>
+                  Are you absolutely sure you want to delete{' '}
+                  {selectedUser?.username}? This action cannot be undone.
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.deleteConfirmBtn}
+                onPress={executeDelete}
+              >
+                <Text style={styles.deleteConfirmText}>
+                  CONFIRM PERMANENT DELETE
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setDeleteModalVisible(false)}
                 style={styles.modalCancel}
               >
                 <Text style={styles.modalCancelText}>Cancel</Text>
@@ -620,8 +650,6 @@ const UsersIconPlaceholder = () => (
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
-
-  // HEADER
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -641,8 +669,6 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 22, fontWeight: '800', color: THEME.white },
   headerSub: { fontSize: 12, color: THEME.slate, fontWeight: '600' },
-
-  // SEARCH
   searchSection: { paddingHorizontal: 24, marginBottom: 20 },
   searchBar: {
     flexDirection: 'row',
@@ -653,16 +679,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   searchInput: { flex: 1, color: THEME.white, fontSize: 16, height: '100%' },
-
-  // LIST
   listContent: { paddingHorizontal: 24, paddingBottom: 100, gap: 16 },
-
-  // CARD STYLES
-  cardContainer: { height: 160 }, // Fixed height for consistency
+  cardContainer: { height: 165 },
   cardInner: {
     flex: 1,
     padding: 16,
-    backgroundColor: 'rgba(30, 41, 59, 0.4)', // Dark glass base
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
     borderRadius: 24,
     borderWidth: 1,
     borderColor: THEME.border,
@@ -672,27 +694,29 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239, 68, 68, 0.05)',
     borderColor: 'rgba(239, 68, 68, 0.2)',
   },
-
-  // Card Top Row
   cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
   userInfoLeft: { flexDirection: 'row', gap: 14, flex: 1 },
-  avatar: { width: 50, height: 50, borderRadius: 16 },
+  // SLEEK ROUND AVATARS
+  avatarWrapper: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(99,102,241,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.2)',
+  },
+  avatar: { width: '100%', height: '100%', borderRadius: 26 },
   avatarPlaceholder: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.2)',
   },
   avatarText: { color: THEME.indigo, fontWeight: '800', fontSize: 20 },
-
   textStack: { flex: 1, justifyContent: 'center', gap: 4 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   userName: {
@@ -702,7 +726,13 @@ const styles = StyleSheet.create({
     maxWidth: '60%',
   },
   strikethrough: { textDecorationLine: 'line-through', opacity: 0.6 },
-
+  bannedBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: THEME.danger,
+    borderRadius: 4,
+  },
+  bannedText: { color: 'white', fontSize: 8, fontWeight: '900' },
   rolePill: {
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -710,17 +740,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   roleText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
-
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaText: { color: THEME.slate, fontSize: 11, fontWeight: '500' },
-
   separator: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
     marginVertical: 8,
   },
-
-  // Card Actions
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -736,15 +762,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.03)',
   },
   actionText: { fontSize: 11, fontWeight: '700', color: THEME.slate },
-
-  // EMPTY STATE
   emptyState: { alignItems: 'center', marginTop: 60, opacity: 0.6 },
   emptyText: { color: THEME.slate, fontSize: 14, fontWeight: '600' },
-
-  // MODAL STYLES
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)', // Darker dim for focus
+    backgroundColor: 'rgba(0,0,0,0.85)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -771,10 +793,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-
   roleList: { gap: 10, marginBottom: 20 },
   actionList: { gap: 10, marginBottom: 20 },
-
   modalOption: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -796,7 +816,20 @@ const styles = StyleSheet.create({
     marginTop: 2,
     opacity: 0.7,
   },
-
   modalCancel: { paddingVertical: 12, alignItems: 'center' },
   modalCancelText: { color: THEME.slate, fontWeight: '700', fontSize: 14 },
+  deleteConfirmBtn: {
+    backgroundColor: THEME.danger,
+    padding: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+    width: '100%',
+  },
+  deleteConfirmText: {
+    color: 'white',
+    fontWeight: '900',
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
 });
