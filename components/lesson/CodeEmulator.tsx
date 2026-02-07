@@ -870,6 +870,7 @@ export function CodeEmulator({
   };
 
   const toggleHint = () => {
+    Keyboard.dismiss();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setShowHint(!showHint);
   };
@@ -1048,67 +1049,70 @@ export function CodeEmulator({
   // --- UI RENDER ---
   return (
     <View style={styles.container}>
-      {/* HINT MODAL */}
-      <Modal
-        transparent
-        visible={showHint}
-        animationType="fade"
-        onRequestClose={() => setShowHint(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setShowHint(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <Animated.View
-                entering={FadeInDown.springify().damping(15)}
-                style={styles.hintCardWrapper}
-              >
-                <BlurView
-                  intensity={40}
-                  tint="dark"
-                  style={styles.hintGlassCard}
+      {/* HINT OVERLAY */}
+
+      {showHint && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 9999 }]}>
+          <TouchableWithoutFeedback onPress={() => setShowHint(false)}>
+            <View
+              style={[
+                styles.modalOverlay,
+                { backgroundColor: 'rgba(0,0,0,0.7)' },
+              ]}
+            >
+              <TouchableWithoutFeedback>
+                <Animated.View
+                  entering={FadeInDown.springify().damping(15)}
+                  style={styles.hintCardWrapper}
                 >
-                  <LinearGradient
-                    colors={[
-                      'rgba(99, 102, 241, 0.15)',
-                      'rgba(15, 23, 42, 0.9)',
-                    ]}
-                    style={styles.hintGradient}
+                  <BlurView
+                    intensity={Platform.OS === 'ios' ? 40 : 80} // Android needs slightly higher intensity
+                    tint="dark"
+                    style={styles.hintGlassCard}
                   >
-                    <View style={styles.hintHeader}>
-                      <View style={styles.hintTitleRow}>
-                        <HandHelping size={18} color={THEME.gold} />
-                        <Text style={styles.hintTitle}>Mentor Hint</Text>
-                      </View>
-                      <TouchableOpacity
-                        onPress={() => setShowHint(false)}
-                        style={styles.closeBtn}
-                      >
-                        <XCircle size={18} color={THEME.slate} />
-                      </TouchableOpacity>
-                    </View>
-
-                    <ScrollView
-                      style={{ maxHeight: 200 }}
-                      indicatorStyle="white"
+                    <LinearGradient
+                      colors={[
+                        'rgba(99, 102, 241, 0.15)',
+                        'rgba(15, 23, 42, 0.85)',
+                      ]} // Slightly reduced opacity for better glass feel
+                      style={styles.hintGradient}
                     >
-                      <Text style={styles.hintText}>
-                        {hint ||
-                          'Check the lesson content above. The answer is hidden in the syntax examples!'}
-                      </Text>
-                    </ScrollView>
+                      <View style={styles.hintHeader}>
+                        <View style={styles.hintTitleRow}>
+                          <HandHelping size={18} color={THEME.gold} />
+                          <Text style={styles.hintTitle}>Mentor Guide</Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => setShowHint(false)}
+                          style={styles.closeBtn}
+                        >
+                          <XCircle size={18} color={THEME.slate} />
+                        </TouchableOpacity>
+                      </View>
 
-                    <View style={styles.hintFooter}>
-                      <Text style={styles.hintSub}>
-                        Tip: Check your syntax carefully.
-                      </Text>
-                    </View>
-                  </LinearGradient>
-                </BlurView>
-              </Animated.View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+                      <ScrollView
+                        style={{ maxHeight: 200 }}
+                        indicatorStyle="white"
+                      >
+                        <Text style={styles.hintText}>
+                          {hint ||
+                            'Check the lesson content above. The answer is hidden in the syntax examples!'}
+                        </Text>
+                      </ScrollView>
+
+                      <View style={styles.hintFooter}>
+                        <Text style={styles.hintSub}>
+                          Tip: Check your syntax carefully.
+                        </Text>
+                      </View>
+                    </LinearGradient>
+                  </BlurView>
+                </Animated.View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      )}
 
       {/* TOOLBAR */}
       <LinearGradient
@@ -1399,28 +1403,41 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
   },
   modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+    pointerEvents: 'auto',
   },
   hintCardWrapper: {
     width: '100%',
     maxWidth: 340,
     borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(251, 191, 36, 0.4)',
-    backgroundColor: '#0f172a',
-    shadowColor: '#fbbf24',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
+    borderColor: 'rgba(251, 191, 36, 0.3)',
+    backgroundColor: 'transparent',
+    shadowColor: '#803e01',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
     elevation: 12,
   },
-  hintGlassCard: { backgroundColor: 'transparent' },
-  hintGradient: { padding: 24 },
+  hintGlassCard: {
+    flex: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+    borderColor: 'rgba(251, 191, 36, 0.3)',
+  },
+  hintGradient: {
+    padding: 24,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.3)',
+  },
   hintHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
