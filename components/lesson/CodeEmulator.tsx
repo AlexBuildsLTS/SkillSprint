@@ -91,7 +91,11 @@ type KernelType =
   | 'csharp'
   | 'swift'
   | 'ruby'
-  | 'php';
+  | 'php'
+  | 'dart'
+  | 'r'
+  | 'bash'
+  | 'react native';
 
 // Quick-Insert Helpers for Mobile Typing Experience
 const SYNTAX_HELPERS: Record<string, string[]> = {
@@ -264,6 +268,55 @@ const SYNTAX_HELPERS: Record<string, string[]> = {
     'else',
     'foreach',
     'array',
+  ],
+  dart: [
+    'void main()',
+    'print()',
+    'int',
+    'String',
+    'bool',
+    'final',
+    'const',
+    'class',
+    'if',
+    'else',
+    'return',
+  ],
+  r: [
+    'print()',
+    'c()',
+    'function',
+    'if',
+    'else',
+    'for',
+    'library()',
+    'data.frame',
+    'return()',
+  ],
+  bash: [
+    'echo',
+    'if',
+    'fi',
+    'else',
+    'for',
+    'do',
+    'done',
+    'while',
+    'read',
+    'exit',
+    'sudo',
+    'ls',
+  ],
+  'react native': [
+    'import',
+    'React',
+    'View',
+    'Text',
+    'StyleSheet',
+    'export',
+    'default',
+    'const',
+    'return',
   ],
 };
 
@@ -963,7 +1016,24 @@ export function CodeEmulator({
           buffer.push('SQLite version 3.39.3 2022-09-05');
           buffer.push('sqlite> -- Executing Query');
           break;
+          case 'dart':
+          buffer.push('Dart SDK version: 3.0.0 (stable)');
+          buffer.push('> dart run main.dart');
+          break;
+        case 'r':
+          buffer.push('R version 4.3.0 (2023-04-21)');
+          buffer.push('> Rscript main.R');
+          break;
+        case 'bash':
+          buffer.push('GNU bash, version 5.1.16');
+          buffer.push('$ ./script.sh');
+          break;
+        case 'react native':
+          buffer.push('React Native v0.72.0');
+          buffer.push('> expo start --android');
+          break;
       }
+      
 
       // 4. RUN ENGINE DELEGATION
       try {

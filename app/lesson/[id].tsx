@@ -127,6 +127,58 @@ export default function LessonScreen() {
         detectedLang = 'php';
       } else if (rawTitle.includes('ruby')) {
         detectedLang = 'ruby';
+      } else if (rawTitle.includes('scala')) {
+        detectedLang = 'scala';
+      } else if (rawTitle.includes('c ') || rawTitle.includes('objective-c')) {
+        detectedLang = 'objective-c';
+      } else if (rawTitle.includes('lua')) {
+        detectedLang = 'lua';
+      } else if (rawTitle.includes('perl')) {
+        detectedLang = 'perl';
+      } else if (rawTitle.includes('haskell')) {
+        detectedLang = 'haskell';
+      } else if (rawTitle.includes('lisp')) {
+        detectedLang = 'lisp';
+      } else if (rawTitle.includes('assembly')) {
+        detectedLang = 'assembly';
+      } else if (rawTitle.includes('r')) {
+        detectedLang = 'r';
+      } else if (rawTitle.includes('matlab')) {
+        detectedLang = 'matlab';
+      } else if (rawTitle.includes('fortran')) {
+        detectedLang = 'fortran';
+      } else if (rawTitle.includes('prolog')) {
+        detectedLang = 'prolog';
+      } else if (rawTitle.includes('cobol')) {
+        detectedLang = 'cobol';
+      } else if (rawTitle.includes('nim')) {
+        detectedLang = 'nim';
+      } else if (rawTitle.includes('crystal')) {
+        detectedLang = 'crystal';
+      } else if (rawTitle.includes('elixir')) {
+        detectedLang = 'elixir';
+      } else if (rawTitle.includes('f#')) {
+        detectedLang = 'fsharp';
+      } else if (rawTitle.includes('groovy')) {
+        detectedLang = 'groovy';
+      } else if (rawTitle.includes('dart') || rawTitle.includes('flutter')) {
+        detectedLang = 'dart';
+      } else if (rawTitle.includes('julia')) {
+        detectedLang = 'julia';
+      } else if (rawTitle.includes('pascal')) {
+        detectedLang = 'pascal';
+      } else if (rawTitle.includes('typescript')) {
+        detectedLang = 'typescript';
+      } else if (rawTitle.includes('solidity')) {
+        detectedLang = 'solidity';
+      } else if (
+        rawTitle.includes('bash') ||
+        rawTitle.includes('shell') ||
+        rawTitle.includes('linux')
+      ) {
+        detectedLang = 'bash';
+      } else if (rawTitle.includes('react native')) {
+        detectedLang = 'react native';
       }
 
       // 4. Return Normalized Data Object

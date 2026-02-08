@@ -28,6 +28,9 @@ import {
   Braces,
   Hash,
   Box,
+  Layers,
+  BarChart3,
+  Command,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, SlideInRight } from 'react-native-reanimated';
 
@@ -56,6 +59,7 @@ type Language = {
   desc: string;
 };
 
+// [CRITICAL UPDATE] Added Dart, R, Bash to the list
 const LANGUAGES: Language[] = [
   {
     id: 'python',
@@ -86,6 +90,13 @@ const LANGUAGES: Language[] = [
     desc: 'Systems & Memory',
   },
   {
+    id: 'go',
+    name: 'Go',
+    icon: Box,
+    color: '#06b6d4',
+    desc: 'Concurrency',
+  },
+  {
     id: 'java',
     name: 'Java',
     icon: Code,
@@ -107,20 +118,6 @@ const LANGUAGES: Language[] = [
     desc: '.NET Ecosystem',
   },
   {
-    id: 'go',
-    name: 'Go',
-    icon: Box,
-    color: '#06b6d4',
-    desc: 'Concurrency',
-  },
-  {
-    id: 'sql',
-    name: 'SQL',
-    icon: Database,
-    color: '#10b981',
-    desc: 'Data Querying',
-  },
-  {
     id: 'swift',
     name: 'Swift',
     icon: Smartphone,
@@ -133,6 +130,27 @@ const LANGUAGES: Language[] = [
     icon: Smartphone,
     color: '#7F52FF',
     desc: 'Modern Android',
+  },
+  {
+    id: 'dart',
+    name: 'Dart',
+    icon: Layers,
+    color: '#00B4AB',
+    desc: 'Flutter Apps',
+  },
+  {
+    id: 'sql',
+    name: 'SQL',
+    icon: Database,
+    color: '#10b981',
+    desc: 'Data Querying',
+  },
+  {
+    id: 'r',
+    name: 'R',
+    icon: BarChart3,
+    color: '#276DC3',
+    desc: 'Data Science',
   },
   {
     id: 'php',
@@ -148,6 +166,13 @@ const LANGUAGES: Language[] = [
     color: '#CC342D',
     desc: 'Dev Happiness',
   },
+  {
+    id: 'bash',
+    name: 'Bash',
+    icon: Command,
+    color: '#4EAA25',
+    desc: 'Shell Scripting',
+  },
 ];
 
 const DIFFICULTIES = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as const;
@@ -161,27 +186,32 @@ export default function SprintSetupScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
 
-  // 📐 LAYOUT CALCULATION
-  // We use useMemo to recalculate only when screen width changes.
-  const { cardWidth, numColumns, gap } = useMemo(() => {
+  // 📐 LAYOUT CALCULATION (Responsive Grid)
+  const { cardWidth, gap } = useMemo(() => {
     const isDesktop = width >= 1024;
-    const columns = isDesktop ? 3 : 2;
+    const isTablet = width >= 768;
+
+    // Grid Logic:
+    // Desktop (>1024px): 4 Columns
+    // Tablet (>768px): 3 Columns
+    // Mobile: 2 Columns
+    const columns = isDesktop ? 4 : isTablet ? 3 : 2;
+
     const gridGap = 12;
-    const paddingHorizontal = 40; // 20px left + 20px right from styles.scrollContent
+    // Padding logic matches styles.scrollContent (20px left + 20px right)
+    const paddingHorizontal = 40;
 
-    // Determine the actual width available for the grid
-    // If desktop, we cap at 1000px, otherwise it's screen width minus padding
-    const availableWidth = isDesktop ? 1000 : width - paddingHorizontal;
+    // Max Width constraint for large screens
+    const maxWidth = 1200;
+    const effectiveWidth = Math.min(width, maxWidth) - paddingHorizontal;
 
-    // ⚡ CRITICAL FIX: Math.floor prevents sub-pixel wrapping on high-density screens (like Pixel 7)
-    // Formula: (TotalWidth - TotalGap) / Columns
+    // Calculate precise width to prevent wrapping issues
     const calculatedCardWidth = Math.floor(
-      (availableWidth - gridGap * (columns - 1)) / columns,
+      (effectiveWidth - gridGap * (columns - 1)) / columns,
     );
 
     return {
       cardWidth: calculatedCardWidth,
-      numColumns: columns,
       gap: gridGap,
     };
   }, [width]);
@@ -191,7 +221,6 @@ export default function SprintSetupScreen() {
   const [difficulty, setDifficulty] = useState<Difficulty>('INTERMEDIATE');
 
   const handleStart = () => {
-    // Light haptic feedback for confirmation
     if (Platform.OS !== 'web') {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
@@ -235,7 +264,7 @@ export default function SprintSetupScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* Max Width Container for Desktop Alignment */}
-          <View style={{ width: '100%', maxWidth: 1000 }}>
+          <View style={{ width: '100%', maxWidth: 1200 }}>
             <Animated.View
               entering={FadeInDown.delay(100)}
               style={styles.heroSection}
@@ -249,7 +278,6 @@ export default function SprintSetupScreen() {
             <Text style={styles.sectionLabel}>TARGET LANGUAGE</Text>
 
             {/* LANGUAGE GRID */}
-            {/* The gap is applied via style prop, supported in RN 0.71+ */}
             <View style={[styles.grid, { gap }]}>
               {LANGUAGES.map((lang, index) => {
                 const isSelected = selectedLang.id === lang.id;
@@ -258,10 +286,9 @@ export default function SprintSetupScreen() {
                 return (
                   <Animated.View
                     key={lang.id}
-                    entering={FadeInDown.delay(200 + index * 50)}
+                    entering={FadeInDown.delay(200 + index * 30).springify()}
                     style={{ width: cardWidth, height: 140 }}
                   >
-                    {/* Bento3DCard provides the 3D tilt effect */}
                     <Bento3DCard
                       style={{ flex: 1 }}
                       onPress={() => {
@@ -274,7 +301,7 @@ export default function SprintSetupScreen() {
                           styles.langCard,
                           isSelected && {
                             borderColor: lang.color,
-                            backgroundColor: `${lang.color}15`, // 15 = ~8% opacity
+                            backgroundColor: `${lang.color}15`, // ~8% opacity
                           },
                         ]}
                       >
@@ -310,10 +337,13 @@ export default function SprintSetupScreen() {
                                 fontWeight: '900',
                               },
                             ]}
+                            numberOfLines={1}
                           >
                             {lang.name}
                           </Text>
-                          <Text style={styles.langDesc}>{lang.desc}</Text>
+                          <Text style={styles.langDesc} numberOfLines={1}>
+                            {lang.desc}
+                          </Text>
                         </View>
                       </View>
                     </Bento3DCard>
@@ -429,7 +459,6 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    // Gap is applied dynamically via inline styles for grid logic
   },
 
   langCard: {
@@ -497,7 +526,7 @@ const styles = StyleSheet.create({
   },
   footerInner: {
     width: '100%',
-    maxWidth: 1000,
+    maxWidth: 1200,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',

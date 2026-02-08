@@ -137,7 +137,15 @@ export type Database = {
           track_id?: string;
           xp_reward?: number | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: 'lessons_track_id_fkey';
+            columns: ['track_id'];
+            isOneToOne: false;
+            referencedRelation: 'tracks';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       profiles: {
         Row: {
