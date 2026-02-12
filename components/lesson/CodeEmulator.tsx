@@ -50,7 +50,6 @@ import {
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 
 const { width, height } = Dimensions.get('window');
 
@@ -905,6 +904,7 @@ export function CodeEmulator({
 
   // --- HELPERS ---
   const handleInsertHelper = (text: string) => {
+    Keyboard.dismiss();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSourceCode(
       (prev) =>
@@ -1016,7 +1016,7 @@ export function CodeEmulator({
           buffer.push('SQLite version 3.39.3 2022-09-05');
           buffer.push('sqlite> -- Executing Query');
           break;
-          case 'dart':
+        case 'dart':
           buffer.push('Dart SDK version: 3.0.0 (stable)');
           buffer.push('> dart run main.dart');
           break;
@@ -1033,7 +1033,6 @@ export function CodeEmulator({
           buffer.push('> expo start --android');
           break;
       }
-      
 
       // 4. RUN ENGINE DELEGATION
       try {
@@ -1119,8 +1118,7 @@ export function CodeEmulator({
   // --- UI RENDER ---
   return (
     <View style={styles.container}>
-      {/* HINT OVERLAY */}
-
+      {/* 1. HINT OVERLAY */}
       {showHint && (
         <View style={[StyleSheet.absoluteFill, { zIndex: 9999 }]}>
           <TouchableWithoutFeedback onPress={() => setShowHint(false)}>
@@ -1135,16 +1133,22 @@ export function CodeEmulator({
                   entering={FadeInDown.springify().damping(15)}
                   style={styles.hintCardWrapper}
                 >
-                  <BlurView
-                    intensity={Platform.OS === 'ios' ? 40 : 80} // Android needs slightly higher intensity
-                    tint="dark"
-                    style={styles.hintGlassCard}
+                  <View
+                    style={[
+                      styles.hintGlassCard,
+                      {
+                        backgroundColor: 'rgba(15, 23, 42, 0.95)', // Solid dark background
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.1)',
+                        overflow: 'hidden',
+                      },
+                    ]}
                   >
                     <LinearGradient
                       colors={[
                         'rgba(99, 102, 241, 0.15)',
                         'rgba(15, 23, 42, 0.85)',
-                      ]} // Slightly reduced opacity for better glass feel
+                      ]}
                       style={styles.hintGradient}
                     >
                       <View style={styles.hintHeader}>
@@ -1176,7 +1180,7 @@ export function CodeEmulator({
                         </Text>
                       </View>
                     </LinearGradient>
-                  </BlurView>
+                  </View>
                 </Animated.View>
               </TouchableWithoutFeedback>
             </View>
