@@ -1,4 +1,7 @@
 {
+  "pgsql.connections": {
+    "items": []
+  },
   "deno.enable": false,
   "deno.lint": true,
   "deno.unstable": [],
@@ -17,6 +20,7 @@
     "Glassmorphism",
     "interp",
     "javac",
+    "kotlinc",
     "nativewind",
     "Postgrest",
     "reanimated",

@@ -1118,7 +1118,7 @@ export function CodeEmulator({
   // --- UI RENDER ---
   return (
     <View style={styles.container}>
-      {/* 1. HINT OVERLAY */}
+      {/* 1. HINT OVERLAY (FIXED: Removed flex: 1 to prevent 0-height collapse) */}
       {showHint && (
         <View style={[StyleSheet.absoluteFill, { zIndex: 9999 }]}>
           <TouchableWithoutFeedback onPress={() => setShowHint(false)}>
@@ -1133,16 +1133,21 @@ export function CodeEmulator({
                   entering={FadeInDown.springify().damping(15)}
                   style={styles.hintCardWrapper}
                 >
+                  {/* CRASH & VISIBILITY FIX: 
+                      1. We use a standard View instead of BlurView (prevents crash).
+                      2. We REMOVED 'styles.hintGlassCard' because it had 'flex: 1'.
+                         Replacing it with inline styles ensures the card grows to fit text.
+                  */}
                   <View
-                    style={[
-                      styles.hintGlassCard,
-                      {
-                        backgroundColor: 'rgba(15, 23, 42, 0.95)', // Solid dark background
-                        borderWidth: 1,
-                        borderColor: 'rgba(255,255,255,0.1)',
-                        overflow: 'hidden',
-                      },
-                    ]}
+                    style={{
+                      backgroundColor: 'rgba(15, 23, 42, 0.95)', // Solid dark background
+                      borderRadius: 24,
+                      borderWidth: 1,
+                      borderColor: 'rgba(255,255,255,0.1)',
+                      overflow: 'hidden',
+                      width: '100%',
+                      // IMPORTANT: No flex: 1 here!
+                    }}
                   >
                     <LinearGradient
                       colors={[
@@ -1189,6 +1194,7 @@ export function CodeEmulator({
       )}
 
       {/* TOOLBAR */}
+      {/* 2. TOOLBAR */}
       <LinearGradient
         colors={[THEME.surface, '#1e293b']}
         start={{ x: 0, y: 0 }}
@@ -1293,7 +1299,7 @@ export function CodeEmulator({
         />
       </View>
 
-      {/* SYNTAX BAR */}
+      {/* 4. SYNTAX BAR */}
       <View style={styles.syntaxBar}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Hash size={12} color={THEME.slate} style={{ marginRight: 6 }} />
@@ -1318,6 +1324,7 @@ export function CodeEmulator({
         </ScrollView>
       </View>
 
+  
       {/* CONSOLE */}
       {isConsoleOpen && (
         <Animated.View
@@ -1423,7 +1430,7 @@ export function CodeEmulator({
             <Code2 size={14} color={THEME.slate} />
           )}
           <Text style={styles.footerText}>
-            main.{normalizedLang === 'sql' ? 'sql' : 'txt'}
+            {`main.${normalizedLang === 'sql' ? 'sql' : normalizedLang === 'react native' ? 'tsx' : normalizedLang === 'typescript' ? 'ts' : 'txt'}`}
           </Text>
         </View>
 
