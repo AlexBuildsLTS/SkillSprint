@@ -41,6 +41,42 @@ export type Database = {
         };
         Relationships: [];
       };
+      blocked_users: {
+        Row: {
+          blocked_id: string | null;
+          blocker_id: string | null;
+          created_at: string | null;
+          id: string;
+        };
+        Insert: {
+          blocked_id?: string | null;
+          blocker_id?: string | null;
+          created_at?: string | null;
+          id?: string;
+        };
+        Update: {
+          blocked_id?: string | null;
+          blocker_id?: string | null;
+          created_at?: string | null;
+          id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'blocked_users_blocked_id_fkey';
+            columns: ['blocked_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'blocked_users_blocker_id_fkey';
+            columns: ['blocker_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       chat_history: {
         Row: {
           content: string;
@@ -246,6 +282,45 @@ export type Database = {
           {
             foreignKeyName: 'messages_sender_id_fkey';
             columns: ['sender_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      muted_conversations: {
+        Row: {
+          conversation_id: string | null;
+          created_at: string | null;
+          id: string;
+          muted_until: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          conversation_id?: string | null;
+          created_at?: string | null;
+          id?: string;
+          muted_until?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          conversation_id?: string | null;
+          created_at?: string | null;
+          id?: string;
+          muted_until?: string | null;
+          user_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'muted_conversations_conversation_id_fkey';
+            columns: ['conversation_id'];
+            isOneToOne: false;
+            referencedRelation: 'conversations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'muted_conversations_user_id_fkey';
+            columns: ['user_id'];
             isOneToOne: false;
             referencedRelation: 'profiles';
             referencedColumns: ['id'];
@@ -751,6 +826,7 @@ export type Database = {
         Returns: Json;
       };
       is_chat_participant: { Args: { conv_id: string }; Returns: boolean };
+      is_user_online: { Args: { last_seen: string }; Returns: boolean };
     };
     Enums: {
       difficulty_level:

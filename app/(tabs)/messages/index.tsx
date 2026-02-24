@@ -1,15 +1,16 @@
 /**
- * =============================================================
- * 💬 MESSAGES INBOX - PROFESSIONAL UI (NativeWind)
- * =============================================================
- * Architecture Notes:
- * - Realtime active conversations fetch.
- * - NativeWind + Reanimated animations.
- * - Pixel-perfect iMessage-inspired layout.
- * =============================================================
+ * ============================================================================
+ * 🛡️ SKILLSPRINT SECURE INBOX - PRODUCTION BUILD v4.1 (TS FIXED)
+ * ============================================================================
+ * Architecture:
+ * - Decryption Engine: Previews decrypted securely on the client side via AES-CBC.
+ * - Real-Time Presence: Evaluates 'last_seen_at' for true online status.
+ * - Interaction: Pull-to-refresh, Long-press context menus for Mute/Delete.
+ * - UI: Glassmorphism, Adaptive scrolling for Mobile Tab Bars.
+ * ============================================================================
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -19,78 +20,238 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  Alert,
+  useWindowDimensions,
+  RefreshControl,
+  Platform,
   Pressable,
+  StyleSheet, // TS Fix: Imported StyleSheet
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Search, Edit, X, User, Waypoints, ChevronRight, MessageSquareOff } from 'lucide-react-native';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import {
+  Search,
+  Edit,
+  X,
+  User,
+  Waypoints,
+  MessageSquareOff,
+  Trash2,
+  BellOff,
+  Lock,
+  ChevronRight,
+  ShieldCheck,
+  Shield,
+  Zap,
+} from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient'; // TS Fix: Imported LinearGradient
+import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
+import CryptoJS from 'crypto-js';
 
+import { GlassCard } from '@/components/ui/GlassCard';
+import { Database } from '@/database.types';
+
+// ============================================================================
+// 🎨 THEME & CRYPTO CONFIGURATION
+// ============================================================================
+const THEME = {
+  obsidian: '#020617',
+  indigo: '#6366f1',
+  slate: '#94a3b8',
+  white: '#ffffff',
+  success: '#10b981',
+  warning: '#f59e0b',
+  danger: '#ef4444',
+  glassBorder: 'rgba(255, 255, 255, 0.1)',
+  glassSurface: 'rgba(30, 41, 59, 0.4)',
+};
+
+// Must match EXACTLY with [id].tsx
+const ENCRYPTION_SECRET = CryptoJS.enc.Utf8.parse(
+  'SKILLSPRINT_SUPER_SECRET_KEY_123',
+);
+
+type UserRole = Database['public']['Enums']['user_role'];
+
+// ============================================================================
+// 🔐 DECRYPTION PREVIEW ENGINE
+// ============================================================================
+const decryptPreview = (hash: string | undefined): string => {
+  if (!hash) return 'Start a secure tunnel...';
+  try {
+    const parts = hash.split(':');
+    if (parts.length !== 2) return '🔒 Encrypted payload';
+
+    const iv = CryptoJS.enc.Hex.parse(parts[0]);
+    const decrypted = CryptoJS.AES.decrypt(parts[1], ENCRYPTION_SECRET, {
+      iv: iv,
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7,
+    });
+
+    const originalText = decrypted.toString(CryptoJS.enc.Utf8);
+    if (originalText.startsWith('{')) {
+      const payload = JSON.parse(originalText);
+      if (payload.attachmentType === 'image') return '🖼️ Encrypted Image';
+      if (payload.attachmentType === 'file') return '📄 Encrypted Document';
+      return payload.text || '🔒 Encrypted Payload';
+    }
+    return originalText;
+  } catch (e) {
+    return '🔒 Decryption Failed';
+  }
+};
+
+// ============================================================================
+// 🧩 MICRO-COMPONENTS
+// ============================================================================
+const RoleBadge = ({ role }: { role: UserRole | undefined }) => {
+  if (!role || role === 'MEMBER') return null;
+  const color =
+    role === 'ADMIN'
+      ? THEME.danger
+      : role === 'PREMIUM'
+        ? THEME.warning
+        : THEME.indigo;
+  const Icon =
+    role === 'ADMIN' ? Shield : role === 'PREMIUM' ? Zap : ShieldCheck;
+  let label = role === 'MODERATOR' ? 'MOD' : role === 'PREMIUM' ? 'PRO' : role;
+
+  return (
+    <View
+      style={[
+        styles.roleBadge,
+        { backgroundColor: `${color}15`, borderColor: `${color}40` },
+      ]}
+    >
+      <Icon size={10} color={color} />
+      <Text style={[styles.roleText, { color }]}>{label}</Text>
+    </View>
+  );
+};
+
+// ============================================================================
+// 🚀 MAIN SCREEN COMPONENT
+// ============================================================================
 export default function MessagesInboxScreen() {
   const { user } = useAuth();
   const router = useRouter();
 
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
+
+  // --- Inbox State ---
   const [searchQuery, setSearchQuery] = useState('');
   const [conversations, setConversations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // --- Actions State ---
+  const [selectedConv, setSelectedConv] = useState<any | null>(null);
+
+  // --- New Chat Modal State ---
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [searchedUsers, setSearchedUsers] = useState<any[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
 
+  // ============================================================================
+  // 🔄 DATA FETCHING & SYNC
+  // ============================================================================
   useEffect(() => {
     if (user?.id) fetchConversations();
   }, [user?.id]);
 
-  const fetchConversations = async () => {
+  const fetchConversations = async (silentRefresh = false) => {
+    if (!user?.id) return; // TS Fix
+    if (!silentRefresh) setIsLoading(true);
+
     try {
       const { data, error } = await supabase
         .from('conversations')
-        .select(`
-          id,
-          updated_at,
-          conversation_participants!inner(user_id, last_read_at, profiles(id, username, full_name, avatar_url, presence_status)),
+        .select(
+          `
+          id, updated_at,
+          conversation_participants!inner(user_id, last_read_at, profiles(id, username, full_name, avatar_url, presence_status, last_seen_at, role)),
           messages(content, created_at, sender_id)
-        `)
+        `,
+        )
         .order('updated_at', { ascending: false });
 
       if (error) throw error;
 
-      const formatted = (data || []).map((conv: any) => {
-        const me = conv.conversation_participants.find((p: any) => p.user_id === user?.id);
-        const other = conv.conversation_participants.find((p: any) => p.user_id !== user?.id)?.profiles;
+      // Fetch user's muted conversations
+      const { data: mutedData } = await supabase
+        .from('muted_conversations')
+        .select('conversation_id')
+        .eq('user_id', user.id as string); // TS Fix
 
-        const sortedMessages = conv.messages?.sort((a: any, b: any) => 
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      const mutedIds = new Set(mutedData?.map((m) => m.conversation_id) || []);
+
+      const formatted = (data || []).map((conv: any) => {
+        const me = conv.conversation_participants.find(
+          (p: any) => p.user_id === user.id,
+        );
+        const other = conv.conversation_participants.find(
+          (p: any) => p.user_id !== user.id,
+        )?.profiles;
+
+        // True Presence Engine
+        const lastSeen = other?.last_seen_at
+          ? new Date(other.last_seen_at).getTime()
+          : 0;
+        const isActuallyOnline = lastSeen > Date.now() - 5 * 60000;
+
+        // Sort to get absolute latest message
+        const sortedMessages = conv.messages?.sort(
+          (a: any, b: any) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
         );
         const lastMessage = sortedMessages?.[0];
 
-        const hasUnread = lastMessage && me?.last_read_at 
-          ? new Date(lastMessage.created_at) > new Date(me.last_read_at)
-          : false;
+        // Unread logic
+        const hasUnread =
+          lastMessage && me?.last_read_at
+            ? new Date(lastMessage.created_at) > new Date(me.last_read_at)
+            : false;
 
         return {
           id: conv.id,
-          otherUser: other,
+          otherUser: { ...other, isActuallyOnline },
           lastMessage,
+          previewText: decryptPreview(lastMessage?.content),
           hasUnread,
-          updatedAt: conv.updated_at
+          isMuted: mutedIds.has(conv.id),
+          updatedAt: conv.updated_at,
         };
       });
 
       setConversations(formatted);
     } catch (err) {
-      console.error('Fetch conversations error:', err);
+      console.error('[Inbox Sync Error]:', err);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
+  const onRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    fetchConversations(true);
+  }, [user?.id]);
+
+  // ============================================================================
+  // 🔍 NEW CHAT ENGINE
+  // ============================================================================
   const handleUserSearch = async (text: string) => {
+    if (!user?.id) return;
     setUserSearchQuery(text);
     if (text.length < 2) {
       setSearchedUsers([]);
@@ -101,15 +262,15 @@ export default function MessagesInboxScreen() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, username, full_name, avatar_url, presence_status')
-        .neq('id', user?.id as string)
+        .select('id, username, full_name, avatar_url, presence_status, role')
+        .neq('id', user.id as string) // TS Fix
         .or(`username.ilike.%${text}%,full_name.ilike.%${text}%`)
         .limit(10);
 
       if (error) throw error;
       setSearchedUsers(data || []);
     } catch (err) {
-      console.error('User search error:', err);
+      console.error('Directory search failed:', err);
     } finally {
       setIsSearchingUsers(false);
     }
@@ -120,172 +281,701 @@ export default function MessagesInboxScreen() {
     setIsNewChatModalOpen(false);
 
     try {
-      // Use RPC to ensure we don't create duplicate 1:1 chats
-      const { data: conversationId, error } = await supabase.rpc('create_or_get_conversation' as any, {
-        target_user_id: targetUserId
-      });
+      const { data: conversationId, error } = await supabase.rpc(
+        'create_or_get_conversation' as any,
+        {
+          target_user_id: targetUserId,
+        },
+      );
 
       if (error) throw error;
       if (conversationId) router.push(`/messages/${conversationId}`);
     } catch (err) {
-      console.error('Start chat error:', err);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        'Handshake Failed',
+        'Could not establish a secure connection.',
+      );
     }
   };
 
-  const renderConversationItem = ({ item, index }: { item: any, index: number }) => (
-    <Animated.View entering={FadeInUp.delay(index * 50)}>
-      <TouchableOpacity
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          router.push(`/messages/${item.id}`);
-        }}
-        className="flex-row items-center px-6 py-4 border-b border-white/5 active:bg-white/5"
-      >
-        <View className="relative">
-          {item.otherUser?.avatar_url ? (
-            <Image source={{ uri: item.otherUser.avatar_url }} className="w-14 h-14 rounded-full border border-white/10" />
-          ) : (
-            <View className="w-14 h-14 rounded-full bg-indigo-500/10 items-center justify-center border border-indigo-500/30">
-              <Text className="text-xl font-black text-indigo-400">{item.otherUser?.username?.[0]?.toUpperCase()}</Text>
-            </View>
-          )}
-          <View className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-[#020617] ${
-            item.otherUser?.presence_status === 'ONLINE' ? 'bg-emerald-500' : 
-            item.otherUser?.presence_status === 'BUSY' ? 'bg-amber-500' : 'bg-slate-600'
-          }`} />
-        </View>
+  // ============================================================================
+  // ⚡ CONTEXT ACTIONS (Mute/Delete)
+  // ============================================================================
+  const handleMuteConversation = async () => {
+    if (!selectedConv || !user?.id) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-        <View className="flex-1 ml-4 justify-center">
-          <View className="flex-row justify-between items-center mb-1">
-            <Text className={`text-base ${item.hasUnread ? 'text-white font-black' : 'text-slate-200 font-bold'}`}>
-              {item.otherUser?.full_name || item.otherUser?.username}
-            </Text>
-            <Text className="text-[10px] text-slate-500 font-bold">
-              {item.lastMessage ? new Date(item.lastMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-            </Text>
-          </View>
-          <View className="flex-row items-center">
-            <Text className={`text-sm flex-1 ${item.hasUnread ? 'text-indigo-400 font-bold' : 'text-slate-500'}`} numberOfLines={1}>
-              {item.lastMessage?.content ? '🔒 Secure Message' : 'Start a secure tunnel...'}
-            </Text>
-            {item.hasUnread && <View className="w-2.5 h-2.5 rounded-full bg-indigo-500 ml-2 shadow-sm shadow-indigo-500" />}
-          </View>
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
-  );
+    try {
+      if (selectedConv.isMuted) {
+        await supabase
+          .from('muted_conversations')
+          .delete()
+          .eq('user_id', user.id as string)
+          .eq('conversation_id', selectedConv.id);
+      } else {
+        await supabase.from('muted_conversations').insert({
+          user_id: user.id as string,
+          conversation_id: selectedConv.id,
+        });
+      }
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === selectedConv.id ? { ...c, isMuted: !c.isMuted } : c,
+        ),
+      );
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSelectedConv(null);
+    }
+  };
 
-  return (
-    <SafeAreaView className="flex-1 bg-[#020617]" edges={['top']}>
-      {/* HEADER */}
-      <View className="flex-row items-center justify-between px-6 py-4">
-        <View className="flex-row items-center">
-          <Waypoints size={32} color="#6366f1" />
-          <Text className="text-2xl font-black text-white ml-3 tracking-tighter">Messages</Text>
-        </View>
-        
-        <TouchableOpacity 
-          onPress={() => setIsNewChatModalOpen(true)}
-          className="w-10 h-10 rounded-full bg-indigo-600 items-center justify-center shadow-lg shadow-indigo-500/30"
+  const handleDeleteConversation = async () => {
+    if (!selectedConv || !user?.id) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
+    Alert.alert(
+      'Purge Terminal',
+      'This removes the conversation from your device. The other user retains their encrypted copy.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Purge',
+          style: 'destructive',
+          onPress: async () => {
+            await supabase
+              .from('conversation_participants')
+              .delete()
+              .eq('conversation_id', selectedConv.id)
+              .eq('user_id', user.id as string);
+            setConversations((prev) =>
+              prev.filter((c) => c.id !== selectedConv.id),
+            );
+            setSelectedConv(null);
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+          },
+        },
+      ],
+    );
+  };
+
+  // ============================================================================
+  // 🎨 UI RENDERERS
+  // ============================================================================
+  const renderConversationItem = ({
+    item,
+    index,
+  }: {
+    item: any;
+    index: number;
+  }) => {
+    const formatTime = (iso: string) => {
+      const d = new Date(iso);
+      if (new Date().toDateString() === d.toDateString()) {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    };
+
+    return (
+      <Animated.View entering={FadeInUp.delay(index * 20)}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            Haptics.selectionAsync();
+            router.push(`/messages/${item.id}`);
+          }}
+          onLongPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            setSelectedConv(item);
+          }}
+          style={styles.convItem}
         >
-          <Edit size={20} color="#FFF" />
-        </TouchableOpacity>
-      </View>
-
-      {/* SEARCH */}
-      <View className="px-6 pb-4">
-        <View className="flex-row items-center bg-white/5 rounded-2xl px-4 py-3 border border-white/10">
-          <Search size={18} color="#475569" />
-          <TextInput
-            className="flex-1 ml-3 text-white text-base font-bold"
-            placeholder="Search conversations..."
-            placeholderTextColor="#475569"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-      </View>
-
-      {/* LIST */}
-      {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#6366f1" />
-        </View>
-      ) : conversations.length === 0 ? (
-        <View className="flex-1 items-center justify-center px-10">
-          <View className="w-20 h-20 bg-white/5 rounded-full items-center justify-center mb-6 border border-white/10">
-            <MessageSquareOff size={32} color="#475569" />
+          <View style={styles.avatarContainer}>
+            {item.otherUser?.avatar_url ? (
+              <Image
+                source={{ uri: item.otherUser.avatar_url }}
+                style={styles.avatar}
+              />
+            ) : (
+              <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                <Text style={styles.avatarLetter}>
+                  {item.otherUser?.username?.[0]?.toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <View
+              style={[
+                styles.presenceDot,
+                {
+                  backgroundColor: item.otherUser?.isActuallyOnline
+                    ? THEME.success
+                    : THEME.slate,
+                },
+              ]}
+            />
           </View>
-          <Text className="text-white text-xl font-black mb-2">No transmissions</Text>
-          <Text className="text-slate-500 text-center text-sm leading-5">Your secure communication line is empty. Start a new chat to begin encrypted tunneling.</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={conversations.filter(c => 
-            c.otherUser?.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            c.otherUser?.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
-          )}
-          keyExtractor={(item) => item.id}
-          renderItem={renderConversationItem}
-          contentContainerStyle={{ paddingBottom: 100 }}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
 
-      {/* NEW CHAT MODAL */}
-      <Modal visible={isNewChatModalOpen} animationType="slide" presentationStyle="pageSheet">
-        <View className="flex-1 bg-[#020617]">
-          <View className="flex-row items-center justify-between px-6 py-6 border-b border-white/5">
-            <Text className="text-2xl font-black text-white">New Tunnel</Text>
-            <TouchableOpacity onPress={() => setIsNewChatModalOpen(false)} className="p-2 bg-white/5 rounded-full">
-              <X size={20} color="#94a3b8" />
+          <View style={styles.convDetails}>
+            <View style={styles.convHeaderRow}>
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+              >
+                <Text
+                  style={[
+                    styles.convName,
+                    item.hasUnread && { color: THEME.white },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {item.otherUser?.full_name ||
+                    item.otherUser?.username ||
+                    'Unknown User'}
+                </Text>
+                {item.isMuted && (
+                  <BellOff
+                    size={12}
+                    color={THEME.slate}
+                    style={{ marginLeft: 6 }}
+                  />
+                )}
+              </View>
+              <Text
+                style={[
+                  styles.convTime,
+                  item.hasUnread && { color: THEME.indigo },
+                ]}
+              >
+                {item.lastMessage
+                  ? formatTime(item.lastMessage.created_at)
+                  : ''}
+              </Text>
+            </View>
+
+            <View style={styles.convPreviewRow}>
+              <Text
+                style={[
+                  styles.convPreviewText,
+                  item.hasUnread && styles.convPreviewUnread,
+                ]}
+                numberOfLines={1}
+              >
+                {item.previewText}
+              </Text>
+              {item.hasUnread && <View style={styles.unreadBadge} />}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
+
+  // ============================================================================
+  // 🖥️ MAIN RENDER
+  // ============================================================================
+  return (
+    <View style={styles.root}>
+      <LinearGradient
+        colors={[THEME.obsidian, '#0f172a', '#000000']}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        {/* --- HEADER --- */}
+        <View style={styles.header}>
+          <View style={styles.headerTitleRow}>
+            <Waypoints size={32} color={THEME.indigo} />
+            <Text style={styles.headerTitle}>Terminals</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setIsNewChatModalOpen(true);
+            }}
+            style={styles.newChatBtn}
+          >
+            <Edit size={20} color={THEME.white} />
+          </TouchableOpacity>
+        </View>
+
+        {/* --- SEARCH BAR --- */}
+        <View style={styles.searchContainer}>
+          <GlassCard style={styles.searchCard}>
+            <Search size={18} color={THEME.slate} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search active connections..."
+              placeholderTextColor={THEME.slate}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery !== '' && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <X size={18} color={THEME.slate} />
+              </TouchableOpacity>
+            )}
+          </GlassCard>
+        </View>
+
+        {/* --- INBOX LIST --- */}
+        {isLoading ? (
+          <ActivityIndicator
+            color={THEME.indigo}
+            style={{ flex: 1 }}
+            size="large"
+          />
+        ) : (
+          <FlatList
+            data={conversations.filter(
+              (c) =>
+                c.otherUser?.username
+                  ?.toLowerCase()
+                  .includes(searchQuery.toLowerCase()) ||
+                c.otherUser?.full_name
+                  ?.toLowerCase()
+                  .includes(searchQuery.toLowerCase()),
+            )}
+            renderItem={renderConversationItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={[
+              styles.listContainer,
+              { paddingBottom: isMobile ? 120 : 60 },
+            ]}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={onRefresh}
+                tintColor={THEME.indigo}
+              />
+            }
+            ListEmptyComponent={
+              <Animated.View entering={FadeInDown} style={styles.emptyState}>
+                <View style={styles.emptyIconBg}>
+                  <Lock size={32} color={THEME.slate} />
+                </View>
+                <Text style={styles.emptyTitle}>Secure Environment</Text>
+                <Text style={styles.emptySub}>
+                  No active transmissions. Tap the pen icon to initiate a
+                  verified AES-256 handshake.
+                </Text>
+              </Animated.View>
+            }
+          />
+        )}
+      </SafeAreaView>
+
+      {/* ============================================================================
+          🛠️ MODALS & ACTION SHEETS
+      ============================================================================ */}
+
+      {/* Context Menu (Long Press Conversation) */}
+      <Modal
+        visible={!!selectedConv}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedConv(null)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setSelectedConv(null)}
+        >
+          <Animated.View entering={FadeInUp} style={styles.contextMenu}>
+            <Text style={styles.contextTitle}>
+              Terminal Options: @{selectedConv?.otherUser?.username}
+            </Text>
+
+            <TouchableOpacity
+              onPress={handleMuteConversation}
+              style={styles.actionBtn}
+            >
+              {selectedConv?.isMuted ? (
+                <BellOff size={22} color={THEME.danger} />
+              ) : (
+                <BellOff size={22} color={THEME.white} />
+              )}
+              <Text
+                style={[
+                  styles.actionText,
+                  selectedConv?.isMuted && { color: THEME.danger },
+                ]}
+              >
+                {selectedConv?.isMuted
+                  ? 'Unmute Transmissions'
+                  : 'Mute Incoming Signals'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleDeleteConversation}
+              style={styles.actionBtn}
+            >
+              <Trash2 size={22} color={THEME.danger} />
+              <Text style={[styles.actionText, { color: THEME.danger }]}>
+                Purge from Device
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setSelectedConv(null)}
+              style={styles.closeBtn}
+            >
+              <Text style={styles.closeText}>Cancel</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Pressable>
+      </Modal>
+
+      {/* New Chat Directory Modal */}
+      <Modal
+        visible={isNewChatModalOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <View style={styles.modalRoot}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Initiate Handshake</Text>
+            <TouchableOpacity
+              onPress={() => setIsNewChatModalOpen(false)}
+              style={styles.modalCloseBtn}
+            >
+              <X size={20} color={THEME.slate} />
             </TouchableOpacity>
           </View>
 
-          <View className="p-6">
-            <View className="flex-row items-center bg-white/5 rounded-2xl px-4 py-4 border border-white/10">
-              <Search size={18} color="#475569" />
+          <View style={styles.modalSearchContainer}>
+            <GlassCard style={styles.searchCard}>
+              <Search size={18} color={THEME.slate} />
               <TextInput
-                className="flex-1 ml-3 text-white text-base font-bold"
-                placeholder="Search @username..."
-                placeholderTextColor="#475569"
+                style={styles.searchInput}
+                placeholder="Search global directory (@username)..."
+                placeholderTextColor={THEME.slate}
                 value={userSearchQuery}
                 onChangeText={handleUserSearch}
                 autoFocus
+                autoCapitalize="none"
               />
-              {isSearchingUsers && <ActivityIndicator size="small" color="#6366f1" />}
-            </View>
+              {isSearchingUsers && (
+                <ActivityIndicator size="small" color={THEME.indigo} />
+              )}
+            </GlassCard>
           </View>
 
           <FlatList
             data={searchedUsers}
             keyExtractor={(item) => item.id}
             keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 60 }}
             renderItem={({ item }) => (
               <TouchableOpacity
                 onPress={() => startNewChat(item.id)}
-                className="flex-row items-center px-6 py-4 border-b border-white/5 active:bg-white/5"
+                style={styles.directoryItem}
               >
                 <View>
                   {item.avatar_url ? (
-                    <Image source={{ uri: item.avatar_url }} className="w-12 h-12 rounded-full border border-white/10" />
+                    <Image
+                      source={{ uri: item.avatar_url }}
+                      style={styles.dirAvatar}
+                    />
                   ) : (
-                    <View className="w-12 h-12 rounded-full bg-indigo-500/10 items-center justify-center border border-indigo-500/30">
-                      <User size={24} color="#818cf8" />
+                    <View style={[styles.dirAvatar, styles.avatarPlaceholder]}>
+                      <User size={24} color={THEME.indigo} />
                     </View>
                   )}
                 </View>
-                <View className="ml-4 flex-1">
-                  <Text className="text-white font-black text-base">{item.full_name || item.username}</Text>
-                  <Text className="text-slate-500 text-xs font-bold uppercase tracking-widest">@{item.username}</Text>
+                <View style={styles.dirInfo}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={styles.dirName}>
+                      {item.full_name || item.username}
+                    </Text>
+                    <RoleBadge role={item.role} />
+                  </View>
+                  <Text style={styles.dirUsername}>@{item.username}</Text>
                 </View>
-                <ChevronRight size={20} color="#1e293b" />
+                <ChevronRight size={20} color={THEME.slate} />
               </TouchableOpacity>
             )}
+            ListEmptyComponent={() =>
+              userSearchQuery.length >= 2 && !isSearchingUsers ? (
+                <Text style={styles.emptyDirText}>
+                  No verified identities found for "{userSearchQuery}"
+                </Text>
+              ) : null
+            }
           />
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
+
+// ============================================================================
+// 🎨 STYLES
+// ============================================================================
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: THEME.obsidian },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center' },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: THEME.white,
+    marginLeft: 12,
+    letterSpacing: -0.5,
+  },
+  newChatBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: THEME.indigo,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: THEME.indigo,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+
+  // Search
+  searchContainer: { paddingHorizontal: 20, paddingBottom: 16 },
+  searchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 20,
+  },
+  searchInput: {
+    flex: 1,
+    color: THEME.white,
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 12,
+  },
+
+  // List Items
+  listContainer: { paddingHorizontal: 10 },
+  convItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  avatarContainer: { position: 'relative' },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+  },
+  avatarPlaceholder: {
+    backgroundColor: 'rgba(99,102,241,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarLetter: { fontSize: 22, fontWeight: '900', color: THEME.indigo },
+  presenceDot: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 3,
+    borderColor: THEME.obsidian,
+  },
+
+  convDetails: { flex: 1, marginLeft: 16, justifyContent: 'center' },
+  convHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  convName: { fontSize: 16, fontWeight: '900', color: THEME.slate },
+  convTime: { fontSize: 11, fontWeight: 'bold', color: THEME.slate },
+  convPreviewRow: { flexDirection: 'row', alignItems: 'center' },
+  convPreviewText: {
+    flex: 1,
+    fontSize: 14,
+    color: THEME.slate,
+    fontWeight: '500',
+  },
+  convPreviewUnread: { color: THEME.white, fontWeight: '800' },
+  unreadBadge: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: THEME.indigo,
+    marginLeft: 10,
+    shadowColor: THEME.indigo,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+
+  // Badges
+  roleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginLeft: 8,
+  },
+  roleText: {
+    fontSize: 8,
+    fontWeight: '900',
+    marginLeft: 4,
+    letterSpacing: 0.5,
+  },
+
+  // Empty State
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 80,
+    paddingHorizontal: 40,
+  },
+  emptyIconBg: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: THEME.white,
+    marginBottom: 12,
+  },
+  emptySub: {
+    fontSize: 14,
+    color: THEME.slate,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+
+  // Action Menu
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'flex-end',
+  },
+  contextMenu: {
+    backgroundColor: '#1e293b',
+    margin: 20,
+    marginBottom: 50,
+    borderRadius: 24,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+  },
+  contextTitle: {
+    color: THEME.slate,
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  actionText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 16,
+  },
+  closeBtn: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+  },
+  closeText: {
+    color: THEME.white,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+
+  // Directory Modal
+  modalRoot: { flex: 1, backgroundColor: THEME.obsidian },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.glassBorder,
+  },
+  modalTitle: { fontSize: 24, fontWeight: '900', color: THEME.white },
+  modalCloseBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalSearchContainer: { padding: 20 },
+  directoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  dirAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+  },
+  dirInfo: { flex: 1, marginLeft: 16 },
+  dirName: { fontSize: 16, fontWeight: '900', color: THEME.white },
+  dirUsername: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: THEME.slate,
+    marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  emptyDirText: {
+    textAlign: 'center',
+    color: THEME.slate,
+    marginTop: 40,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+});

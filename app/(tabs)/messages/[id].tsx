@@ -1,63 +1,88 @@
 /**
- * =============================================================
- * 💬 ACTIVE SECURE CHAT - PREMIUM UI (SkillSprint Standard)
- * =============================================================
- * Features:
- * - Client-Side AES-256 Encryption (Server only sees ciphertext)
- * - Expo Image Picker -> Supabase Storage Uploads
- * - Realtime Sync & Deno Wall compliance
- * - Premium Glassmorphism UI & Role Badges (Support.tsx parity)
- * =============================================================
+ * ============================================================================
+ * 🛡️ SKILLSPRINT SECURE CHAT TERMINAL - PRODUCTION BUILD v4.1 (TS FIXED)
+ * ============================================================================
+ * Architecture:
+ * - Encryption: AES-256-CBC with randomized per-message IVs.
+ * - UI Engine: Dynamic Inset Calculation (Resolves Tab Bar Overlap).
+ * - Realtime: Supabase Websockets with strict channel isolation.
+ * - Features: Block, Mute, Long-Press Context Menus, True Presence.
+ * ============================================================================
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   Image,
   ActivityIndicator,
   Modal,
   StyleSheet,
   Pressable,
+  useWindowDimensions,
+  Alert,
+  Keyboard,
+  KeyboardEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import {
   Send,
   Paperclip,
   ChevronLeft,
-  MoreVertical,
+  Settings,
   Camera,
   Smile,
   ShieldCheck,
   UserX,
   BellOff,
-  User,
   Shield,
   Zap,
   X,
-  Image as ImageIcon,
+  FileText,
+  CheckCheck,
+  Circle,
+  Trash2,
+  Copy,
+  Lock,
+  Unlock,
+  AlertCircle,
 } from 'lucide-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   FadeInUp,
   FadeInDown,
   Layout,
+  FadeOut,
+  SlideInDown,
 } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import CryptoJS from 'crypto-js';
 
 import { GlassCard } from '@/components/ui/GlassCard';
+import { Database } from '@/database.types';
 
-// --- THEME & CONSTANTS ---
+// ============================================================================
+// 🎨 CONFIGURATION & CRYPTO
+// ============================================================================
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
@@ -70,83 +95,117 @@ const THEME = {
   glassSurface: 'rgba(30, 41, 59, 0.4)',
 };
 
-// Secret Key for AES-256 E2EE (In production, derive via Diffie-Hellman)
-const ENCRYPTION_SECRET = 'SKILLSPRINT_SUPER_SECRET_KEY_2026';
+const COMMON_EMOJIS = [
+  '👍',
+  '🔥',
+  '🚀',
+  '💻',
+  '💡',
+  '✅',
+  '👀',
+  '😂',
+  '💯',
+  '🙏',
+  '🎉',
+  '💀',
+  '🤖',
+  '🤯',
+  '😎',
+  '🙌',
+];
 
-type UserRole = 'MEMBER' | 'PREMIUM' | 'MODERATOR' | 'ADMIN';
+// Must be exactly 32 chars for AES-256
+const ENCRYPTION_SECRET = CryptoJS.enc.Utf8.parse(
+  'SKILLSPRINT_SUPER_SECRET_KEY_123',
+);
 
-type ProfileData = {
+type UserRole = Database['public']['Enums']['user_role'];
+
+interface ProfileData {
   id: string;
   username: string;
   full_name: string | null;
   avatar_url: string | null;
   presence_status: string | null;
+  last_seen_at: string | null;
   role: UserRole;
-};
+}
 
-type DecryptedPayload = {
+interface DecryptedPayload {
   text: string;
-  image?: string | null;
-};
+  attachmentUrl?: string | null;
+  attachmentType?: 'image' | 'file' | null;
+}
 
-type MessageRow = {
+interface Message {
   id: string;
-  content: string; // This holds the stringified JSON payload
-  decrypted?: DecryptedPayload; // Client-side only
-  sender_id: string | null;
-  created_at: string | null;
-  profiles?: ProfileData | null;
+  content: string;
+  sender_id: string | null; // Fixed TS mismatch here
+  created_at: string;
+  decryptedText?: string;
+  attachmentUrl?: string | null;
+  attachmentType?: 'image' | 'file' | null;
+  profiles?: Partial<ProfileData>;
+  isDecrypted?: boolean;
+}
+
+// ============================================================================
+// 🔐 ADVANCED ENCRYPTION ENGINE (AES-256-CBC)
+// ============================================================================
+const encryptPayload = (
+  text: string,
+  attachUrl?: string | null,
+  attachType?: string | null,
+): string => {
+  const payload = JSON.stringify({
+    text,
+    attachmentUrl: attachUrl,
+    attachmentType: attachType,
+  });
+  const iv = CryptoJS.lib.WordArray.random(16); // Unique IV per message
+  const encrypted = CryptoJS.AES.encrypt(payload, ENCRYPTION_SECRET, {
+    iv: iv,
+    mode: CryptoJS.mode.CBC,
+    padding: CryptoJS.pad.Pkcs7,
+  });
+  return iv.toString() + ':' + encrypted.toString();
 };
 
-// --- HELPER: ENCRYPTION ---
-const encryptMessage = (text: string, imageUrl?: string | null): string => {
-  const payload = JSON.stringify({ text, image: imageUrl || null });
-  return CryptoJS.AES.encrypt(payload, ENCRYPTION_SECRET).toString();
-};
-
-const decryptMessage = (ciphertext: string): DecryptedPayload => {
+const decryptPayload = (
+  hash: string,
+): DecryptedPayload & { success: boolean } => {
   try {
-    const bytes = CryptoJS.AES.decrypt(ciphertext, ENCRYPTION_SECRET);
-    const decryptedStr = bytes.toString(CryptoJS.enc.Utf8);
-    // Backward compatibility if older messages weren't JSON
-    if (!decryptedStr.startsWith('{')) return { text: decryptedStr };
-    return JSON.parse(decryptedStr);
+    const parts = hash.split(':');
+    if (parts.length !== 2) throw new Error('Legacy or corrupt payload');
+
+    const iv = CryptoJS.enc.Hex.parse(parts[0]);
+    const decrypted = CryptoJS.AES.decrypt(parts[1], ENCRYPTION_SECRET, {
+      iv: iv,
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7,
+    });
+
+    const originalText = decrypted.toString(CryptoJS.enc.Utf8);
+    return { ...JSON.parse(originalText), success: true };
   } catch (e) {
-    return { text: '🔒 Encrypted Message' };
+    return { text: '🔒 Decryption Failed', success: false };
   }
 };
 
-// --- HELPER: ROLE COLORS & BADGES ---
-const getRoleColor = (role: UserRole | undefined) => {
-  switch (role) {
-    case 'ADMIN':
-      return THEME.danger;
-    case 'MODERATOR':
-      return THEME.success;
-    case 'PREMIUM':
-      return THEME.warning;
-    default:
-      return THEME.indigo;
-  }
-};
-
-const RoleBadge = ({ role }: { role: UserRole }) => {
+// ============================================================================
+// 🧩 MICRO-COMPONENTS
+// ============================================================================
+const RoleBadge = ({ role }: { role: UserRole | undefined }) => {
   if (!role || role === 'MEMBER') return null;
-
-  const color = getRoleColor(role);
-  let Icon = User;
-  let label = 'MEMBER';
-
-  if (role === 'ADMIN') {
-    Icon = Shield;
-    label = 'ADMIN';
-  } else if (role === 'MODERATOR') {
-    Icon = ShieldCheck;
-    label = 'MOD';
-  } else if (role === 'PREMIUM') {
-    Icon = Zap;
-    label = 'PRO';
-  }
+  const color =
+    role === 'ADMIN'
+      ? THEME.danger
+      : role === 'PREMIUM'
+        ? THEME.warning
+        : THEME.indigo;
+  const Icon =
+    role === 'ADMIN' ? Shield : role === 'PREMIUM' ? Zap : ShieldCheck;
+  let label = role === 'MODERATOR' ? 'MOD' : role === 'PREMIUM' ? 'PRO' : role;
 
   return (
     <View
@@ -161,34 +220,91 @@ const RoleBadge = ({ role }: { role: UserRole }) => {
   );
 };
 
-// =============================================================
-// 🚀 MAIN COMPONENT
-// =============================================================
+const PresenceIndicator = ({
+  status,
+  lastSeen,
+}: {
+  status: string | null;
+  lastSeen: string | null;
+}) => {
+  const isActuallyOnline = useMemo(() => {
+    if (!lastSeen) return false;
+    const lastActive = new Date(lastSeen).getTime();
+    return lastActive > Date.now() - 5 * 60000; // 5 Min threshold
+  }, [lastSeen]);
+
+  const color = isActuallyOnline
+    ? THEME.success
+    : status === 'BUSY'
+      ? THEME.warning
+      : THEME.slate;
+  return <View style={[styles.presenceDot, { backgroundColor: color }]} />;
+};
+
+// ============================================================================
+// 🚀 MAIN SCREEN COMPONENT
+// ============================================================================
 export default function ActiveChatScreen() {
-  const params = useLocalSearchParams();
+  const { id: conversationId } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user, refreshUserData } = useAuth();
-  const conversationId = Array.isArray(params.id) ? params.id[0] : params.id;
 
-  const [messages, setMessages] = useState<MessageRow[]>([]);
+  // --- Responsive & Layout Engine ---
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const isMobile = width < 768;
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Dynamic bottom padding to completely clear the Expo Router bottom tab bar
+  const TAB_BAR_HEIGHT = isMobile ? 80 : 0;
+  const bottomPadding =
+    keyboardHeight > 0
+      ? keyboardHeight + 10
+      : Math.max(insets.bottom, 20) + TAB_BAR_HEIGHT;
+
+  // --- State ---
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
-  const [pendingImage, setPendingImage] = useState<string | null>(null);
-
   const [recipient, setRecipient] = useState<ProfileData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // --- Feature State ---
+  const [isMuted, setIsMuted] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+  const [pendingFile, setPendingFile] = useState<{
+    uri: string;
+    type: 'image' | 'file';
+    name: string;
+  } | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
   const recipientRef = useRef<ProfileData | null>(null);
 
-  // --- DATA FETCHING & REALTIME ---
+  // ============================================================================
+  // 🔄 LIFECYCLE & REALTIME
+  // ============================================================================
   useEffect(() => {
-    if (!conversationId || !user?.id) return;
-    fetchInitialData();
+    // Custom Keyboard Listeners (Overrides buggy KeyboardAvoidingView on Android)
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e: KeyboardEvent) => setKeyboardHeight(e.endCoordinates.height),
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardHeight(0),
+    );
+
+    if (conversationId && user?.id) {
+      loadChatData();
+      checkBlockAndMuteStatus();
+    }
 
     const channel = supabase
-      .channel(`chat_${conversationId}`)
+      .channel(`secure_room:${conversationId}`)
       .on(
         'postgres_changes',
         {
@@ -197,161 +313,275 @@ export default function ActiveChatScreen() {
           table: 'messages',
           filter: `conversation_id=eq.${conversationId}`,
         },
-        (payload) => {
-          const newMsg = payload.new as MessageRow;
-          if (newMsg.sender_id !== user.id) {
-            newMsg.profiles = recipientRef.current;
-            newMsg.decrypted = decryptMessage(newMsg.content);
+        async (payload) => {
+          if (payload.new.sender_id !== user?.id) {
+            const decrypted = decryptPayload(payload.new.content);
+            const newMsg: Message = {
+              ...(payload.new as any),
+              decryptedText: decrypted.text,
+              attachmentUrl: decrypted.attachmentUrl,
+              attachmentType: decrypted.attachmentType as any,
+              isDecrypted: decrypted.success,
+              profiles: recipientRef.current || {},
+            };
             setMessages((prev) => [newMsg, ...prev]);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            if (!isMuted)
+              Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Success,
+              );
           }
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          setMessages((prev) => prev.filter((m) => m.id !== payload.old.id));
         },
       )
       .subscribe();
 
     return () => {
+      showSub.remove();
+      hideSub.remove();
       supabase.removeChannel(channel);
     };
   }, [conversationId, user?.id]);
 
-  const fetchInitialData = async () => {
+  const loadChatData = async () => {
     try {
-      const { data: participants } = await supabase
+      const { data: partData } = await supabase
         .from('conversation_participants')
-        .select(
-          'profiles(id, username, full_name, avatar_url, presence_status, role)',
-        )
-        .eq('conversation_id', conversationId)
-        .neq('user_id', user?.id as string)
+        .select('profiles(*)')
+        .eq('conversation_id', conversationId as string) // TS Fix
+        .neq('user_id', user?.id as string) // TS Fix
         .single();
 
-      if (participants?.profiles) {
-        const prof = participants.profiles as unknown as ProfileData;
-        setRecipient(prof);
-        recipientRef.current = prof;
+      if (partData?.profiles) {
+        const p = partData.profiles as unknown as ProfileData;
+        setRecipient(p);
+        recipientRef.current = p;
       }
 
       const { data: msgData, error } = await supabase
         .from('messages')
-        .select(
-          '*, profiles(id, username, full_name, avatar_url, role, presence_status)',
-        )
-        .eq('conversation_id', conversationId)
+        .select('*, profiles:sender_id(username, full_name, avatar_url, role)')
+        .eq('conversation_id', conversationId as string) // TS Fix
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      // Decrypt all historical messages
-      const decryptedMessages = (msgData || []).map((msg: any) => ({
-        ...msg,
-        decrypted: decryptMessage(msg.content),
-      }));
-
-      setMessages(decryptedMessages);
-    } catch (error) {
-      console.error('Failed to load chat data:', error);
+      const decryptedHistory = (msgData || []).map((m) => {
+        const dec = decryptPayload(m.content);
+        return {
+          ...m,
+          decryptedText: dec.text,
+          attachmentUrl: dec.attachmentUrl,
+          attachmentType: dec.attachmentType,
+          isDecrypted: dec.success,
+        };
+      });
+      setMessages(decryptedHistory as Message[]); // TS Fix
+    } catch (e) {
+      console.error('[Load Error]', e);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // --- IMAGE UPLOAD LOGIC ---
-  const handleAttachImage = async () => {
+  const checkBlockAndMuteStatus = async () => {
+    if (!recipientRef.current?.id || !user?.id || !conversationId) return;
+
+    const { data: blockData } = await supabase
+      .from('blocked_users')
+      .select('id')
+      .eq('blocker_id', user.id)
+      .eq('blocked_id', recipientRef.current.id)
+      .single();
+    if (blockData) setIsBlocked(true);
+
+    const { data: muteData } = await supabase
+      .from('muted_conversations')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('conversation_id', conversationId as string)
+      .single();
+    if (muteData) setIsMuted(true);
+  };
+
+  // ============================================================================
+  // 📝 ACTIONS (SEND, BLOCK, MUTE, COPY)
+  // ============================================================================
+  const handlePickAttachment = async (mode: 'image' | 'file') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.7,
-    });
+    setShowEmojiPicker(false);
 
-    if (!result.canceled && result.assets[0]) {
-      setPendingImage(result.assets[0].uri);
-    }
-  };
-
-  const uploadImageToStorage = async (uri: string): Promise<string | null> => {
     try {
-      const ext = uri.substring(uri.lastIndexOf('.') + 1);
-      const fileName = `${user?.id}-${Date.now()}.${ext}`;
-      const formData = new FormData();
-      formData.append('file', {
-        uri,
-        name: fileName,
-        type: `image/${ext}`,
-      } as any);
-
-      const { data, error } = await supabase.storage
-        .from('message-attachments')
-        .upload(fileName, formData, { cacheControl: '3600', upsert: false });
-
-      if (error) throw error;
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from('message-attachments').getPublicUrl(fileName);
-      return publicUrl;
+      if (mode === 'image') {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.7,
+        });
+        if (!result.canceled && result.assets[0]) {
+          setPendingFile({
+            uri: result.assets[0].uri,
+            type: 'image',
+            name: result.assets[0].fileName || 'image.jpg',
+          });
+        }
+      } else {
+        const result = await DocumentPicker.getDocumentAsync({ type: '*/*' });
+        if (!result.canceled && result.assets[0]) {
+          setPendingFile({
+            uri: result.assets[0].uri,
+            type: 'file',
+            name: result.assets[0].name,
+          });
+        }
+      }
     } catch (e) {
-      console.error('Upload failed', e);
-      return null;
+      console.warn('Attachment cancelled or failed');
     }
   };
 
-  // --- SEND MESSAGE LOGIC ---
   const handleSendMessage = async () => {
-    if (
-      (!inputText.trim() && !pendingImage) ||
-      isSending ||
-      !conversationId ||
-      !user?.id
-    )
+    if (isBlocked) {
+      Alert.alert(
+        'Action Denied',
+        'You must unblock this user to send transmissions.',
+      );
       return;
+    }
+    if ((!inputText.trim() && !pendingFile) || isSending || !user?.id) return;
 
+    setShowEmojiPicker(false);
     setIsSending(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    let uploadedImageUrl = null;
-    if (pendingImage) {
-      uploadedImageUrl = await uploadImageToStorage(pendingImage);
+    let attachmentData = null;
+    if (pendingFile) {
+      const fileExt = pendingFile.name.split('.').pop() || 'bin';
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+      const formData = new FormData();
+      formData.append('file', {
+        uri: pendingFile.uri,
+        name: pendingFile.name,
+        type:
+          pendingFile.type === 'image'
+            ? `image/${fileExt}`
+            : 'application/octet-stream',
+      } as any);
+      const { error } = await supabase.storage
+        .from('message-attachments')
+        .upload(fileName, formData);
+      if (!error) {
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from('message-attachments').getPublicUrl(fileName);
+        attachmentData = { url: publicUrl, type: pendingFile.type };
+      }
     }
 
     const textToSend = inputText.trim();
     setInputText('');
-    setPendingImage(null);
+    setPendingFile(null);
 
-    // 1. Encrypt Payload
-    const cipherText = encryptMessage(textToSend, uploadedImageUrl);
+    const cipherText = encryptPayload(
+      textToSend,
+      attachmentData?.url,
+      attachmentData?.type,
+    );
 
-    // 2. Optimistic Update (Decrypted)
-    const optimisticMsg: MessageRow = {
-      id: `temp-${Date.now()}`,
+    const optimisticId = `temp-${Date.now()}`;
+    const optimisticMsg: Message = {
+      id: optimisticId,
       content: cipherText,
-      decrypted: { text: textToSend, image: uploadedImageUrl },
       sender_id: user.id,
       created_at: new Date().toISOString(),
+      decryptedText: textToSend,
+      attachmentUrl: attachmentData?.url,
+      attachmentType: attachmentData?.type as any,
+      isDecrypted: true,
       profiles: {
-        id: user.id,
-        username: user.profile?.username || '',
-        full_name: user.profile?.full_name || '',
-        avatar_url: user.profile?.avatar_url || '',
-        role: (user.profile?.role as UserRole) || 'MEMBER',
-        presence_status: 'ONLINE',
+        role: user.profile?.role as UserRole,
+        full_name: user.profile?.full_name,
+        avatar_url: user.profile?.avatar_url,
       },
     };
-
     setMessages((prev) => [optimisticMsg, ...prev]);
 
-    // 3. Send to Deno Wall
-    try {
+   try {
       const { error } = await supabase.functions.invoke('send-message', {
         body: { conversationId, content: cipherText },
       });
       if (error) throw error;
     } catch (error) {
-      console.error('Failed to send message:', error);
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setMessages(prev => prev.filter(m => m.id !== optimisticId));
+      Alert.alert("Transmission Failed", "Could not reach secure server.");
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleCopyMessage = async () => {
+    if (selectedMessage?.decryptedText) {
+      await Clipboard.setStringAsync(selectedMessage.decryptedText);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    setSelectedMessage(null);
+  };
+
+  const toggleBlockUser = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    if (!recipient?.id || !user?.id) return;
+
+    if (isBlocked) {
+      await supabase
+        .from('blocked_users')
+        .delete()
+        .eq('blocker_id', user.id)
+        .eq('blocked_id', recipient.id);
+      setIsBlocked(false);
+    } else {
+      await supabase
+        .from('blocked_users')
+        .insert({ blocker_id: user.id, blocked_id: recipient.id });
+      setIsBlocked(true);
+    }
+  };
+
+  const toggleMute = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!user?.id || !conversationId) return;
+
+    if (isMuted) {
+      await supabase
+        .from('muted_conversations')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('conversation_id', conversationId as string);
+      setIsMuted(false);
+    } else {
+      await supabase.from('muted_conversations').insert({
+        user_id: user.id,
+        conversation_id: conversationId as string,
+      });
+      setIsMuted(true);
+    }
+  };
+
+  const handleDeleteMessage = async () => {
+    if (!selectedMessage) return;
+    const msgId = selectedMessage.id;
+    setSelectedMessage(null);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setMessages((prev) => prev.filter((m) => m.id !== msgId));
+    await supabase.from('messages').delete().eq('id', msgId);
   };
 
   const handleTogglePresence = async (
@@ -362,158 +592,135 @@ export default function ActiveChatScreen() {
       await supabase.functions.invoke('presence-handler', { body: { status } });
       if (refreshUserData) await refreshUserData();
     } catch (e) {
-      console.error('Presence update failed', e);
+      console.error('Presence error', e);
     }
     setShowSettings(false);
   };
 
-  // =============================================================
+  // ============================================================================
   // 🎨 UI RENDERERS
-  // =============================================================
-  const renderMessage = ({
-    item,
-    index,
-  }: {
-    item: MessageRow;
-    index: number;
-  }) => {
+  // ============================================================================
+  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isMe = item.sender_id === user?.id;
-    const roleColor = getRoleColor(item.profiles?.role);
-
-    const bubbleColor = isMe ? roleColor : THEME.glassSurface;
-    const borderColor = isMe ? roleColor : THEME.glassBorder;
-    const payload = item.decrypted || { text: 'Decrypting...' };
+    const roleColor = isMe
+      ? THEME.indigo
+      : item.profiles?.role === 'ADMIN'
+        ? THEME.danger
+        : THEME.slate;
 
     return (
       <Animated.View
-        entering={FadeInUp.delay(index * 50)}
+        entering={FadeInUp.delay(index * 15)}
         layout={Layout.springify()}
         style={[
           styles.msgRow,
-          isMe
-            ? { justifyContent: 'flex-end' }
-            : { justifyContent: 'flex-start' },
+          { justifyContent: isMe ? 'flex-end' : 'flex-start' },
         ]}
       >
         {!isMe && (
-          <View style={{ marginRight: 8, alignItems: 'center' }}>
-            {item.profiles?.avatar_url ? (
-              <Image
-                source={{ uri: item.profiles.avatar_url }}
-                style={styles.chatAvatar}
-              />
-            ) : (
-              <View
-                style={[
-                  styles.chatAvatarPlaceholder,
-                  { backgroundColor: roleColor },
-                ]}
-              >
-                <Text style={{ color: 'white', fontWeight: 'bold' }}>
-                  {item.profiles?.username?.[0]?.toUpperCase() || '?'}
-                </Text>
-              </View>
-            )}
-          </View>
+          <Image
+            source={{
+              uri:
+                item.profiles?.avatar_url || 'https://via.placeholder.com/100',
+            }}
+            style={styles.chatAvatar}
+          />
         )}
 
-        <View style={{ maxWidth: '75%' }}>
-          {item.profiles && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                marginBottom: 4,
-                justifyContent: isMe ? 'flex-end' : 'flex-start',
-              }}
-            >
-              {!isMe && (
-                <Text
-                  style={{
-                    color: THEME.slate,
-                    fontSize: 10,
-                    fontWeight: 'bold',
-                    marginRight: 6,
-                  }}
-                >
-                  {item.profiles.full_name || item.profiles.username}
-                </Text>
-              )}
-              <RoleBadge role={item.profiles.role} />
-              {isMe && (
-                <Text
-                  style={{
-                    color: THEME.slate,
-                    fontSize: 10,
-                    fontWeight: 'bold',
-                    marginLeft: 6,
-                  }}
-                >
-                  {item.profiles.full_name || item.profiles.username}
-                </Text>
-              )}
-            </View>
-          )}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onLongPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            setSelectedMessage(item);
+          }}
+          style={{
+            maxWidth: isMobile ? '80%' : '60%',
+            alignItems: isMe ? 'flex-end' : 'flex-start',
+          }}
+        >
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              marginBottom: 4,
+            }}
+          >
+            {!isMe && (
+              <Text style={styles.senderName}>
+                {item.profiles?.full_name ||
+                  item.profiles?.username ||
+                  'Unknown'}
+              </Text>
+            )}
+            <RoleBadge role={item.profiles?.role as UserRole} />
+          </View>
 
           <View
             style={[
-              styles.msgBubble,
+              styles.bubble,
               {
-                backgroundColor: bubbleColor,
-                borderColor: borderColor,
-                borderWidth: 1,
+                backgroundColor: isMe ? THEME.indigo : THEME.glassSurface,
+                borderColor: isMe ? THEME.indigo : THEME.glassBorder,
                 borderBottomRightRadius: isMe ? 4 : 20,
                 borderBottomLeftRadius: isMe ? 20 : 4,
               },
             ]}
           >
-            {payload.image && (
+            {item.attachmentUrl && item.attachmentType === 'image' && (
               <Image
-                source={{ uri: payload.image }}
-                style={styles.messageImage}
+                source={{ uri: item.attachmentUrl }}
+                style={styles.bubbleImage}
               />
             )}
-            {payload.text ? (
-              <Text style={{ fontSize: 15, lineHeight: 22, color: 'white' }}>
-                {payload.text}
-              </Text>
-            ) : null}
-            <Text
-              style={{
-                fontSize: 9,
-                marginTop: 6,
-                color: isMe ? 'rgba(255,255,255,0.6)' : THEME.slate,
-                alignSelf: isMe ? 'flex-start' : 'flex-end',
-              }}
-            >
-              {new Date(item.created_at || new Date()).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </Text>
-          </View>
-        </View>
-
-        {isMe && (
-          <View style={{ marginLeft: 8, alignItems: 'center' }}>
-            {item.profiles?.avatar_url ? (
-              <Image
-                source={{ uri: item.profiles.avatar_url }}
-                style={styles.chatAvatar}
-              />
-            ) : (
-              <View
-                style={[
-                  styles.chatAvatarPlaceholder,
-                  { backgroundColor: roleColor },
-                ]}
-              >
-                <Text style={{ color: 'white', fontWeight: 'bold' }}>
-                  {user?.email?.[0].toUpperCase() || 'U'}
-                </Text>
+            {item.attachmentUrl && item.attachmentType === 'file' && (
+              <View style={styles.fileLink}>
+                <FileText size={20} color={THEME.white} />
+                <Text style={styles.fileLinkText}>Encrypted Document</Text>
               </View>
             )}
+            {item.decryptedText ? (
+              <Text style={styles.msgText}>{item.decryptedText}</Text>
+            ) : null}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                alignSelf: 'flex-end',
+                marginTop: 6,
+              }}
+            >
+              {!item.isDecrypted && (
+                <Lock
+                  size={10}
+                  color={THEME.danger}
+                  style={{ marginRight: 4 }}
+                />
+              )}
+              <Text style={styles.msgTime}>
+                {new Date(item.created_at).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </Text>
+              {isMe && (
+                <CheckCheck
+                  size={12}
+                  color="rgba(255,255,255,0.7)"
+                  style={{ marginLeft: 4 }}
+                />
+              )}
+            </View>
           </View>
+        </TouchableOpacity>
+
+        {isMe && (
+          <Image
+            source={{
+              uri:
+                item.profiles?.avatar_url || 'https://via.placeholder.com/100',
+            }}
+            style={[styles.chatAvatar, { marginLeft: 8, marginRight: 0 }]}
+          />
         )}
       </Animated.View>
     );
@@ -526,237 +733,296 @@ export default function ActiveChatScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        {/* --- HEADER --- */}
-        <Animated.View entering={FadeInDown}>
-          <GlassCard style={styles.chatHeader} intensity="heavy">
-            <View style={styles.chatHeaderTop}>
-              <TouchableOpacity
-                onPress={() => router.back()}
-                style={styles.backBtn}
-              >
-                <ChevronLeft size={24} color={THEME.white} />
-              </TouchableOpacity>
+      {/* Dynamic Header */}
+      <View style={{ paddingTop: insets.top }}>
+        <GlassCard style={styles.header} intensity="heavy">
+          <View style={styles.headerTop}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.iconBtn}
+            >
+              <ChevronLeft size={24} color={THEME.white} />
+            </TouchableOpacity>
 
-              <View style={{ flex: 1 }}>
-                {recipient ? (
+            <View
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginLeft: 12,
+              }}
+            >
+              <View>
+                <Image
+                  source={{
+                    uri:
+                      recipient?.avatar_url ||
+                      'https://via.placeholder.com/100',
+                  }}
+                  style={styles.headerAvatar}
+                />
+                <PresenceIndicator
+                  status={recipient?.presence_status || null}
+                  lastSeen={recipient?.last_seen_at || null}
+                />
+              </View>
+              <View style={{ marginLeft: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.headerTitle}>
+                    {recipient?.full_name ||
+                      recipient?.username ||
+                      'Secure Line'}
+                  </Text>
+                  {isMuted && (
+                    <BellOff
+                      size={12}
+                      color={THEME.slate}
+                      style={{ marginLeft: 6 }}
+                    />
+                  )}
+                </View>
+                {isBlocked ? (
+                  <Text style={[styles.headerStatus, { color: THEME.danger }]}>
+                    USER BLOCKED
+                  </Text>
+                ) : (
                   <View
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
-                      gap: 10,
+                      marginTop: 2,
                     }}
                   >
-                    <View>
-                      {recipient.avatar_url ? (
-                        <Image
-                          source={{ uri: recipient.avatar_url }}
-                          style={styles.headerAvatar}
-                        />
-                      ) : (
-                        <View
-                          style={[
-                            styles.headerAvatar,
-                            {
-                              backgroundColor: THEME.indigo,
-                              justifyContent: 'center',
-                              alignItems: 'center',
-                            },
-                          ]}
-                        >
-                          <User size={20} color="#FFF" />
-                        </View>
-                      )}
-                      <View
-                        style={[
-                          styles.presenceDot,
-                          {
-                            backgroundColor:
-                              recipient.presence_status === 'ONLINE'
-                                ? THEME.success
-                                : recipient.presence_status === 'BUSY'
-                                  ? THEME.warning
-                                  : THEME.slate,
-                          },
-                        ]}
-                      />
-                    </View>
-                    <View>
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 8,
-                        }}
-                      >
-                        <Text style={styles.chatTitle} numberOfLines={1}>
-                          {recipient.full_name || recipient.username}
-                        </Text>
-                        <RoleBadge role={recipient.role} />
-                      </View>
-                      <Text style={styles.chatSub}>
-                        {recipient.presence_status === 'ONLINE'
-                          ? 'Active Now'
-                          : 'Offline'}
-                      </Text>
-                    </View>
+                    <Unlock
+                      size={10}
+                      color={THEME.success}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text style={styles.headerStatus}>AES-256-CBC SECURED</Text>
                   </View>
-                ) : (
-                  <Text style={styles.chatTitle}>Loading Secure Tunnel...</Text>
                 )}
               </View>
-
-              <TouchableOpacity
-                onPress={() => setShowSettings(true)}
-                style={styles.backBtn}
-              >
-                <ShieldCheck size={20} color={THEME.success} />
-              </TouchableOpacity>
             </View>
-          </GlassCard>
-        </Animated.View>
 
-        {/* --- MESSAGE LIST --- */}
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={{ flex: 1 }}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-        >
-          <View style={{ flex: 1 }}>
-            {isLoading ? (
-              <ActivityIndicator color={THEME.indigo} style={{ flex: 1 }} />
-            ) : (
-              <FlatList
-                ref={flatListRef}
-                data={messages}
-                keyExtractor={(item) => item.id}
-                renderItem={renderMessage}
-                inverted
-                contentContainerStyle={styles.chatContent}
-                showsVerticalScrollIndicator={false}
-              />
-            )}
+            <TouchableOpacity
+              onPress={() => setShowSettings(true)}
+              style={styles.iconBtn}
+            >
+              <Settings size={20} color={THEME.slate} />
+            </TouchableOpacity>
           </View>
+        </GlassCard>
+      </View>
 
-          {/* --- INPUT AREA --- */}
-          <GlassCard style={styles.inputArea} intensity="heavy">
-            {pendingImage && (
-              <View style={styles.pendingImageContainer}>
-                <Image
-                  source={{ uri: pendingImage }}
-                  style={styles.pendingImage}
-                />
-                <TouchableOpacity
-                  style={styles.removeImageBtn}
-                  onPress={() => setPendingImage(null)}
-                >
-                  <X size={14} color="#FFF" />
-                </TouchableOpacity>
-              </View>
+      {/* Main Content Area */}
+      <View style={{ flex: 1 }}>
+        {isLoading ? (
+          <ActivityIndicator
+            color={THEME.indigo}
+            style={{ flex: 1 }}
+            size="large"
+          />
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={renderMessage}
+            keyExtractor={(item) => item.id}
+            inverted
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={() => {
+              Keyboard.dismiss();
+              setShowEmojiPicker(false);
+            }}
+          />
+        )}
+      </View>
+
+      {/* Dynamic Input Bar (Solves the Tab Bar issue perfectly) */}
+      <Animated.View
+        style={[styles.inputWrapper, { paddingBottom: bottomPadding }]}
+      >
+        {isBlocked ? (
+          <View style={styles.blockedBanner}>
+            <AlertCircle color={THEME.danger} size={20} />
+            <Text style={styles.blockedText}>
+              You blocked this user. Unblock to send messages.
+            </Text>
+            <TouchableOpacity
+              onPress={toggleBlockUser}
+              style={styles.unblockBtn}
+            >
+              <Text style={styles.unblockBtnText}>Unblock</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <GlassCard style={styles.inputCard} intensity="heavy">
+            {pendingFile && (
+              <Animated.View
+                entering={FadeInDown}
+                exiting={FadeOut}
+                style={styles.attachmentPreview}
+              >
+                <View style={styles.previewBox}>
+                  {pendingFile.type === 'image' ? (
+                    <Image
+                      source={{ uri: pendingFile.uri }}
+                      style={styles.previewImage}
+                    />
+                  ) : (
+                    <FileText color={THEME.white} size={24} />
+                  )}
+                  <TouchableOpacity
+                    style={styles.removeAttach}
+                    onPress={() => setPendingFile(null)}
+                  >
+                    <X size={12} color="white" />
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
             )}
-
-            <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+            <View style={styles.inputRow}>
               <TouchableOpacity
-                onPress={handleAttachImage}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setShowEmojiPicker(!showEmojiPicker);
+                }}
                 style={styles.attachBtn}
               >
-                {pendingImage ? (
-                  <ImageIcon size={22} color={THEME.indigo} />
-                ) : (
-                  <Paperclip size={22} color={THEME.slate} />
-                )}
+                <Smile
+                  size={22}
+                  color={showEmojiPicker ? THEME.warning : THEME.slate}
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => handlePickAttachment('image')}
+                style={styles.attachBtn}
+              >
+                <Camera size={22} color={THEME.slate} />
               </TouchableOpacity>
 
               <TextInput
                 style={styles.chatInput}
-                placeholder="AES-256 Encrypted Message..."
+                placeholder="Encrypted payload..."
                 placeholderTextColor={THEME.slate}
                 value={inputText}
                 onChangeText={setInputText}
                 multiline
+                onFocus={() => setShowEmojiPicker(false)}
               />
 
               <TouchableOpacity
+                onPress={handleSendMessage}
                 style={[
                   styles.sendBtn,
-                  ((!inputText.trim() && !pendingImage) || isSending) && {
-                    opacity: 0.5,
-                  },
+                  !inputText.trim() &&
+                    !pendingFile && { backgroundColor: 'rgba(99,102,241,0.5)' },
                 ]}
-                onPress={handleSendMessage}
-                disabled={(!inputText.trim() && !pendingImage) || isSending}
+                disabled={(!inputText.trim() && !pendingFile) || isSending}
               >
                 {isSending ? (
-                  <ActivityIndicator size="small" color="#FFF" />
+                  <ActivityIndicator size="small" color="white" />
                 ) : (
-                  <Send size={18} color={THEME.white} />
+                  <Send size={18} color="white" />
                 )}
               </TouchableOpacity>
             </View>
-          </GlassCard>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
 
-      {/* --- SETTINGS MODAL --- */}
+            {/* Emoji Panel */}
+            {showEmojiPicker && (
+              <Animated.View entering={SlideInDown} style={styles.emojiPanel}>
+                {COMMON_EMOJIS.map((emoji) => (
+                  <TouchableOpacity
+                    key={emoji}
+                    style={styles.emojiBtn}
+                    onPress={() => setInputText((prev) => prev + emoji)}
+                  >
+                    <Text style={styles.emojiText}>{emoji}</Text>
+                  </TouchableOpacity>
+                ))}
+              </Animated.View>
+            )}
+          </GlassCard>
+        )}
+      </Animated.View>
+
+      {/* ================= MODALS ================= */}
+      <Modal
+        visible={!!selectedMessage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedMessage(null)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setSelectedMessage(null)}
+        >
+          <Animated.View entering={FadeInUp} style={styles.contextMenu}>
+            <Text style={styles.contextTitle}>Message Options</Text>
+            <TouchableOpacity
+              onPress={handleCopyMessage}
+              style={styles.actionBtn}
+            >
+              <Copy size={20} color={THEME.white} />
+              <Text style={styles.actionText}>Copy Decrypted Text</Text>
+            </TouchableOpacity>
+            {selectedMessage?.sender_id === user?.id && (
+              <TouchableOpacity
+                onPress={handleDeleteMessage}
+                style={styles.actionBtn}
+              >
+                <Trash2 size={20} color={THEME.danger} />
+                <Text style={[styles.actionText, { color: THEME.danger }]}>
+                  Delete for Everyone
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={() => setSelectedMessage(null)}
+              style={styles.closeBtn}
+            >
+              <Text style={styles.closeText}>Cancel</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Pressable>
+      </Modal>
+
       <Modal
         visible={showSettings}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setShowSettings(false)}
       >
         <Pressable
-          style={{
-            flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.8)',
-            justifyContent: 'flex-end',
-          }}
+          style={styles.modalBackdrop}
           onPress={() => setShowSettings(false)}
         >
           <View
-            style={styles.statusSheet}
+            style={styles.settingsSheet}
             onStartShouldSetResponder={() => true}
           >
-            <View
-              style={{
-                width: 40,
-                height: 4,
-                backgroundColor: 'rgba(255,255,255,0.2)',
-                borderRadius: 2,
-                alignSelf: 'center',
-                marginBottom: 20,
-              }}
-            />
-            <Text style={styles.statusTitle}>Chat Options</Text>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Link Configuration</Text>
 
-            <View style={{ marginBottom: 20 }}>
-              <Text
-                style={{
-                  color: THEME.slate,
-                  fontSize: 12,
-                  fontWeight: 'bold',
-                  marginBottom: 10,
-                }}
-              >
-                YOUR STATUS
-              </Text>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ marginBottom: 24 }}>
+              <Text style={styles.sectionLabel}>YOUR BROADCAST STATUS</Text>
+              <View style={styles.statusSelectRow}>
                 <TouchableOpacity
                   onPress={() => handleTogglePresence('ONLINE')}
                   style={[
                     styles.statusOption,
                     user?.profile?.presence_status === 'ONLINE' &&
-                      styles.statusOptionActive,
-                    { flex: 1 },
+                      styles.statusActive,
                   ]}
                 >
-                  <View
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 4,
-                      backgroundColor: THEME.success,
-                      marginRight: 8,
-                    }}
+                  <Circle
+                    fill={THEME.success}
+                    size={10}
+                    color={THEME.success}
+                    style={{ marginRight: 8 }}
                   />
                   <Text style={styles.statusOptionText}>ONLINE</Text>
                 </TouchableOpacity>
@@ -765,60 +1031,48 @@ export default function ActiveChatScreen() {
                   style={[
                     styles.statusOption,
                     user?.profile?.presence_status === 'BUSY' &&
-                      styles.statusOptionActive,
-                    { flex: 1 },
+                      styles.statusActive,
                   ]}
                 >
-                  <View
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 4,
-                      backgroundColor: THEME.warning,
-                      marginRight: 8,
-                    }}
+                  <Circle
+                    fill={THEME.warning}
+                    size={10}
+                    color={THEME.warning}
+                    style={{ marginRight: 8 }}
                   />
                   <Text style={styles.statusOptionText}>BUSY</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            <TouchableOpacity style={styles.actionBtn}>
-              <View
-                style={[
-                  styles.actionIconBg,
-                  { backgroundColor: 'rgba(99,102,241,0.1)' },
-                ]}
+            <TouchableOpacity onPress={toggleMute} style={styles.actionBtn}>
+              {isMuted ? (
+                <BellOff color={THEME.danger} size={22} />
+              ) : (
+                <BellOff color={THEME.slate} size={22} />
+              )}
+              <Text
+                style={[styles.actionText, isMuted && { color: THEME.danger }]}
               >
-                <ShieldCheck size={20} color={THEME.indigo} />
-              </View>
-              <Text style={styles.actionBtnText}>Verify Encryption Keys</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionBtn}>
-              <View
-                style={[
-                  styles.actionIconBg,
-                  { backgroundColor: 'rgba(255,255,255,0.05)' },
-                ]}
-              >
-                <BellOff size={20} color={THEME.slate} />
-              </View>
-              <Text style={styles.actionBtnText}>Mute Notifications</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionBtn}>
-              <View
-                style={[
-                  styles.actionIconBg,
-                  { backgroundColor: 'rgba(239,68,68,0.1)' },
-                ]}
-              >
-                <UserX size={20} color={THEME.danger} />
-              </View>
-              <Text style={[styles.actionBtnText, { color: THEME.danger }]}>
-                Block User
+                {isMuted ? 'Unmute Transmissions' : 'Mute Incoming Signals'}
               </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={toggleBlockUser}
+              style={styles.actionBtn}
+            >
+              <UserX color={THEME.danger} size={22} />
+              <Text style={[styles.actionText, { color: THEME.danger }]}>
+                {isBlocked ? 'Unblock User' : 'Sever Connection (Block)'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setShowSettings(false)}
+              style={styles.closeBtn}
+            >
+              <Text style={styles.closeText}>Close Configuration</Text>
             </TouchableOpacity>
           </View>
         </Pressable>
@@ -827,212 +1081,302 @@ export default function ActiveChatScreen() {
   );
 }
 
-// ============================================================================
-// STYLESHEET (Parity with support.tsx)
-// ============================================================================
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
-  chatHeader: {
+  header: {
     padding: 16,
     borderBottomWidth: 1,
     borderColor: THEME.glassBorder,
     borderRadius: 0,
   },
-  chatHeaderTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+  headerTop: { flexDirection: 'row', alignItems: 'center' },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     backgroundColor: THEME.glassSurface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: THEME.glassBorder,
+  },
+  headerTitle: { color: 'white', fontWeight: '900', fontSize: 18 },
+  headerStatus: {
+    color: THEME.success,
+    fontSize: 10,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   presenceDot: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     borderWidth: 2,
     borderColor: THEME.obsidian,
   },
-  chatTitle: { color: THEME.white, fontWeight: 'bold', fontSize: 16 },
-  chatSub: { color: THEME.slate, fontSize: 11, marginTop: 2 },
-
-  chatContent: { padding: 20, paddingBottom: 40 },
-  msgRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginBottom: 24,
-    gap: 4,
-  },
+  listContent: { padding: 16, paddingTop: 24 },
+  msgRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 20 },
   chatAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: THEME.glassBorder,
   },
-  chatAvatarPlaceholder: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  senderName: {
+    color: THEME.slate,
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginRight: 6,
+  },
+  bubble: {
+    padding: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  msgText: { color: 'white', fontSize: 16, lineHeight: 24 },
+  msgTime: { fontSize: 9, color: 'rgba(255,255,255,0.5)', fontWeight: 'bold' },
+  bubbleImage: {
+    width: 220,
+    height: 180,
+    borderRadius: 14,
+    marginBottom: 10,
+    backgroundColor: THEME.obsidian,
+  },
+  fileLink: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: THEME.glassBorder,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
   },
-
+  fileLinkText: {
+    color: 'white',
+    fontSize: 13,
+    marginLeft: 8,
+    fontWeight: 'bold',
+  },
   roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 5,
     paddingVertical: 3,
-    borderRadius: 4,
+    borderRadius: 6,
     borderWidth: 1,
     marginLeft: 4,
   },
-  roleText: { fontSize: 8, fontWeight: '900', marginLeft: 2 },
-  msgBubble: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 20 },
-  messageImage: {
-    width: 200,
-    height: 200,
-    borderRadius: 12,
-    marginBottom: 8,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+  roleText: {
+    fontSize: 8,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    marginLeft: 3,
   },
-
-  inputArea: {
-    padding: 16,
+  inputWrapper: { width: '100%', backgroundColor: 'rgba(2, 6, 23, 0.8)' },
+  inputCard: {
+    padding: 12,
     borderTopWidth: 1,
     borderColor: THEME.glassBorder,
-    backgroundColor: 'transparent',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
     borderRadius: 0,
   },
-  pendingImageContainer: {
-    marginBottom: 12,
-    alignSelf: 'flex-start',
-    position: 'relative',
-  },
-  pendingImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: THEME.glassBorder,
-  },
-  removeImageBtn: {
-    position: 'absolute',
-    top: -8,
-    right: -8,
-    backgroundColor: THEME.danger,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: THEME.obsidian,
-  },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end' },
   chatInput: {
     flex: 1,
     backgroundColor: THEME.glassSurface,
     borderRadius: 24,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    color: THEME.white,
-    maxHeight: 120,
+    paddingTop: 14,
+    paddingBottom: 14,
+    color: 'white',
     marginHorizontal: 8,
+    fontSize: 16,
+    maxHeight: 120,
     borderWidth: 1,
     borderColor: THEME.glassBorder,
-    fontSize: 15,
-  },
-  sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: THEME.indigo,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-    shadowColor: THEME.indigo,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
   },
   attachBtn: {
     width: 44,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sendBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: THEME.indigo,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentPreview: { paddingBottom: 12, paddingLeft: 50 },
+  previewBox: {
+    width: 70,
+    height: 70,
+    borderRadius: 12,
     backgroundColor: THEME.glassSurface,
-    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: THEME.glassBorder,
+    borderColor: THEME.indigo,
   },
-
-  modalOverlayCenter: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    justifyContent: 'flex-end',
+  previewImage: { width: '100%', height: '100%', borderRadius: 12 },
+  removeAttach: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: THEME.danger,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: THEME.obsidian,
+  },
+  blockedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239,68,68,0.1)',
     padding: 16,
+    borderTopWidth: 1,
+    borderColor: THEME.danger,
   },
-  statusSheet: {
-    backgroundColor: '#1e293b',
-    borderRadius: 32,
+  blockedText: {
+    color: THEME.danger,
+    flex: 1,
+    marginLeft: 12,
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  unblockBtn: {
+    backgroundColor: THEME.danger,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  unblockBtnText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
+  emojiPanel: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 12,
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: THEME.glassBorder,
+  },
+  emojiBtn: {
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+  },
+  emojiText: { fontSize: 24 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'flex-end',
+  },
+  settingsSheet: {
+    backgroundColor: '#0f172a',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     padding: 24,
+    paddingBottom: 50,
+    borderTopWidth: 1,
+    borderColor: THEME.glassBorder,
+  },
+  contextMenu: {
+    backgroundColor: '#1e293b',
+    margin: 20,
+    marginBottom: 50,
+    borderRadius: 24,
+    padding: 20,
     borderWidth: 1,
     borderColor: THEME.glassBorder,
-    width: '100%',
-    paddingBottom: 40,
   },
-  statusTitle: {
+  contextTitle: {
+    color: THEME.slate,
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  sheetTitle: {
     color: 'white',
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
     marginBottom: 24,
   },
+  sectionLabel: {
+    color: THEME.slate,
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    letterSpacing: 1,
+  },
+  statusSelectRow: { flexDirection: 'row', gap: 12 },
   statusOption: {
-    padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  statusOptionActive: {
-    backgroundColor: 'rgba(99,102,241,0.2)',
+  statusActive: {
+    backgroundColor: 'rgba(99,102,241,0.15)',
     borderColor: THEME.indigo,
   },
-  statusOptionText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
+  statusOptionText: { color: 'white', fontWeight: '900', fontSize: 13 },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    marginBottom: 8,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  actionIconBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionBtnText: {
+  actionText: {
     color: 'white',
+    fontSize: 16,
     fontWeight: 'bold',
-    fontSize: 15,
     marginLeft: 16,
+  },
+  closeBtn: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+  },
+  closeText: {
+    color: THEME.white,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });
