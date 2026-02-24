@@ -64,6 +64,14 @@ lerna-debug.log*
 *.sw?
 Thumbs.db
 Desktop.ini
+*.GEMINI.MD
+# ==========================================
+# 🧪 TESTING & COVERAGE
+# ==========================================
+coverage/
+__tests__/
+*.spec.js
+*.test.js
 
 # ==========================================
 # 📱 NATIVE GENERATED FOLDERS 

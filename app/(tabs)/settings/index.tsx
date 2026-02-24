@@ -39,6 +39,8 @@ import {
   CreditCard,
   LifeBuoy,
   Cog,
+  ChevronLeft,
+  SlidersHorizontal,
 } from 'lucide-react-native';
 
 import { useAuth } from '@/context/AuthContext';
@@ -163,11 +165,22 @@ export default function SettingsScreen() {
       />
 
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        {/* --- CUSTOM HEADER (Cog Only) --- */}
+        {/* --- HEADER --- */}
         <View style={styles.header}>
-          <Cog size={28} color={THEME.white} />
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+            activeOpacity={0.8}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <ChevronLeft size={24} color={THEME.white} />
+          </TouchableOpacity>
+          <View style={styles.headerIconBox}>
+            <SlidersHorizontal size={18} color={THEME.white} />
+          </View>
+          <View style={{ width: 40 }} />
         </View>
-
+        {/* --- CONTENT --- */}
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -350,9 +363,16 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24,
     paddingVertical: 16,
-    alignItems: 'center', // Center Horizontally
-    justifyContent: 'center', // Center Vertically
+    flexDirection: 'row', // Align items horizontally
+    justifyContent: 'space-between', // Distribute items along the main axis
+    alignItems: 'center', // Center items vertically
     // No border here (Native header hidden via Stack.Screen)
+  },
+  backButton: {
+    // No specific styles needed here, parent View handles positioning
+  },
+  headerIconBox: {
+    // No specific styles needed here, parent View handles positioning
   },
 
   scrollContent: { padding: 20, paddingBottom: 100 },

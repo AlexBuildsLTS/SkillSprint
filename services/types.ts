@@ -8,6 +8,16 @@ export type Profile = Tables<'profiles'>;
 export type UserStats = Tables<'user_stats'>;
 export type Track = Tables<'tracks'>;
 export type Lesson = Tables<'lessons'>;
+export type Notification = Tables<'notifications'>;
+export type Conversation = Tables<'conversations'>;
+export type Message = Tables<'messages'>;
+export type ConversationParticipant = Tables<'conversation_participants'>;
+
+export interface ConversationWithDetails extends Conversation {
+  participants: (ConversationParticipant & { profiles: Profile })[];
+  last_message?: Message;
+  unread_count?: number;
+}
 
 // --- SPRINT & AI TYPES ---
 export interface SprintCard {

@@ -200,4 +200,87 @@ export const api = {
     if (error) throw error;
     return data;
   },
+
+  /**
+   * 🔔 NOTIFICATIONS: FETCH REAL-TIME NOTIFICATIONS
+   * Direct Supabase query for immediate display.
+   */
+  getNotifications: async (userId: string) => {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data;
+  },
+
+  /**
+   * 🔔 NOTIFICATIONS: MARK READ (EDGE FUNCTION)
+   * All mutations MUST bypass direct DB access via Deno Wall.
+   */
+  markNotificationRead: async (notificationId: string) => {
+    const { data, error } = await supabase.functions.invoke(
+      'notification-handler',
+      {
+        body: { action: 'MARK_READ', notificationId },
+      },
+    );
+    if (error) throw error;
+    return data;
+  },
+
+  /**
+   * 🔔 NOTIFICATIONS: MARK ALL READ (EDGE FUNCTION)
+   */
+  markAllNotificationsRead: async () => {
+    const { data, error } = await supabase.functions.invoke(
+      'notification-handler',
+      {
+        body: { action: 'MARK_ALL_READ' },
+      },
+    );
+    if (error) throw error;
+    return data;
+  },
+
+  /**
+   * 💬 MESSAGING: FETCH CONVERSATIONS
+   */
+  getConversations: async () => {
+    // This query fetches conversations with participant details and last message
+    const { data, error } = await supabase
+      .from('conversations')
+      .select(
+        '*, conversation_participants!inner(user_id, profiles(*)), messages(content, created_at, sender_id)',
+      )
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+    return data;
+  },
+
+  /**
+   * 💬 MESSAGING: SEND MESSAGE (EDGE FUNCTION)
+   * Strictly Deno-mediated for encryption validation/parsing.
+   */
+  sendMessage: async (conversationId: string, content: string) => {
+    const { data, error } = await supabase.functions.invoke('send-message', {
+      body: { conversationId, content },
+    });
+    if (error) throw error;
+    return data;
+  },
+
+  /**
+   * 🌐 PRESENCE: UPDATE STATUS (EDGE FUNCTION)
+   */
+  updatePresence: async (status: 'ONLINE' | 'OFFLINE' | 'BUSY') => {
+    const { data, error } = await supabase.functions.invoke('presence-handler', {
+      body: { status },
+    });
+    if (error) throw error;
+    return data;
+  },
 };

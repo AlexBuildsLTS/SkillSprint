@@ -1,13 +1,20 @@
 {
-  "pgsql.connections": {
-    "items": []
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    "source.fixAll": true
   },
+
   "deno.enable": false,
   "deno.lint": true,
   "deno.unstable": [],
   "deno.enablePaths": ["supabase/functions"],
   "deno.importMap": "supabase/functions/deno.json",
   "cSpell.words": [
+    "Noti",
+    "noti",
+    "ilike",
+    "conv",
     "alexbuildslts",
     "apikey",
     "bento",

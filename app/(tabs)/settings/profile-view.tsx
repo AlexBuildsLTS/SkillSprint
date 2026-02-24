@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import {
+  Dna,
   Settings,
   LifeBuoy,
   LogOut,
@@ -305,7 +306,7 @@ export default function ProfileViewScreen() {
                 />
               )}
               <MenuItem
-                icon={Settings}
+                icon={Dna}
                 label="Advanced Settings"
                 subtitle="Security, notifications, data"
                 onPress={() => router.push('/(tabs)/settings')}

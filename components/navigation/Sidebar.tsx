@@ -18,15 +18,17 @@ const Sidebar = () => {
 
   return (
     <View className="w-72 bg-[#020617] h-full border-r border-slate-800/50 flex flex-col md:flex pt-8 pb-6 px-4">
-      
       {/* PROFILE HEADER (Top Left) */}
       <View className="flex-row items-center gap-3 px-2 mb-10">
         <View className="items-center justify-center w-10 h-10 overflow-hidden border rounded-xl bg-indigo-500/20 border-indigo-500/50">
-           {user?.profile?.avatar_url ? (
-             <Image source={{ uri: user.profile.avatar_url }} className="w-full h-full" />
-           ) : (
-             <ShieldCheck size={20} color="#6366f1" />
-           )}
+          {user?.profile?.avatar_url ? (
+            <Image
+              source={{ uri: user.profile.avatar_url }}
+              className="w-full h-full"
+            />
+          ) : (
+            <ShieldCheck size={20} color="#6366f1" />
+          )}
         </View>
         <View>
           <Text className="text-sm font-bold text-white">
@@ -41,18 +43,27 @@ const Sidebar = () => {
       {/* NAVIGATION ITEMS */}
       <View className="flex-1 gap-2">
         {navItems.map((item) => {
-          const isActive = pathname === item.path || (item.path === '/' && pathname === '/index');
+          const isActive =
+            pathname === item.path ||
+            (item.path === '/' && pathname === '/index');
           return (
             <Pressable
               key={item.path}
               onPress={() => router.push(item.path as any)}
               className={clsx(
-                "flex-row items-center gap-4 px-4 py-3.5 rounded-xl transition-all",
-                isActive ? "bg-indigo-500/10 border border-indigo-500/20" : "hover:bg-slate-800/50 border border-transparent"
+                'flex-row items-center gap-4 px-4 py-3.5 rounded-xl transition-all',
+                isActive
+                  ? 'bg-indigo-500/10 border border-indigo-500/20'
+                  : 'hover:bg-slate-800/50 border border-transparent',
               )}
             >
               <item.icon size={18} color={isActive ? '#6366f1' : '#64748b'} />
-              <Text className={clsx("font-bold text-sm tracking-wide", isActive ? "text-white" : "text-slate-500")}>
+              <Text
+                className={clsx(
+                  'font-bold text-sm tracking-wide',
+                  isActive ? 'text-white' : 'text-slate-500',
+                )}
+              >
                 {item.label}
               </Text>
             </Pressable>
@@ -67,7 +78,9 @@ const Sidebar = () => {
         </Text>
         <View className="flex-row items-center gap-2">
           <View className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-          <Text className="text-emerald-500 text-[10px] font-bold tracking-wide">Deno Edge: Online</Text>
+          <Text className="text-emerald-500 text-[10px] font-bold tracking-wide">
+            Deno Edge: Online
+          </Text>
         </View>
       </View>
     </View>

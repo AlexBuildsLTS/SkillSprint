@@ -65,6 +65,66 @@ export type Database = {
         };
         Relationships: [];
       };
+      conversation_participants: {
+        Row: {
+          conversation_id: string;
+          joined_at: string | null;
+          last_read_at: string | null;
+          user_id: string;
+        };
+        Insert: {
+          conversation_id: string;
+          joined_at?: string | null;
+          last_read_at?: string | null;
+          user_id: string;
+        };
+        Update: {
+          conversation_id?: string;
+          joined_at?: string | null;
+          last_read_at?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'conversation_participants_conversation_id_fkey';
+            columns: ['conversation_id'];
+            isOneToOne: false;
+            referencedRelation: 'conversations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'conversation_participants_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      conversations: {
+        Row: {
+          created_at: string | null;
+          id: string;
+          is_group: boolean | null;
+          name: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          created_at?: string | null;
+          id?: string;
+          is_group?: boolean | null;
+          name?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          created_at?: string | null;
+          id?: string;
+          is_group?: boolean | null;
+          name?: string | null;
+          updated_at?: string | null;
+        };
+        Relationships: [];
+      };
       daily_sprints: {
         Row: {
           created_at: string | null;
@@ -147,6 +207,89 @@ export type Database = {
           },
         ];
       };
+      messages: {
+        Row: {
+          attachment_type: string | null;
+          attachment_url: string | null;
+          content: string;
+          conversation_id: string;
+          created_at: string | null;
+          id: string;
+          sender_id: string | null;
+        };
+        Insert: {
+          attachment_type?: string | null;
+          attachment_url?: string | null;
+          content: string;
+          conversation_id: string;
+          created_at?: string | null;
+          id?: string;
+          sender_id?: string | null;
+        };
+        Update: {
+          attachment_type?: string | null;
+          attachment_url?: string | null;
+          content?: string;
+          conversation_id?: string;
+          created_at?: string | null;
+          id?: string;
+          sender_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'messages_conversation_id_fkey';
+            columns: ['conversation_id'];
+            isOneToOne: false;
+            referencedRelation: 'conversations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'messages_sender_id_fkey';
+            columns: ['sender_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      notifications: {
+        Row: {
+          created_at: string | null;
+          id: string;
+          is_read: boolean | null;
+          message: string;
+          title: string;
+          type: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string | null;
+          id?: string;
+          is_read?: boolean | null;
+          message: string;
+          title: string;
+          type: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string | null;
+          id?: string;
+          is_read?: boolean | null;
+          message?: string;
+          title?: string;
+          type?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'notifications_user_id_fkey';
+            columns: ['user_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       profiles: {
         Row: {
           avatar_url: string | null;
@@ -155,6 +298,8 @@ export type Database = {
           email: string | null;
           full_name: string | null;
           id: string;
+          last_seen_at: string | null;
+          presence_status: string | null;
           role: Database['public']['Enums']['user_role'];
           status: string | null;
           updated_at: string;
@@ -167,6 +312,8 @@ export type Database = {
           email?: string | null;
           full_name?: string | null;
           id: string;
+          last_seen_at?: string | null;
+          presence_status?: string | null;
           role?: Database['public']['Enums']['user_role'];
           status?: string | null;
           updated_at?: string;
@@ -179,6 +326,8 @@ export type Database = {
           email?: string | null;
           full_name?: string | null;
           id?: string;
+          last_seen_at?: string | null;
+          presence_status?: string | null;
           role?: Database['public']['Enums']['user_role'];
           status?: string | null;
           updated_at?: string;
@@ -568,6 +717,10 @@ export type Database = {
         Args: { p_lesson_id: string; p_user_id: string };
         Returns: Json;
       };
+      create_or_get_conversation: {
+        Args: { target_user_id: string };
+        Returns: string;
+      };
       get_dashboard_stats: { Args: { target_user_id: string }; Returns: Json };
       get_full_lesson_details: {
         Args: { target_lesson_id: string };
@@ -597,6 +750,7 @@ export type Database = {
         Args: { p_user_id: string; p_xp_reward: number };
         Returns: Json;
       };
+      is_chat_participant: { Args: { conv_id: string }; Returns: boolean };
     };
     Enums: {
       difficulty_level:
