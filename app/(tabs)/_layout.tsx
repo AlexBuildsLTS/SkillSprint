@@ -202,6 +202,7 @@ export default function AdaptiveLayout() {
           <Tabs.Screen name="settings/profile-view" options={{ href: null }} />
           <Tabs.Screen name="support" options={{ href: null }} />
           <Tabs.Screen name="messages" options={{ href: null }} />
+          <Tabs.Screen name="notifications" options={{ href: null }} />
 
           {/* ADMIN: Hidden */}
           <Tabs.Screen
