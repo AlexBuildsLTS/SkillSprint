@@ -1,22 +1,17 @@
 /**
  * ============================================================================
- * 🛡️ SKILLSPRINT SECURE CHAT TERMINAL - PRODUCTION BUILD v4.1 (TS FIXED)
+ * 🛡️ SKILLSPRINT SECURE CHAT TERMINAL - TRUE E2EE PRODUCTION BUILD v6.3
  * ============================================================================
- * Architecture:
- * - Encryption: AES-256-CBC with randomized per-message IVs.
- * - UI Engine: Dynamic Inset Calculation (Resolves Tab Bar Overlap).
- * - Realtime: Supabase Websockets with strict channel isolation.
- * - Features: Block, Mute, Long-Press Context Menus, True Presence.
+ * Architecture (Hybrid Encryption with node-forge):
+ * - Key Exchange: RSA-OAEP Asymmetric Encryption (2048-bit).
+ * - Payload: AES-256-CBC (One-time symmetric key per message).
+ * - Storage: Cross-platform secureStorage wrapper (Native Keystore + Web LocalStorage).
+ * - Binary Uploads: Uses Blob conversion to prevent Supabase 400 errors.
+ * - Identity Verification: Generates SHA-256 fingerprints for out-of-band verification.
  * ============================================================================
  */
 
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-} from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -40,9 +35,6 @@ import {
 } from 'react-native-safe-area-context';
 import {
   Send,
-  Paperclip,
-  ChevronLeft,
-  Settings,
   Camera,
   Smile,
   ShieldCheck,
@@ -59,12 +51,16 @@ import {
   Lock,
   Unlock,
   AlertCircle,
+  ChevronLeft,
+  Settings,
+  RefreshCcw,
 } from 'lucide-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
+import secureStorage from '@/lib/secureStorage';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   FadeInUp,
@@ -72,16 +68,17 @@ import Animated, {
   Layout,
   FadeOut,
   SlideInDown,
+  ZoomIn,
 } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import CryptoJS from 'crypto-js';
+import forge from 'node-forge';
 
 import { GlassCard } from '@/components/ui/GlassCard';
-import { Database } from '@/database.types';
+import { Database } from '@/supabase/database.types';
 
 // ============================================================================
-// 🎨 CONFIGURATION & CRYPTO
+// 🎨 CONFIGURATION
 // ============================================================================
 const THEME = {
   obsidian: '#020617',
@@ -114,11 +111,6 @@ const COMMON_EMOJIS = [
   '🙌',
 ];
 
-// Must be exactly 32 chars for AES-256
-const ENCRYPTION_SECRET = CryptoJS.enc.Utf8.parse(
-  'SKILLSPRINT_SUPER_SECRET_KEY_123',
-);
-
 type UserRole = Database['public']['Enums']['user_role'];
 
 interface ProfileData {
@@ -129,6 +121,7 @@ interface ProfileData {
   presence_status: string | null;
   last_seen_at: string | null;
   role: UserRole;
+  public_key?: string | null;
 }
 
 interface DecryptedPayload {
@@ -140,7 +133,8 @@ interface DecryptedPayload {
 interface Message {
   id: string;
   content: string;
-  sender_id: string | null; // Fixed TS mismatch here
+  encrypted_aes_key?: string | null;
+  sender_id: string | null;
   created_at: string;
   decryptedText?: string;
   attachmentUrl?: string | null;
@@ -150,51 +144,159 @@ interface Message {
 }
 
 // ============================================================================
-// 🔐 ADVANCED ENCRYPTION ENGINE (AES-256-CBC)
+// 🔐 TRUE E2EE CRYPTOGRAPHY ENGINE (NODE-FORGE)
 // ============================================================================
-const encryptPayload = (
-  text: string,
-  attachUrl?: string | null,
-  attachType?: string | null,
-): string => {
-  const payload = JSON.stringify({
-    text,
-    attachmentUrl: attachUrl,
-    attachmentType: attachType,
-  });
-  const iv = CryptoJS.lib.WordArray.random(16); // Unique IV per message
-  const encrypted = CryptoJS.AES.encrypt(payload, ENCRYPTION_SECRET, {
-    iv: iv,
-    mode: CryptoJS.mode.CBC,
-    padding: CryptoJS.pad.Pkcs7,
-  });
-  return iv.toString() + ':' + encrypted.toString();
+
+const getLocalPrivateKey = async (): Promise<string | null> => {
+  try {
+    return await secureStorage.getItem('skillsprint_private_key');
+  } catch (e) {
+    return null;
+  }
 };
 
-const decryptPayload = (
-  hash: string,
-): DecryptedPayload & { success: boolean } => {
+const encryptPayloadE2E = (
+  text: string,
+  recipientPublicKeyPem: string,
+  attachUrl?: string | null,
+  attachType?: string | null,
+) => {
+  const oneTimeAESKey = forge.random.getBytesSync(32);
+  const iv = forge.random.getBytesSync(16);
+
+  const payloadStr = JSON.stringify({
+    text,
+    attachmentUrl: attachUrl || null,
+    attachmentType: attachType || null,
+  });
+
+  const cipher = forge.cipher.createCipher('AES-CBC', oneTimeAESKey);
+  cipher.start({ iv: iv });
+  cipher.update(forge.util.createBuffer(payloadStr, 'utf8'));
+  cipher.finish();
+  const encryptedPayload = cipher.output.getBytes();
+
+  const publicKey = forge.pki.publicKeyFromPem(recipientPublicKeyPem);
+  const encryptedAESKey = publicKey.encrypt(oneTimeAESKey, 'RSA-OAEP');
+
+  return {
+    cipherText:
+      forge.util.encode64(iv) + ':' + forge.util.encode64(encryptedPayload),
+    encryptedAESKey: forge.util.encode64(encryptedAESKey),
+  };
+};
+
+const decryptPayloadE2E = async (
+  cipherText: string,
+  encryptedAESKeyB64?: string | null,
+): Promise<DecryptedPayload & { success: boolean }> => {
   try {
-    const parts = hash.split(':');
-    if (parts.length !== 2) throw new Error('Legacy or corrupt payload');
+    if (!encryptedAESKeyB64) throw new Error('Legacy or missing AES Key');
 
-    const iv = CryptoJS.enc.Hex.parse(parts[0]);
-    const decrypted = CryptoJS.AES.decrypt(parts[1], ENCRYPTION_SECRET, {
-      iv: iv,
-      mode: CryptoJS.mode.CBC,
-      padding: CryptoJS.pad.Pkcs7,
-    });
+    const privateKeyPem = await getLocalPrivateKey();
+    if (!privateKeyPem)
+      throw new Error('No private key found in hardware store');
 
-    const originalText = decrypted.toString(CryptoJS.enc.Utf8);
+    const parts = cipherText.split(':');
+    if (parts.length !== 2) throw new Error('Corrupt payload format');
+
+    const iv = forge.util.decode64(parts[0]);
+    const encryptedPayload = forge.util.decode64(parts[1]);
+
+    const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+    const decryptedAESKey = privateKey.decrypt(
+      forge.util.decode64(encryptedAESKeyB64),
+      'RSA-OAEP',
+    );
+
+    const decipher = forge.cipher.createDecipher('AES-CBC', decryptedAESKey);
+    decipher.start({ iv: iv });
+    decipher.update(forge.util.createBuffer(encryptedPayload));
+
+    const pass = decipher.finish();
+    if (!pass) throw new Error('AES padding/decryption failure');
+
+    const originalText = forge.util.decodeUtf8(decipher.output.getBytes());
     return { ...JSON.parse(originalText), success: true };
   } catch (e) {
-    return { text: '🔒 Decryption Failed', success: false };
+    return {
+      text: '🔒 Decryption Failed (Key Mismatch)',
+      attachmentUrl: null,
+      attachmentType: null,
+      success: false,
+    };
+  }
+};
+
+// Generates a WhatsApp/Signal style Security Code for out-of-band verification
+const generateIdentityFingerprint = (
+  publicKeyPem: string | null | undefined,
+): string => {
+  if (!publicKeyPem) return 'NO PUBLIC KEY FOUND';
+  try {
+    const md = forge.md.sha256.create();
+    md.update(publicKeyPem, 'utf8');
+    const hex = md.digest().toHex().toUpperCase();
+    return hex.match(/.{1,4}/g)?.join(' ') || hex;
+  } catch (e) {
+    return 'FINGERPRINT GENERATION FAILED';
   }
 };
 
 // ============================================================================
 // 🧩 MICRO-COMPONENTS
 // ============================================================================
+
+const UserAvatar = ({
+  url,
+  name,
+  size = 32,
+}: {
+  url?: string | null;
+  name?: string | null;
+  size?: number;
+}) => {
+  if (url) {
+    return (
+      <Image
+        source={{ uri: url }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          borderWidth: 1,
+          borderColor: THEME.glassBorder,
+        }}
+      />
+    );
+  }
+  const initial = name ? name.charAt(0).toUpperCase() : '?';
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: 'rgba(99,102,241,0.15)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: THEME.glassBorder,
+      }}
+    >
+      <Text
+        style={{
+          color: THEME.indigo,
+          fontWeight: '900',
+          fontSize: size * 0.45,
+        }}
+      >
+        {initial}
+      </Text>
+    </View>
+  );
+};
+
 const RoleBadge = ({ role }: { role: UserRole | undefined }) => {
   if (!role || role === 'MEMBER') return null;
   const color =
@@ -230,7 +332,7 @@ const PresenceIndicator = ({
   const isActuallyOnline = useMemo(() => {
     if (!lastSeen) return false;
     const lastActive = new Date(lastSeen).getTime();
-    return lastActive > Date.now() - 5 * 60000; // 5 Min threshold
+    return lastActive > Date.now() - 5 * 60000;
   }, [lastSeen]);
 
   const color = isActuallyOnline
@@ -249,13 +351,11 @@ export default function ActiveChatScreen() {
   const router = useRouter();
   const { user, refreshUserData } = useAuth();
 
-  // --- Responsive & Layout Engine ---
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isMobile = width < 768;
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  // Dynamic bottom padding to completely clear the Expo Router bottom tab bar
   const TAB_BAR_HEIGHT = isMobile ? 80 : 0;
   const bottomPadding =
     keyboardHeight > 0
@@ -268,10 +368,11 @@ export default function ActiveChatScreen() {
   const [recipient, setRecipient] = useState<ProfileData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   // --- Feature State ---
+  const [showSettings, setShowSettings] = useState(false);
+  const [showFingerprint, setShowFingerprint] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
@@ -281,14 +382,57 @@ export default function ActiveChatScreen() {
     name: string;
   } | null>(null);
 
+  const [localPresence, setLocalPresence] = useState<
+    'ONLINE' | 'BUSY' | 'OFFLINE' | null
+  >(user?.profile?.presence_status as any);
+
   const flatListRef = useRef<FlatList>(null);
   const recipientRef = useRef<ProfileData | null>(null);
+
+  // ============================================================================
+  // 🔑 KEY PROVISIONING ENGINE
+  // ============================================================================
+  const ensureUserHasKeys = async () => {
+    if (!user?.id) return;
+    try {
+      let privKey = await secureStorage.getItem('skillsprint_private_key');
+      let pubKey = await secureStorage.getItem('skillsprint_public_key');
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('public_key')
+        .eq('id', user.id)
+        .single();
+
+      if (!privKey || !pubKey || !profile?.public_key) {
+        console.log('[E2EE] Generating new RSA-2048 Keypair...');
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const keypair = forge.pki.rsa.generateKeyPair({
+          bits: 2048,
+          e: 0x10001,
+        });
+        privKey = forge.pki.privateKeyToPem(keypair.privateKey);
+        pubKey = forge.pki.publicKeyToPem(keypair.publicKey);
+
+        await secureStorage.setItem('skillsprint_private_key', privKey);
+        await secureStorage.setItem('skillsprint_public_key', pubKey);
+
+        await supabase
+          .from('profiles')
+          .update({ public_key: pubKey })
+          .eq('id', user.id);
+        console.log('[E2EE] Keys successfully provisioned and synced.');
+      }
+    } catch (error) {
+      console.error('[E2EE Error]', error);
+    }
+  };
 
   // ============================================================================
   // 🔄 LIFECYCLE & REALTIME
   // ============================================================================
   useEffect(() => {
-    // Custom Keyboard Listeners (Overrides buggy KeyboardAvoidingView on Android)
     const showSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e: KeyboardEvent) => setKeyboardHeight(e.endCoordinates.height),
@@ -299,6 +443,7 @@ export default function ActiveChatScreen() {
     );
 
     if (conversationId && user?.id) {
+      ensureUserHasKeys();
       loadChatData();
       checkBlockAndMuteStatus();
     }
@@ -315,13 +460,16 @@ export default function ActiveChatScreen() {
         },
         async (payload) => {
           if (payload.new.sender_id !== user?.id) {
-            const decrypted = decryptPayload(payload.new.content);
+            const dec = await decryptPayloadE2E(
+              payload.new.content,
+              payload.new.encrypted_aes_key,
+            );
             const newMsg: Message = {
               ...(payload.new as any),
-              decryptedText: decrypted.text,
-              attachmentUrl: decrypted.attachmentUrl,
-              attachmentType: decrypted.attachmentType as any,
-              isDecrypted: decrypted.success,
+              decryptedText: dec.text,
+              attachmentUrl: dec.attachmentUrl,
+              attachmentType: dec.attachmentType as any,
+              isDecrypted: dec.success,
               profiles: recipientRef.current || {},
             };
             setMessages((prev) => [newMsg, ...prev]);
@@ -358,8 +506,8 @@ export default function ActiveChatScreen() {
       const { data: partData } = await supabase
         .from('conversation_participants')
         .select('profiles(*)')
-        .eq('conversation_id', conversationId as string) // TS Fix
-        .neq('user_id', user?.id as string) // TS Fix
+        .eq('conversation_id', conversationId as string)
+        .neq('user_id', user?.id as string)
         .single();
 
       if (partData?.profiles) {
@@ -371,22 +519,37 @@ export default function ActiveChatScreen() {
       const { data: msgData, error } = await supabase
         .from('messages')
         .select('*, profiles:sender_id(username, full_name, avatar_url, role)')
-        .eq('conversation_id', conversationId as string) // TS Fix
+        .eq('conversation_id', conversationId as string)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      const decryptedHistory = (msgData || []).map((m) => {
-        const dec = decryptPayload(m.content);
-        return {
-          ...m,
-          decryptedText: dec.text,
-          attachmentUrl: dec.attachmentUrl,
-          attachmentType: dec.attachmentType,
-          isDecrypted: dec.success,
-        };
-      });
-      setMessages(decryptedHistory as Message[]); // TS Fix
+      const decryptedHistory = await Promise.all(
+        (msgData || []).map(async (m) => {
+          let dec: DecryptedPayload & { success: boolean } = {
+            text: m.content,
+            attachmentUrl: null,
+            attachmentType: null,
+            success: false,
+          };
+
+          if (m.sender_id !== user?.id) {
+            dec = await decryptPayloadE2E(m.content, m.encrypted_aes_key);
+          } else {
+            dec.text = '🔒 Encrypted & Sent';
+            dec.success = true;
+          }
+
+          return {
+            ...m,
+            decryptedText: dec.text,
+            attachmentUrl: dec.attachmentUrl,
+            attachmentType: dec.attachmentType,
+            isDecrypted: dec.success,
+          };
+        }),
+      );
+      setMessages(decryptedHistory as Message[]);
     } catch (e) {
       console.error('[Load Error]', e);
     } finally {
@@ -397,20 +560,22 @@ export default function ActiveChatScreen() {
   const checkBlockAndMuteStatus = async () => {
     if (!recipientRef.current?.id || !user?.id || !conversationId) return;
 
-    const { data: blockData } = await supabase
-      .from('blocked_users')
-      .select('id')
-      .eq('blocker_id', user.id)
-      .eq('blocked_id', recipientRef.current.id)
-      .single();
-    if (blockData) setIsBlocked(true);
+    const [{ data: blockData }, { data: muteData }] = await Promise.all([
+      supabase
+        .from('blocked_users')
+        .select('id')
+        .eq('blocker_id', user.id)
+        .eq('blocked_id', recipientRef.current.id)
+        .single(),
+      supabase
+        .from('muted_conversations')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('conversation_id', conversationId as string)
+        .single(),
+    ]);
 
-    const { data: muteData } = await supabase
-      .from('muted_conversations')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('conversation_id', conversationId as string)
-      .single();
+    if (blockData) setIsBlocked(true);
     if (muteData) setIsMuted(true);
   };
 
@@ -445,7 +610,7 @@ export default function ActiveChatScreen() {
         }
       }
     } catch (e) {
-      console.warn('Attachment cancelled or failed');
+      console.warn('Attachment cancelled');
     }
   };
 
@@ -459,6 +624,14 @@ export default function ActiveChatScreen() {
     }
     if ((!inputText.trim() && !pendingFile) || isSending || !user?.id) return;
 
+    if (!recipient?.public_key) {
+      Alert.alert(
+        'Key Exchange Pending',
+        `The recipient (${recipient?.username}) has not initialized their secure terminal yet. They must log in and open their messages to complete the key exchange.`,
+      );
+      return;
+    }
+
     setShowEmojiPicker(false);
     setIsSending(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -467,23 +640,37 @@ export default function ActiveChatScreen() {
     if (pendingFile) {
       const fileExt = pendingFile.name.split('.').pop() || 'bin';
       const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-      const formData = new FormData();
-      formData.append('file', {
-        uri: pendingFile.uri,
-        name: pendingFile.name,
-        type:
+
+      try {
+        // FIXED: Convert URI to Blob for guaranteed cross-platform binary upload
+        const response = await fetch(pendingFile.uri);
+        const blob = await response.blob();
+        const contentType =
           pendingFile.type === 'image'
             ? `image/${fileExt}`
-            : 'application/octet-stream',
-      } as any);
-      const { error } = await supabase.storage
-        .from('message-attachments')
-        .upload(fileName, formData);
-      if (!error) {
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from('message-attachments').getPublicUrl(fileName);
-        attachmentData = { url: publicUrl, type: pendingFile.type };
+            : 'application/octet-stream';
+
+        const { error } = await supabase.storage
+          .from('message-attachments')
+          .upload(fileName, blob, {
+            contentType: contentType,
+          });
+
+        if (!error) {
+          const {
+            data: { publicUrl },
+          } = supabase.storage
+            .from('message-attachments')
+            .getPublicUrl(fileName);
+          attachmentData = { url: publicUrl, type: pendingFile.type };
+        } else {
+          throw error;
+        }
+      } catch (e) {
+        console.error('[Storage Upload Error]', e);
+        Alert.alert('Upload Failed', 'Could not secure attachment to vault.');
+        setIsSending(false);
+        return;
       }
     }
 
@@ -491,38 +678,47 @@ export default function ActiveChatScreen() {
     setInputText('');
     setPendingFile(null);
 
-    const cipherText = encryptPayload(
-      textToSend,
-      attachmentData?.url,
-      attachmentData?.type,
-    );
+    try {
+      const { cipherText, encryptedAESKey } = encryptPayloadE2E(
+        textToSend,
+        recipient.public_key,
+        attachmentData?.url,
+        attachmentData?.type,
+      );
 
-    const optimisticId = `temp-${Date.now()}`;
-    const optimisticMsg: Message = {
-      id: optimisticId,
-      content: cipherText,
-      sender_id: user.id,
-      created_at: new Date().toISOString(),
-      decryptedText: textToSend,
-      attachmentUrl: attachmentData?.url,
-      attachmentType: attachmentData?.type as any,
-      isDecrypted: true,
-      profiles: {
-        role: user.profile?.role as UserRole,
-        full_name: user.profile?.full_name,
-        avatar_url: user.profile?.avatar_url,
-      },
-    };
-    setMessages((prev) => [optimisticMsg, ...prev]);
+      const optimisticId = `temp-${Date.now()}`;
+      const optimisticMsg: Message = {
+        id: optimisticId,
+        content: cipherText,
+        encrypted_aes_key: encryptedAESKey,
+        sender_id: user.id,
+        created_at: new Date().toISOString(),
+        decryptedText: textToSend, // Retain in local memory for this session view
+        attachmentUrl: attachmentData?.url,
+        attachmentType: attachmentData?.type as any,
+        isDecrypted: true,
+        profiles: {
+          role: user.profile?.role as UserRole,
+          full_name: user.profile?.full_name,
+          avatar_url: user.profile?.avatar_url,
+        },
+      };
+      setMessages((prev) => [optimisticMsg, ...prev]);
 
-   try {
       const { error } = await supabase.functions.invoke('send-message', {
-        body: { conversationId, content: cipherText },
+        body: {
+          conversationId,
+          content: cipherText,
+          encrypted_aes_key: encryptedAESKey,
+        },
       });
       if (error) throw error;
     } catch (error) {
-      setMessages(prev => prev.filter(m => m.id !== optimisticId));
-      Alert.alert("Transmission Failed", "Could not reach secure server.");
+      console.error(error);
+      Alert.alert(
+        'Transmission Failed',
+        'Cryptographic failure or network offline.',
+      );
     } finally {
       setIsSending(false);
     }
@@ -539,7 +735,6 @@ export default function ActiveChatScreen() {
   const toggleBlockUser = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     if (!recipient?.id || !user?.id) return;
-
     if (isBlocked) {
       await supabase
         .from('blocked_users')
@@ -558,7 +753,6 @@ export default function ActiveChatScreen() {
   const toggleMute = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (!user?.id || !conversationId) return;
-
     if (isMuted) {
       await supabase
         .from('muted_conversations')
@@ -588,13 +782,33 @@ export default function ActiveChatScreen() {
     status: 'ONLINE' | 'OFFLINE' | 'BUSY',
   ) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setLocalPresence(status); // Optimistic UI update instantly reflects change
+
     try {
       await supabase.functions.invoke('presence-handler', { body: { status } });
       if (refreshUserData) await refreshUserData();
     } catch (e) {
       console.error('Presence error', e);
     }
-    setShowSettings(false);
+  };
+
+  const handlePurgeTerminal = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    Alert.alert(
+      'Purge Local Terminal',
+      "This clears messages from your local view. The server's encrypted payloads are untouched.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Purge',
+          style: 'destructive',
+          onPress: () => {
+            setMessages([]);
+            setShowSettings(false);
+          },
+        },
+      ],
+    );
   };
 
   // ============================================================================
@@ -602,12 +816,6 @@ export default function ActiveChatScreen() {
   // ============================================================================
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isMe = item.sender_id === user?.id;
-    const roleColor = isMe
-      ? THEME.indigo
-      : item.profiles?.role === 'ADMIN'
-        ? THEME.danger
-        : THEME.slate;
-
     return (
       <Animated.View
         entering={FadeInUp.delay(index * 15)}
@@ -618,13 +826,13 @@ export default function ActiveChatScreen() {
         ]}
       >
         {!isMe && (
-          <Image
-            source={{
-              uri:
-                item.profiles?.avatar_url || 'https://via.placeholder.com/100',
-            }}
-            style={styles.chatAvatar}
-          />
+          <View style={{ marginRight: 8 }}>
+            <UserAvatar
+              url={item.profiles?.avatar_url}
+              name={item.profiles?.full_name || item.profiles?.username}
+              size={32}
+            />
+          </View>
         )}
 
         <TouchableOpacity
@@ -714,13 +922,13 @@ export default function ActiveChatScreen() {
         </TouchableOpacity>
 
         {isMe && (
-          <Image
-            source={{
-              uri:
-                item.profiles?.avatar_url || 'https://via.placeholder.com/100',
-            }}
-            style={[styles.chatAvatar, { marginLeft: 8, marginRight: 0 }]}
-          />
+          <View style={{ marginLeft: 8 }}>
+            <UserAvatar
+              url={item.profiles?.avatar_url}
+              name={item.profiles?.full_name || item.profiles?.username}
+              size={32}
+            />
+          </View>
         )}
       </Animated.View>
     );
@@ -753,13 +961,10 @@ export default function ActiveChatScreen() {
               }}
             >
               <View>
-                <Image
-                  source={{
-                    uri:
-                      recipient?.avatar_url ||
-                      'https://via.placeholder.com/100',
-                  }}
-                  style={styles.headerAvatar}
+                <UserAvatar
+                  url={recipient?.avatar_url}
+                  name={recipient?.full_name || recipient?.username}
+                  size={44}
                 />
                 <PresenceIndicator
                   status={recipient?.presence_status || null}
@@ -795,10 +1000,25 @@ export default function ActiveChatScreen() {
                   >
                     <Unlock
                       size={10}
-                      color={THEME.success}
+                      color={
+                        recipient?.public_key ? THEME.success : THEME.warning
+                      }
                       style={{ marginRight: 4 }}
                     />
-                    <Text style={styles.headerStatus}>AES-256-CBC SECURED</Text>
+                    <Text
+                      style={[
+                        styles.headerStatus,
+                        {
+                          color: recipient?.public_key
+                            ? THEME.success
+                            : THEME.warning,
+                        },
+                      ]}
+                    >
+                      {recipient?.public_key
+                        ? 'RSA-2048 EXCHANGE ACTIVE'
+                        : 'AWAITING PUBLIC KEY'}
+                    </Text>
                   </View>
                 )}
               </View>
@@ -840,7 +1060,7 @@ export default function ActiveChatScreen() {
         )}
       </View>
 
-      {/* Dynamic Input Bar (Solves the Tab Bar issue perfectly) */}
+      {/* Dynamic Input Bar */}
       <Animated.View
         style={[styles.inputWrapper, { paddingBottom: bottomPadding }]}
       >
@@ -906,11 +1126,16 @@ export default function ActiveChatScreen() {
 
               <TextInput
                 style={styles.chatInput}
-                placeholder="Encrypted payload..."
+                placeholder={
+                  recipient?.public_key
+                    ? 'Encrypted payload...'
+                    : 'Waiting for key exchange...'
+                }
                 placeholderTextColor={THEME.slate}
                 value={inputText}
                 onChangeText={setInputText}
                 multiline
+                editable={!!recipient?.public_key}
                 onFocus={() => setShowEmojiPicker(false)}
               />
 
@@ -921,7 +1146,11 @@ export default function ActiveChatScreen() {
                   !inputText.trim() &&
                     !pendingFile && { backgroundColor: 'rgba(99,102,241,0.5)' },
                 ]}
-                disabled={(!inputText.trim() && !pendingFile) || isSending}
+                disabled={
+                  (!inputText.trim() && !pendingFile) ||
+                  isSending ||
+                  !recipient?.public_key
+                }
               >
                 {isSending ? (
                   <ActivityIndicator size="small" color="white" />
@@ -950,6 +1179,8 @@ export default function ActiveChatScreen() {
       </Animated.View>
 
       {/* ================= MODALS ================= */}
+
+      {/* Context Menu Modal */}
       <Modal
         visible={!!selectedMessage}
         transparent
@@ -990,21 +1221,74 @@ export default function ActiveChatScreen() {
         </Pressable>
       </Modal>
 
+      {/* Verification Shield Modal */}
+      <Modal
+        visible={showFingerprint}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFingerprint(false)}
+      >
+        <Pressable
+          style={[
+            styles.modalBackdrop,
+            { justifyContent: 'center', alignItems: 'center' },
+          ]}
+          onPress={() => setShowFingerprint(false)}
+        >
+          <Animated.View
+            entering={ZoomIn}
+            style={styles.fingerprintModal}
+            onStartShouldSetResponder={() => true}
+          >
+            <View style={styles.fingerprintIconWrapper}>
+              <ShieldCheck color={THEME.success} size={48} />
+            </View>
+            <Text style={styles.fingerprintTitle}>Identity Verification</Text>
+            <Text style={styles.fingerprintSub}>
+              To verify that your chat is securely encrypted end-to-end, compare
+              this 64-character security code with {recipient?.username}.
+            </Text>
+
+            <View style={styles.fingerprintCodeBox}>
+              <Text style={styles.fingerprintCodeText}>
+                {generateIdentityFingerprint(recipient?.public_key)}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => setShowFingerprint(false)}
+              style={styles.fingerprintCloseBtn}
+            >
+              <Text style={styles.fingerprintCloseText}>Verify Later</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Pressable>
+      </Modal>
+
+      {/* Settings Modal (Responsive Mobile vs Desktop) */}
       <Modal
         visible={showSettings}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setShowSettings(false)}
       >
         <Pressable
-          style={styles.modalBackdrop}
+          style={[
+            styles.modalBackdrop,
+            !isMobile && { justifyContent: 'center', alignItems: 'center' },
+          ]}
           onPress={() => setShowSettings(false)}
         >
-          <View
-            style={styles.settingsSheet}
+          <Animated.View
+            entering={isMobile ? FadeInDown : ZoomIn}
+            style={
+              isMobile
+                ? styles.settingsSheetMobile
+                : styles.settingsModalDesktop
+            }
             onStartShouldSetResponder={() => true}
           >
-            <View style={styles.sheetHandle} />
+            {isMobile && <View style={styles.sheetHandle} />}
             <Text style={styles.sheetTitle}>Link Configuration</Text>
 
             <View style={{ marginBottom: 24 }}>
@@ -1014,8 +1298,7 @@ export default function ActiveChatScreen() {
                   onPress={() => handleTogglePresence('ONLINE')}
                   style={[
                     styles.statusOption,
-                    user?.profile?.presence_status === 'ONLINE' &&
-                      styles.statusActive,
+                    localPresence === 'ONLINE' && styles.statusActive,
                   ]}
                 >
                   <Circle
@@ -1030,8 +1313,7 @@ export default function ActiveChatScreen() {
                   onPress={() => handleTogglePresence('BUSY')}
                   style={[
                     styles.statusOption,
-                    user?.profile?.presence_status === 'BUSY' &&
-                      styles.statusActive,
+                    localPresence === 'BUSY' && styles.statusActive,
                   ]}
                 >
                   <Circle
@@ -1045,6 +1327,17 @@ export default function ActiveChatScreen() {
               </View>
             </View>
 
+            <TouchableOpacity
+              onPress={() => {
+                setShowSettings(false);
+                setShowFingerprint(true);
+              }}
+              style={styles.actionBtn}
+            >
+              <ShieldCheck color={THEME.success} size={22} />
+              <Text style={styles.actionText}>Verify Encryption Shield</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity onPress={toggleMute} style={styles.actionBtn}>
               {isMuted ? (
                 <BellOff color={THEME.danger} size={22} />
@@ -1055,6 +1348,16 @@ export default function ActiveChatScreen() {
                 style={[styles.actionText, isMuted && { color: THEME.danger }]}
               >
                 {isMuted ? 'Unmute Transmissions' : 'Mute Incoming Signals'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handlePurgeTerminal}
+              style={styles.actionBtn}
+            >
+              <RefreshCcw color={THEME.warning} size={22} />
+              <Text style={[styles.actionText, { color: THEME.warning }]}>
+                Purge Local Terminal
               </Text>
             </TouchableOpacity>
 
@@ -1074,7 +1377,7 @@ export default function ActiveChatScreen() {
             >
               <Text style={styles.closeText}>Close Configuration</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
         </Pressable>
       </Modal>
     </View>
@@ -1098,16 +1401,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: THEME.glassBorder,
-  },
   headerTitle: { color: 'white', fontWeight: '900', fontSize: 18 },
   headerStatus: {
-    color: THEME.success,
     fontSize: 10,
     fontWeight: 'bold',
     textTransform: 'uppercase',
@@ -1125,13 +1420,6 @@ const styles = StyleSheet.create({
   },
   listContent: { padding: 16, paddingTop: 24 },
   msgRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 20 },
-  chatAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: THEME.glassBorder,
-  },
   senderName: {
     color: THEME.slate,
     fontSize: 11,
@@ -1289,7 +1577,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.85)',
     justifyContent: 'flex-end',
   },
-  settingsSheet: {
+
+  // Responsive Settings Modals
+  settingsSheetMobile: {
     backgroundColor: '#0f172a',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
@@ -1297,7 +1587,87 @@ const styles = StyleSheet.create({
     paddingBottom: 50,
     borderTopWidth: 1,
     borderColor: THEME.glassBorder,
+    width: '100%',
   },
+  settingsModalDesktop: {
+    backgroundColor: '#0f172a',
+    borderRadius: 24,
+    padding: 32,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    width: 400,
+    maxWidth: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+
+  // Verification Fingerprint Modal
+  fingerprintModal: {
+    backgroundColor: '#0f172a',
+    borderRadius: 24,
+    padding: 32,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    width: 360,
+    maxWidth: '90%',
+    alignItems: 'center',
+  },
+  fingerprintIconWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  fingerprintTitle: {
+    color: THEME.white,
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  fingerprintSub: {
+    color: THEME.slate,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  fingerprintCodeBox: {
+    backgroundColor: THEME.obsidian,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    width: '100%',
+    marginBottom: 24,
+  },
+  fingerprintCodeText: {
+    color: THEME.success,
+    fontSize: 16,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    textAlign: 'center',
+    letterSpacing: 2,
+    lineHeight: 24,
+  },
+  fingerprintCloseBtn: {
+    width: '100%',
+    padding: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+  },
+  fingerprintCloseText: {
+    color: THEME.white,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+
   contextMenu: {
     backgroundColor: '#1e293b',
     margin: 20,

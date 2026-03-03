@@ -250,6 +250,7 @@ export type Database = {
           content: string;
           conversation_id: string;
           created_at: string | null;
+          encrypted_aes_key: string | null;
           id: string;
           sender_id: string | null;
         };
@@ -259,6 +260,7 @@ export type Database = {
           content: string;
           conversation_id: string;
           created_at?: string | null;
+          encrypted_aes_key?: string | null;
           id?: string;
           sender_id?: string | null;
         };
@@ -268,6 +270,7 @@ export type Database = {
           content?: string;
           conversation_id?: string;
           created_at?: string | null;
+          encrypted_aes_key?: string | null;
           id?: string;
           sender_id?: string | null;
         };
@@ -375,6 +378,7 @@ export type Database = {
           id: string;
           last_seen_at: string | null;
           presence_status: string | null;
+          public_key: string | null;
           role: Database['public']['Enums']['user_role'];
           status: string | null;
           updated_at: string;
@@ -389,6 +393,7 @@ export type Database = {
           id: string;
           last_seen_at?: string | null;
           presence_status?: string | null;
+          public_key?: string | null;
           role?: Database['public']['Enums']['user_role'];
           status?: string | null;
           updated_at?: string;
@@ -403,6 +408,7 @@ export type Database = {
           id?: string;
           last_seen_at?: string | null;
           presence_status?: string | null;
+          public_key?: string | null;
           role?: Database['public']['Enums']['user_role'];
           status?: string | null;
           updated_at?: string;

@@ -1,12 +1,13 @@
 /**
  * ============================================================================
- * 🛡️ SKILLSPRINT SECURE INBOX - PRODUCTION BUILD v4.1 (TS FIXED)
+ * 🛡️ SKILLSPRINT SECURE INBOX - PRODUCTION BUILD v7.0 (NODE-FORGE E2EE)
  * ============================================================================
  * Architecture:
- * - Decryption Engine: Previews decrypted securely on the client side via AES-CBC.
- * - Real-Time Presence: Evaluates 'last_seen_at' for true online status.
- * - Interaction: Pull-to-refresh, Long-press context menus for Mute/Delete.
- * - UI: Glassmorphism, Adaptive scrolling for Mobile Tab Bars.
+ * - Realtime Engine: Subscribes to global messages & profiles. Automatically
+ * bubbles active conversations to the top with fluid spring animations.
+ * - E2EE Previews: Asynchronously decrypts the last message securely.
+ * - Cross-Platform: Uses secureStorage wrapper for Web/Native safe keystore.
+ * - True Presence: Instantly updates online/busy indicators without refreshing.
  * ============================================================================
  */
 
@@ -25,7 +26,7 @@ import {
   RefreshControl,
   Platform,
   Pressable,
-  StyleSheet, // TS Fix: Imported StyleSheet
+  StyleSheet,
 } from 'react-native';
 import {
   SafeAreaView,
@@ -37,7 +38,6 @@ import {
   X,
   User,
   Waypoints,
-  MessageSquareOff,
   Trash2,
   BellOff,
   Lock,
@@ -50,12 +50,17 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient'; // TS Fix: Imported LinearGradient
-import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
-import CryptoJS from 'crypto-js';
+import secureStorage from '@/lib/secureStorage'; // Web-safe storage wrapper
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  FadeInUp,
+  FadeInDown,
+  Layout,
+} from 'react-native-reanimated';
+import forge from 'node-forge';
 
 import { GlassCard } from '@/components/ui/GlassCard';
-import { Database } from '@/database.types';
+import { Database } from '@/supabase/database.types';
 
 // ============================================================================
 // 🎨 THEME & CRYPTO CONFIGURATION
@@ -72,39 +77,85 @@ const THEME = {
   glassSurface: 'rgba(30, 41, 59, 0.4)',
 };
 
-// Must match EXACTLY with [id].tsx
-const ENCRYPTION_SECRET = CryptoJS.enc.Utf8.parse(
+// Legacy fallback for old messages encrypted before RSA implementation
+const LEGACY_SECRET = forge.util.createBuffer(
   'SKILLSPRINT_SUPER_SECRET_KEY_123',
+  'utf8',
 );
 
 type UserRole = Database['public']['Enums']['user_role'];
 
 // ============================================================================
-// 🔐 DECRYPTION PREVIEW ENGINE
+// 🔐 ASYNC DECRYPTION PREVIEW ENGINE
 // ============================================================================
-const decryptPreview = (hash: string | undefined): string => {
-  if (!hash) return 'Start a secure tunnel...';
+const getLocalPrivateKey = async (): Promise<string | null> => {
   try {
-    const parts = hash.split(':');
+    return await secureStorage.getItem('skillsprint_private_key');
+  } catch (e) {
+    return null;
+  }
+};
+
+const decryptPreviewAsync = async (
+  message: any | undefined,
+  currentUserId: string | undefined,
+): Promise<string> => {
+  if (!message || !message.content) return 'Start a secure tunnel...';
+
+  // If we are the sender and it's an RSA encrypted key, we don't have the recipient's private key to read it back.
+  if (message.sender_id === currentUserId && message.encrypted_aes_key) {
+    return '🔒 Encrypted & Sent';
+  }
+
+  try {
+    const parts = message.content.split(':');
     if (parts.length !== 2) return '🔒 Encrypted payload';
 
-    const iv = CryptoJS.enc.Hex.parse(parts[0]);
-    const decrypted = CryptoJS.AES.decrypt(parts[1], ENCRYPTION_SECRET, {
-      iv: iv,
-      mode: CryptoJS.mode.CBC,
-      padding: CryptoJS.pad.Pkcs7,
-    });
+    let decryptedPayloadStr = '';
 
-    const originalText = decrypted.toString(CryptoJS.enc.Utf8);
-    if (originalText.startsWith('{')) {
-      const payload = JSON.parse(originalText);
-      if (payload.attachmentType === 'image') return '🖼️ Encrypted Image';
-      if (payload.attachmentType === 'file') return '📄 Encrypted Document';
-      return payload.text || '🔒 Encrypted Payload';
+    if (!message.encrypted_aes_key) {
+      // Legacy Symmetric Decryption
+      const iv = forge.util.hexToBytes(parts[0]);
+      const encryptedPayload = forge.util.decode64(parts[1]);
+
+      const decipher = forge.cipher.createDecipher('AES-CBC', LEGACY_SECRET);
+      decipher.start({ iv: iv });
+      decipher.update(forge.util.createBuffer(encryptedPayload));
+      decipher.finish();
+      decryptedPayloadStr = forge.util.decodeUtf8(decipher.output.getBytes());
+    } else {
+      // True E2EE Asymmetric + Symmetric Decryption
+      const privateKeyPem = await getLocalPrivateKey();
+      if (!privateKeyPem) return '🔒 Key Locked';
+
+      const iv = forge.util.decode64(parts[0]);
+      const encryptedPayload = forge.util.decode64(parts[1]);
+
+      const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+      const decryptedAESKey = privateKey.decrypt(
+        forge.util.decode64(message.encrypted_aes_key),
+        'RSA-OAEP',
+      );
+
+      const decipher = forge.cipher.createDecipher('AES-CBC', decryptedAESKey);
+      decipher.start({ iv: iv });
+      decipher.update(forge.util.createBuffer(encryptedPayload));
+      const pass = decipher.finish();
+      if (!pass) return '🔒 Decryption Failed';
+
+      decryptedPayloadStr = forge.util.decodeUtf8(decipher.output.getBytes());
     }
-    return originalText;
+
+    // Parse JSON Payload if applicable
+    if (decryptedPayloadStr.startsWith('{')) {
+      const payloadObj = JSON.parse(decryptedPayloadStr);
+      if (payloadObj.attachmentType === 'image') return '🖼️ Encrypted Image';
+      if (payloadObj.attachmentType === 'file') return '📄 Encrypted Document';
+      return payloadObj.text || '🔒 Encrypted Payload';
+    }
+    return decryptedPayloadStr;
   } catch (e) {
-    return '🔒 Decryption Failed';
+    return '🔒 Decryption Error';
   }
 };
 
@@ -136,6 +187,52 @@ const RoleBadge = ({ role }: { role: UserRole | undefined }) => {
   );
 };
 
+const UserAvatar = ({
+  url,
+  name,
+  size = 56,
+}: {
+  url?: string | null;
+  name?: string | null;
+  size?: number;
+}) => {
+  if (url) {
+    return (
+      <Image
+        source={{ uri: url }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          borderWidth: 1,
+          borderColor: THEME.glassBorder,
+        }}
+      />
+    );
+  }
+  const initial = name ? name.charAt(0).toUpperCase() : '?';
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: 'rgba(99,102,241,0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: THEME.glassBorder,
+      }}
+    >
+      <Text
+        style={{ color: THEME.indigo, fontWeight: '900', fontSize: size * 0.4 }}
+      >
+        {initial}
+      </Text>
+    </View>
+  );
+};
+
 // ============================================================================
 // 🚀 MAIN SCREEN COMPONENT
 // ============================================================================
@@ -151,6 +248,7 @@ export default function MessagesInboxScreen() {
   const [conversations, setConversations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isProvisioningKeys, setIsProvisioningKeys] = useState(false);
 
   // --- Actions State ---
   const [selectedConv, setSelectedConv] = useState<any | null>(null);
@@ -162,77 +260,166 @@ export default function MessagesInboxScreen() {
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
 
   // ============================================================================
-  // 🔄 DATA FETCHING & SYNC
+  // 🔑 BACKGROUND KEY PROVISIONING
+  // ============================================================================
+  const ensureUserHasKeys = async () => {
+    if (!user?.id) return;
+    try {
+      let privKey = await secureStorage.getItem('skillsprint_private_key');
+      let pubKey = await secureStorage.getItem('skillsprint_public_key');
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('public_key')
+        .eq('id', user.id)
+        .single();
+
+      if (!privKey || !pubKey || !profile?.public_key) {
+        setIsProvisioningKeys(true);
+        console.log(
+          '[E2EE Inbox] Provisioning RSA-2048 keys for discoverability...',
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const keypair = forge.pki.rsa.generateKeyPair({
+          bits: 2048,
+          e: 0x10001,
+        });
+        privKey = forge.pki.privateKeyToPem(keypair.privateKey);
+        pubKey = forge.pki.publicKeyToPem(keypair.publicKey);
+
+        await secureStorage.setItem('skillsprint_private_key', privKey);
+        await secureStorage.setItem('skillsprint_public_key', pubKey);
+
+        await supabase
+          .from('profiles')
+          .update({ public_key: pubKey })
+          .eq('id', user.id);
+        console.log('[E2EE Inbox] Keys synced to global directory.');
+      }
+    } catch (error) {
+      console.error('[E2EE Provisioning Error]', error);
+    } finally {
+      setIsProvisioningKeys(false);
+    }
+  };
+
+  // ============================================================================
+  // 🔄 DATA FETCHING & REALTIME SYNC
   // ============================================================================
   useEffect(() => {
-    if (user?.id) fetchConversations();
+    if (user?.id) {
+      ensureUserHasKeys().then(() => fetchConversations());
+    }
+
+    // REALTIME: Listen for any new messages globally to bubble conversations to top
+    const messageChannel = supabase
+      .channel('inbox_messages')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        () => {
+          // A new message arrived! Fetch silently to decrypt preview and re-sort
+          fetchConversations(true);
+        },
+      )
+      .subscribe();
+
+    // REALTIME: Listen for profile updates to update online/busy dots instantly
+    const profileChannel = supabase
+      .channel('inbox_profiles')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles' },
+        () => {
+          fetchConversations(true);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(messageChannel);
+      supabase.removeChannel(profileChannel);
+    };
   }, [user?.id]);
 
   const fetchConversations = async (silentRefresh = false) => {
-    if (!user?.id) return; // TS Fix
+    if (!user?.id) return;
     if (!silentRefresh) setIsLoading(true);
 
     try {
-      const { data, error } = await supabase
-        .from('conversations')
-        .select(
-          `
+      const { data, error } = await supabase.from('conversations').select(`
           id, updated_at,
           conversation_participants!inner(user_id, last_read_at, profiles(id, username, full_name, avatar_url, presence_status, last_seen_at, role)),
-          messages(content, created_at, sender_id)
-        `,
-        )
-        .order('updated_at', { ascending: false });
+          messages(content, created_at, sender_id, encrypted_aes_key)
+        `);
 
       if (error) throw error;
 
-      // Fetch user's muted conversations
       const { data: mutedData } = await supabase
         .from('muted_conversations')
         .select('conversation_id')
-        .eq('user_id', user.id as string); // TS Fix
+        .eq('user_id', user.id);
 
       const mutedIds = new Set(mutedData?.map((m) => m.conversation_id) || []);
 
-      const formatted = (data || []).map((conv: any) => {
-        const me = conv.conversation_participants.find(
-          (p: any) => p.user_id === user.id,
-        );
-        const other = conv.conversation_participants.find(
-          (p: any) => p.user_id !== user.id,
-        )?.profiles;
+      const formatted = await Promise.all(
+        (data || []).map(async (conv: any) => {
+          const me = conv.conversation_participants.find(
+            (p: any) => p.user_id === user.id,
+          );
+          const other = conv.conversation_participants.find(
+            (p: any) => p.user_id !== user.id,
+          )?.profiles;
 
-        // True Presence Engine
-        const lastSeen = other?.last_seen_at
-          ? new Date(other.last_seen_at).getTime()
-          : 0;
-        const isActuallyOnline = lastSeen > Date.now() - 5 * 60000;
+          // True Presence Evaluation
+          const lastSeen = other?.last_seen_at
+            ? new Date(other.last_seen_at).getTime()
+            : 0;
+          const isActuallyOnline = lastSeen > Date.now() - 5 * 60000;
+          let actualStatus = other?.presence_status;
+          if (actualStatus === 'ONLINE' && !isActuallyOnline)
+            actualStatus = 'OFFLINE';
 
-        // Sort to get absolute latest message
-        const sortedMessages = conv.messages?.sort(
-          (a: any, b: any) =>
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-        );
-        const lastMessage = sortedMessages?.[0];
+          // Sort messages internally to find the absolute latest one
+          const sortedMessages = conv.messages?.sort(
+            (a: any, b: any) =>
+              new Date(b.created_at).getTime() -
+              new Date(a.created_at).getTime(),
+          );
+          const lastMessage = sortedMessages?.[0];
 
-        // Unread logic
-        const hasUnread =
-          lastMessage && me?.last_read_at
-            ? new Date(lastMessage.created_at) > new Date(me.last_read_at)
-            : false;
+          const hasUnread =
+            lastMessage && me?.last_read_at
+              ? new Date(lastMessage.created_at) > new Date(me.last_read_at)
+              : false;
 
-        return {
-          id: conv.id,
-          otherUser: { ...other, isActuallyOnline },
-          lastMessage,
-          previewText: decryptPreview(lastMessage?.content),
-          hasUnread,
-          isMuted: mutedIds.has(conv.id),
-          updatedAt: conv.updated_at,
-        };
+          const previewText = await decryptPreviewAsync(lastMessage, user.id);
+
+          return {
+            id: conv.id,
+            otherUser: { ...other, actualStatus },
+            lastMessage,
+            previewText,
+            hasUnread,
+            isMuted: mutedIds.has(conv.id),
+            updatedAt: conv.updated_at,
+          };
+        }),
+      );
+
+      // GUARANTEED SORTING: Bubble newest activity to the very top
+      const sortedConversations = formatted.sort((a, b) => {
+        const timeA = a.lastMessage
+          ? new Date(a.lastMessage.created_at).getTime()
+          : new Date(a.updatedAt).getTime();
+        const timeB = b.lastMessage
+          ? new Date(b.lastMessage.created_at).getTime()
+          : new Date(b.updatedAt).getTime();
+        return timeB - timeA;
       });
 
-      setConversations(formatted);
+      setConversations(sortedConversations);
     } catch (err) {
       console.error('[Inbox Sync Error]:', err);
     } finally {
@@ -263,7 +450,7 @@ export default function MessagesInboxScreen() {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, username, full_name, avatar_url, presence_status, role')
-        .neq('id', user.id as string) // TS Fix
+        .neq('id', user.id)
         .or(`username.ilike.%${text}%,full_name.ilike.%${text}%`)
         .limit(10);
 
@@ -283,9 +470,7 @@ export default function MessagesInboxScreen() {
     try {
       const { data: conversationId, error } = await supabase.rpc(
         'create_or_get_conversation' as any,
-        {
-          target_user_id: targetUserId,
-        },
+        { target_user_id: targetUserId },
       );
 
       if (error) throw error;
@@ -310,13 +495,12 @@ export default function MessagesInboxScreen() {
         await supabase
           .from('muted_conversations')
           .delete()
-          .eq('user_id', user.id as string)
+          .eq('user_id', user.id)
           .eq('conversation_id', selectedConv.id);
       } else {
-        await supabase.from('muted_conversations').insert({
-          user_id: user.id as string,
-          conversation_id: selectedConv.id,
-        });
+        await supabase
+          .from('muted_conversations')
+          .insert({ user_id: user.id, conversation_id: selectedConv.id });
       }
       setConversations((prev) =>
         prev.map((c) =>
@@ -347,7 +531,7 @@ export default function MessagesInboxScreen() {
               .from('conversation_participants')
               .delete()
               .eq('conversation_id', selectedConv.id)
-              .eq('user_id', user.id as string);
+              .eq('user_id', user.id);
             setConversations((prev) =>
               prev.filter((c) => c.id !== selectedConv.id),
             );
@@ -377,8 +561,18 @@ export default function MessagesInboxScreen() {
       return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     };
 
+    const statusColor =
+      item.otherUser?.actualStatus === 'ONLINE'
+        ? THEME.success
+        : item.otherUser?.actualStatus === 'BUSY'
+          ? THEME.warning
+          : THEME.slate;
+
     return (
-      <Animated.View entering={FadeInUp.delay(index * 20)}>
+      <Animated.View
+        entering={FadeInUp.delay(index * 20)}
+        layout={Layout.springify()}
+      >
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => {
@@ -392,27 +586,13 @@ export default function MessagesInboxScreen() {
           style={styles.convItem}
         >
           <View style={styles.avatarContainer}>
-            {item.otherUser?.avatar_url ? (
-              <Image
-                source={{ uri: item.otherUser.avatar_url }}
-                style={styles.avatar}
-              />
-            ) : (
-              <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                <Text style={styles.avatarLetter}>
-                  {item.otherUser?.username?.[0]?.toUpperCase()}
-                </Text>
-              </View>
-            )}
+            <UserAvatar
+              url={item.otherUser?.avatar_url}
+              name={item.otherUser?.username}
+              size={56}
+            />
             <View
-              style={[
-                styles.presenceDot,
-                {
-                  backgroundColor: item.otherUser?.isActuallyOnline
-                    ? THEME.success
-                    : THEME.slate,
-                },
-              ]}
+              style={[styles.presenceDot, { backgroundColor: statusColor }]}
             />
           </View>
 
@@ -462,7 +642,11 @@ export default function MessagesInboxScreen() {
               >
                 {item.previewText}
               </Text>
-              {item.hasUnread && <View style={styles.unreadBadge} />}
+              {item.hasUnread && (
+                <View style={styles.unreadBadgeContainer}>
+                  <Text style={styles.unreadBadgeText}>NEW</Text>
+                </View>
+              )}
             </View>
           </View>
         </TouchableOpacity>
@@ -487,15 +671,24 @@ export default function MessagesInboxScreen() {
             <Waypoints size={32} color={THEME.indigo} />
             <Text style={styles.headerTitle}>Terminals</Text>
           </View>
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setIsNewChatModalOpen(true);
-            }}
-            style={styles.newChatBtn}
-          >
-            <Edit size={20} color={THEME.white} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {isProvisioningKeys && (
+              <ActivityIndicator
+                size="small"
+                color={THEME.indigo}
+                style={{ marginRight: 16 }}
+              />
+            )}
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setIsNewChatModalOpen(true);
+              }}
+              style={styles.newChatBtn}
+            >
+              <Edit size={20} color={THEME.white} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* --- SEARCH BAR --- */}
@@ -557,7 +750,7 @@ export default function MessagesInboxScreen() {
                 <Text style={styles.emptyTitle}>Secure Environment</Text>
                 <Text style={styles.emptySub}>
                   No active transmissions. Tap the pen icon to initiate a
-                  verified AES-256 handshake.
+                  verified E2EE handshake.
                 </Text>
               </Animated.View>
             }
@@ -569,7 +762,6 @@ export default function MessagesInboxScreen() {
           🛠️ MODALS & ACTION SHEETS
       ============================================================================ */}
 
-      {/* Context Menu (Long Press Conversation) */}
       <Modal
         visible={!!selectedConv}
         transparent
@@ -584,7 +776,6 @@ export default function MessagesInboxScreen() {
             <Text style={styles.contextTitle}>
               Terminal Options: @{selectedConv?.otherUser?.username}
             </Text>
-
             <TouchableOpacity
               onPress={handleMuteConversation}
               style={styles.actionBtn}
@@ -605,7 +796,6 @@ export default function MessagesInboxScreen() {
                   : 'Mute Incoming Signals'}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               onPress={handleDeleteConversation}
               style={styles.actionBtn}
@@ -615,7 +805,6 @@ export default function MessagesInboxScreen() {
                 Purge from Device
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               onPress={() => setSelectedConv(null)}
               style={styles.closeBtn}
@@ -626,7 +815,6 @@ export default function MessagesInboxScreen() {
         </Pressable>
       </Modal>
 
-      {/* New Chat Directory Modal */}
       <Modal
         visible={isNewChatModalOpen}
         animationType="slide"
@@ -642,7 +830,6 @@ export default function MessagesInboxScreen() {
               <X size={20} color={THEME.slate} />
             </TouchableOpacity>
           </View>
-
           <View style={styles.modalSearchContainer}>
             <GlassCard style={styles.searchCard}>
               <Search size={18} color={THEME.slate} />
@@ -660,7 +847,6 @@ export default function MessagesInboxScreen() {
               )}
             </GlassCard>
           </View>
-
           <FlatList
             data={searchedUsers}
             keyExtractor={(item) => item.id}
@@ -672,16 +858,11 @@ export default function MessagesInboxScreen() {
                 style={styles.directoryItem}
               >
                 <View>
-                  {item.avatar_url ? (
-                    <Image
-                      source={{ uri: item.avatar_url }}
-                      style={styles.dirAvatar}
-                    />
-                  ) : (
-                    <View style={[styles.dirAvatar, styles.avatarPlaceholder]}>
-                      <User size={24} color={THEME.indigo} />
-                    </View>
-                  )}
+                  <UserAvatar
+                    url={item.avatar_url}
+                    name={item.username}
+                    size={48}
+                  />
                 </View>
                 <View style={styles.dirInfo}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -714,8 +895,6 @@ export default function MessagesInboxScreen() {
 // ============================================================================
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
-
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -745,8 +924,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-
-  // Search
   searchContainer: { paddingHorizontal: 20, paddingBottom: 16 },
   searchCard: {
     flexDirection: 'row',
@@ -762,8 +939,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 12,
   },
-
-  // List Items
   listContainer: { paddingHorizontal: 10 },
   convItem: {
     flexDirection: 'row',
@@ -774,19 +949,6 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255,255,255,0.05)',
   },
   avatarContainer: { position: 'relative' },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: THEME.glassBorder,
-  },
-  avatarPlaceholder: {
-    backgroundColor: 'rgba(99,102,241,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarLetter: { fontSize: 22, fontWeight: '900', color: THEME.indigo },
   presenceDot: {
     position: 'absolute',
     bottom: 2,
@@ -797,7 +959,6 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: THEME.obsidian,
   },
-
   convDetails: { flex: 1, marginLeft: 16, justifyContent: 'center' },
   convHeaderRow: {
     flexDirection: 'row',
@@ -815,20 +976,19 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   convPreviewUnread: { color: THEME.white, fontWeight: '800' },
-  unreadBadge: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  unreadBadgeContainer: {
     backgroundColor: THEME.indigo,
-    marginLeft: 10,
-    shadowColor: THEME.indigo,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
-    elevation: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 8,
   },
-
-  // Badges
+  unreadBadgeText: {
+    color: THEME.white,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
   roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -844,8 +1004,6 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     letterSpacing: 0.5,
   },
-
-  // Empty State
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -875,8 +1033,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
-
-  // Action Menu
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.85)',
@@ -925,8 +1081,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-
-  // Directory Modal
   modalRoot: { flex: 1, backgroundColor: THEME.obsidian },
   modalHeader: {
     flexDirection: 'row',
@@ -953,13 +1107,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  dirAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: THEME.glassBorder,
   },
   dirInfo: { flex: 1, marginLeft: 16 },
   dirName: { fontSize: 16, fontWeight: '900', color: THEME.white },

@@ -9,6 +9,7 @@
  * - Mute Engine: Bypasses notifications if the recipient has muted the thread.
  * - Zero-Knowledge Notification: Emits a generic "Secure Transmission" alert
  * without ever decrypting or exposing the payload contents.
+ * - E2EE Support: Forwards the encrypted AES key to the database.
  * ============================================================================
  */
 
@@ -55,8 +56,8 @@ serve(async (req: Request) => {
       throw new Error('Unauthorized Access: Invalid JWT');
     }
 
-    // 4. Parse Incoming Ciphertext Payload
-    const { conversationId, content } = await req.json();
+    // 4. Parse Incoming Ciphertext Payload & AES Key
+    const { conversationId, content, encrypted_aes_key } = await req.json();
     if (!conversationId || !content) {
       throw new Error('Malformed Payload: Missing required identifiers');
     }
@@ -94,13 +95,14 @@ serve(async (req: Request) => {
       );
     }
 
-    // 7. Commit Encrypted Payload to Database
+    // 7. Commit Encrypted Payload & AES Key to Database
     const { data: message, error: msgError } = await supabaseAdmin
       .from('messages')
       .insert({
         conversation_id: conversationId,
         sender_id: user.id,
         content: content,
+        encrypted_aes_key: encrypted_aes_key || null,
       })
       .select()
       .single();

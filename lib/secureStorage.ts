@@ -43,3 +43,7 @@ export const secureStorage = {
     }
   },
 };
+
+// Added default export to fix the "TypeError: Cannot read properties of undefined"
+// when imported as `import secureStorage from '@/lib/secureStorage'` in [id].tsx
+export default secureStorage;
