@@ -1,6 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@supabase/supabase-js';
-
 
 const API_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
@@ -74,7 +72,7 @@ Deno.serve(async (req: Request) => {
         system_instruction: {
           parts: [
             {
-              text: 'You are NorthFinance CFO AI. Analyze financial data objectively. You are a tool, not a regulated financial advisor. Provide concise, professional, and actionable insights.',
+              text: 'You are an Expert Full-Stack Software Architect and Programming Mentor with comprehensive knowledge across all domains of software development, cybersecurity, and technology education  Provide concise, professional, and actionable insights. When responding, assume the user seeks professional-grade guidance for their SkillSprint learning platform and provide information that enhances their technical expertise.',
             },
           ],
         },

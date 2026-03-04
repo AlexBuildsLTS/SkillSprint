@@ -1,17 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
 
-const CORS_HEADERS = {
+const API_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
+
+const supabaseAdmin = createClient(
+  Deno.env.get('SUPABASE_URL') ?? '',
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+);
+
+const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
     'authorization, x-client-info, apikey, content-type',
 };
 
-const GEMINI_API_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS')
-    return new Response('ok', { headers: CORS_HEADERS });
+    return new Response('ok', { headers: corsHeaders });
 
   try {
     const { language, difficulty, userId } = await req.json();
@@ -21,8 +26,8 @@ Deno.serve(async (req) => {
     // 1. Initialize Supabase
     // Using Service Role Key to strictly bypass RLS policies
     const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
     const today = new Date().toISOString().split('T')[0];
 
@@ -36,7 +41,7 @@ Deno.serve(async (req) => {
 
     if (existingSprint) {
       return new Response(JSON.stringify(existingSprint.tasks), {
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -68,7 +73,7 @@ Deno.serve(async (req) => {
       Ensure a mix of 'quiz' and 'code' types.
     `;
 
-    const geminiResp = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    const geminiResp = await fetch(`${API_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -95,7 +100,9 @@ Deno.serve(async (req) => {
     const tasks = JSON.parse(rawText);
 
     // 4. SAVE TO DATABASE (The Fix)
+
     // We explicitly capture 'error' from the upsert.
+
     const { error: dbError } = await supabase.from('daily_sprints').upsert(
       {
         user_id: userId,
@@ -112,16 +119,26 @@ Deno.serve(async (req) => {
     // CRITICAL: If the DB save fails, we THROW so the function fails
     // and you see the 500 error instead of a fake success.
     if (dbError) {
+      console.error('[Database Error]:', dbError.message);
       throw new Error(`Database Save Failed: ${dbError.message}`);
     }
 
+    // 5. Audit Trail: Log the generation event for security and analytics
+    await supabase.from('notifications').insert({
+      user_id: userId,
+      title: 'New Track Generated',
+      message: `Your personalized ${language} (${difficulty}) track is ready!`,
+      type: 'SYSTEM',
+      is_read: false,
+    });
+
     return new Response(JSON.stringify(tasks), {
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
     return new Response(JSON.stringify({ error: (error as Error).message }), {
       status: 500,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });

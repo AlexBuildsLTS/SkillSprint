@@ -1,13 +1,6 @@
 /**
  * ============================================================================
- * 🛡️ SKILLSPRINT SECURE INBOX - PRODUCTION BUILD v8.8 (WEB & APK SAFE)
- * ============================================================================
- * Architecture:
- * - True Block Engine: Fetches and displays two-way block states in the UI.
- * - Context Menus: Block/Unblock functionality added to the Desktop 3-dot menu.
- * - Privacy Protocol: Forces "Offline" presence status if a block exists.
- * - Anti-Placebo UI: All mutations use .select() to catch Silent RLS Failures.
- * - Web Compatibility: Bypasses React Native Alert on Web to fix silent failures.
+ * 🛡️ SKILLSPRINT SECURE INBOX - PRODUCTION BUILD v9.5
  * ============================================================================
  */
 
@@ -68,9 +61,11 @@ import forge from 'node-forge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Database } from '@/supabase/database.types';
 
-// ============================================================================
-// 🎨 THEME & CRYPTO CONFIGURATION
-// ============================================================================
+let NativeRSA: any;
+if (Platform.OS !== 'web') {
+  NativeRSA = require('react-native-rsa-native').RSA;
+}
+
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
@@ -90,9 +85,6 @@ const LEGACY_SECRET = forge.util.createBuffer(
 
 type UserRole = Database['public']['Enums']['user_role'];
 
-// ============================================================================
-// 🔐 ASYNC DECRYPTION PREVIEW ENGINE
-// ============================================================================
 const getLocalPrivateKey = async (): Promise<string | null> => {
   try {
     return await secureStorage.getItem('skillsprint_private_key');
@@ -107,9 +99,10 @@ const decryptPreviewAsync = async (
 ): Promise<string> => {
   if (!message || !message.content) return 'Start a secure tunnel...';
 
-  // Note: Dual-key decryption is handled inside the chat room. Inbox preview shows placeholder for sent E2EE messages.
-  if (message.sender_id === currentUserId && message.encrypted_aes_key) {
+  if (message.sender_id === currentUserId && message.sender_encrypted_aes_key) {
     return '🔒 Encrypted & Sent';
+  } else if (message.sender_id === currentUserId) {
+    return '🔒 Encrypted & Sent (Legacy)';
   }
 
   try {
@@ -175,9 +168,6 @@ const generateIdentityFingerprint = (
   }
 };
 
-// ============================================================================
-// 🧩 MICRO-COMPONENTS
-// ============================================================================
 const RoleBadge = ({ role }: { role: UserRole | undefined }) => {
   if (!role || role === 'MEMBER') return null;
   const color =
@@ -212,7 +202,7 @@ const UserAvatar = ({
   name?: string | null;
   size?: number;
 }) => {
-  if (url) {
+  if (url)
     return (
       <Image
         source={{ uri: url }}
@@ -225,7 +215,6 @@ const UserAvatar = ({
         }}
       />
     );
-  }
   const initial = name ? name.charAt(0).toUpperCase() : '?';
   return (
     <View
@@ -249,9 +238,6 @@ const UserAvatar = ({
   );
 };
 
-// ============================================================================
-// 🚀 MAIN SCREEN COMPONENT
-// ============================================================================
 export default function MessagesInboxScreen() {
   const { user, refreshUserData } = useAuth();
   const router = useRouter();
@@ -260,7 +246,6 @@ export default function MessagesInboxScreen() {
   const insets = useSafeAreaInsets();
   const isMobile = width < 768;
 
-  // --- Inbox State ---
   const [searchQuery, setSearchQuery] = useState('');
   const [conversations, setConversations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -270,20 +255,15 @@ export default function MessagesInboxScreen() {
     'ONLINE' | 'BUSY' | 'OFFLINE' | null
   >(user?.profile?.presence_status as any);
 
-  // --- Modals State ---
   const [selectedConv, setSelectedConv] = useState<any | null>(null);
   const [showGlobalSettings, setShowGlobalSettings] = useState(false);
   const [showFingerprint, setShowFingerprint] = useState(false);
 
-  // --- New Chat State ---
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [searchedUsers, setSearchedUsers] = useState<any[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
 
-  // ============================================================================
-  // 🔑 BACKGROUND KEY PROVISIONING
-  // ============================================================================
   const ensureUserHasKeys = async (forceRegenerate = false) => {
     if (!user?.id) return;
     try {
@@ -300,44 +280,48 @@ export default function MessagesInboxScreen() {
       if (!privKey || !pubKey || !profile?.public_key || forceRegenerate) {
         setIsProvisioningKeys(true);
 
-        const keypair = await new Promise<forge.pki.rsa.KeyPair>(
-          (resolve, reject) => {
-            forge.pki.rsa.generateKeyPair(
-              { bits: 2048, workers: -1 },
-              (err, kp) => {
-                if (err) reject(err);
-                else resolve(kp);
-              },
-            );
-          },
-        );
+        let generatedPriv, generatedPub;
 
-        privKey = forge.pki.privateKeyToPem(keypair.privateKey);
-        pubKey = forge.pki.publicKeyToPem(keypair.publicKey);
+        if (Platform.OS === 'web') {
+          const keypair = await new Promise<forge.pki.rsa.KeyPair>(
+            (resolve, reject) => {
+              forge.pki.rsa.generateKeyPair(
+                { bits: 2048, workers: -1 },
+                (err, kp) => {
+                  if (err) reject(err);
+                  else resolve(kp);
+                },
+              );
+            },
+          );
+          generatedPriv = forge.pki.privateKeyToPem(keypair.privateKey);
+          generatedPub = forge.pki.publicKeyToPem(keypair.publicKey);
+        } else {
+          const keys = await NativeRSA.generateKeys(2048);
+          generatedPriv = keys.private;
+          generatedPub = keys.public;
+        }
 
-        await secureStorage.setItem('skillsprint_private_key', privKey);
-        await secureStorage.setItem('skillsprint_public_key', pubKey);
-
+        await secureStorage.setItem('skillsprint_private_key', generatedPriv);
+        await secureStorage.setItem('skillsprint_public_key', generatedPub);
         await supabase
           .from('profiles')
-          .update({ public_key: pubKey })
+          .update({ public_key: generatedPub })
           .eq('id', user.id);
 
         if (forceRegenerate) {
-          if (Platform.OS === 'web') {
+          if (Platform.OS === 'web')
             window.alert(
               'Your secure keys have been reset. Old messages will remain mathematically locked.',
             );
-          } else {
+          else
             Alert.alert(
               'Keys Regenerated',
               'Your secure keys have been reset. Old messages will remain mathematically locked.',
             );
-          }
         }
       }
     } catch (error) {
-      console.error('[E2EE Provisioning Error]', error);
       if (forceRegenerate) {
         if (Platform.OS === 'web')
           window.alert('Key Generation Failed. Please try again.');
@@ -348,13 +332,8 @@ export default function MessagesInboxScreen() {
     }
   };
 
-  // ============================================================================
-  // 🔄 DATA FETCHING & REALTIME SYNC
-  // ============================================================================
   useEffect(() => {
-    if (user?.id) {
-      ensureUserHasKeys().then(() => fetchConversations());
-    }
+    if (user?.id) ensureUserHasKeys().then(() => fetchConversations());
 
     const messageChannel = supabase
       .channel('inbox_messages')
@@ -396,32 +375,24 @@ export default function MessagesInboxScreen() {
     if (!silentRefresh) setIsLoading(true);
 
     try {
-      // 1. Fetch Conversations, Mutes, AND Blocks simultaneously
-      const [
-        { data: convData, error: convError },
-        { data: muteData },
-        { data: blockData },
-      ] = await Promise.all([
-        supabase.from('conversations').select(`
+      const [{ data: convData }, { data: muteData }, { data: blockData }] =
+        await Promise.all([
+          supabase.from('conversations').select(`
           id, updated_at,
           conversation_participants!inner(user_id, last_read_at, profiles(id, username, full_name, avatar_url, presence_status, last_seen_at, role)),
-          messages(content, created_at, sender_id, encrypted_aes_key)
+          messages(content, created_at, sender_id, encrypted_aes_key, sender_encrypted_aes_key)
         `),
-        supabase
-          .from('muted_conversations')
-          .select('conversation_id')
-          .eq('user_id', user.id),
-        supabase
-          .from('blocked_users')
-          .select('blocker_id, blocked_id')
-          .or(`blocker_id.eq.${user.id},blocked_id.eq.${user.id}`),
-      ]);
-
-      if (convError) throw convError;
+          supabase
+            .from('muted_conversations')
+            .select('conversation_id')
+            .eq('user_id', user.id),
+          supabase
+            .from('blocked_users')
+            .select('blocker_id, blocked_id')
+            .or(`blocker_id.eq.${user.id},blocked_id.eq.${user.id}`),
+        ]);
 
       const mutedIds = new Set(muteData?.map((m) => m.conversation_id) || []);
-
-      // Map out block relationships
       const myBlocks = new Set(
         blockData
           ?.filter((b) => b.blocker_id === user.id)
@@ -442,7 +413,6 @@ export default function MessagesInboxScreen() {
             (p: any) => p.user_id !== user.id,
           )?.profiles;
 
-          // Check block status
           const isBlockedByMe = other?.id ? myBlocks.has(other.id) : false;
           const hasBlockedMe = other?.id ? blockedBy.has(other.id) : false;
 
@@ -454,8 +424,6 @@ export default function MessagesInboxScreen() {
           let actualStatus = other?.presence_status;
           if (actualStatus === 'ONLINE' && !isActuallyOnline)
             actualStatus = 'OFFLINE';
-
-          // PRIVACY PROTOCOL: If a block exists, force offline status visually
           if (isBlockedByMe || hasBlockedMe) actualStatus = 'OFFLINE';
 
           const sortedMessages = conv.messages?.sort(
@@ -484,7 +452,6 @@ export default function MessagesInboxScreen() {
         }),
       );
 
-      // Bubble newest activity to the very top
       const sortedConversations = formatted.sort((a, b) => {
         const timeA = a.lastMessage
           ? new Date(a.lastMessage.created_at).getTime()
@@ -510,9 +477,6 @@ export default function MessagesInboxScreen() {
     fetchConversations(true);
   }, [user?.id]);
 
-  // ============================================================================
-  // 🔍 NEW CHAT ENGINE
-  // ============================================================================
   const handleUserSearch = async (text: string) => {
     if (!user?.id) return;
     setUserSearchQuery(text);
@@ -529,7 +493,6 @@ export default function MessagesInboxScreen() {
         .neq('id', user.id)
         .or(`username.ilike.%${text}%,full_name.ilike.%${text}%`)
         .limit(10);
-
       if (error) throw error;
       setSearchedUsers(data || []);
     } catch (err) {
@@ -548,7 +511,6 @@ export default function MessagesInboxScreen() {
         'create_or_get_conversation' as any,
         { target_user_id: targetUserId },
       );
-
       if (error) throw error;
       if (conversationId) router.push(`/messages/${conversationId}`);
     } catch (err) {
@@ -564,9 +526,6 @@ export default function MessagesInboxScreen() {
     }
   };
 
-  // ============================================================================
-  // ⚡ CONTEXT ACTIONS
-  // ============================================================================
   const handleTogglePresence = async (
     status: 'ONLINE' | 'OFFLINE' | 'BUSY',
   ) => {
@@ -588,7 +547,6 @@ export default function MessagesInboxScreen() {
     const otherUserId = selectedConv.otherUser.id;
     const currentlyBlocked = selectedConv.iBlockedThem;
 
-    // Optimistic Update & Close Modal
     setConversations((prev) =>
       prev.map((c) =>
         c.id === selectedConv.id
@@ -600,13 +558,11 @@ export default function MessagesInboxScreen() {
 
     try {
       if (currentlyBlocked) {
-        // UNBLOCK
         await supabase
           .from('blocked_users')
           .delete()
           .match({ blocker_id: user.id, blocked_id: otherUserId });
       } else {
-        // BLOCK (Using upsert to prevent 409 constraints safely)
         await supabase
           .from('blocked_users')
           .upsert(
@@ -615,7 +571,6 @@ export default function MessagesInboxScreen() {
           );
       }
     } catch (error) {
-      // Revert on silent failure
       fetchConversations(true);
       if (Platform.OS === 'web')
         window.alert(
@@ -637,7 +592,6 @@ export default function MessagesInboxScreen() {
     const wasMuted = selectedConv.isMuted;
     const backupConvs = [...conversations];
 
-    // Optimistic update & CLOSE MODAL INSTANTLY
     setConversations((prev) =>
       prev.map((c) => (c.id === convId ? { ...c, isMuted: !c.isMuted } : c)),
     );
@@ -662,8 +616,7 @@ export default function MessagesInboxScreen() {
           throw new Error('RLS blocked mute');
       }
     } catch (e) {
-      console.error('Mute Sync Failed:', e);
-      setConversations(backupConvs); // Rollback UI
+      setConversations(backupConvs);
       if (Platform.OS === 'web')
         window.alert(
           'Network Error: Failed to synchronize mute status with server.',
@@ -684,12 +637,10 @@ export default function MessagesInboxScreen() {
       const backupConvs = [...conversations];
       const convId = selectedConv.id;
 
-      // 1. Optimistic UI Rollback Implementation - CLOSE MODAL INSTANTLY
       setConversations((prev) => prev.filter((c) => c.id !== convId));
       setSelectedConv(null);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
-      // 2. True DB Deletion WITH safety select to catch Silent RLS Failures
       const { data, error } = await supabase
         .from('conversation_participants')
         .delete()
@@ -698,22 +649,11 @@ export default function MessagesInboxScreen() {
         .select();
 
       if (error || !data || data.length === 0) {
-        console.error(
-          '[Purge Error or Silent RLS Block]:',
-          error || '0 rows affected',
-        );
         setConversations(backupConvs);
-
-        if (Platform.OS === 'web') {
-          window.alert(
-            'Purge Failed: Database security prevented deletion. Please ensure you ran the provided SQL migrations.',
-          );
-        } else {
-          Alert.alert(
-            'Purge Failed',
-            'Database security prevented deletion. Please ensure you ran the provided SQL migrations.',
-          );
-        }
+        if (Platform.OS === 'web')
+          window.alert('Purge Failed: Database security prevented deletion.');
+        else
+          Alert.alert('Purge Failed', 'Database security prevented deletion.');
       }
     };
 
@@ -762,9 +702,6 @@ export default function MessagesInboxScreen() {
     }
   };
 
-  // ============================================================================
-  // 🎨 UI RENDERERS
-  // ============================================================================
   const renderConversationItem = ({
     item,
     index,
@@ -774,9 +711,8 @@ export default function MessagesInboxScreen() {
   }) => {
     const formatTime = (iso: string) => {
       const d = new Date(iso);
-      if (new Date().toDateString() === d.toDateString()) {
+      if (new Date().toDateString() === d.toDateString())
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      }
       return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     };
 
@@ -832,7 +768,6 @@ export default function MessagesInboxScreen() {
                     'Unknown User'}
                 </Text>
 
-                {/* Blocked and Muted Indicators */}
                 {item.iBlockedThem && (
                   <View style={styles.blockedBadge}>
                     <Text style={styles.blockedBadgeText}>BLOCKED</Text>
@@ -876,10 +811,9 @@ export default function MessagesInboxScreen() {
             </View>
           </View>
 
-          {/* DESKTOP/WEB ACCESSIBILITY FIX: Explicit Action Button */}
           <TouchableOpacity
             onPress={(e) => {
-              e.stopPropagation(); // Prevents navigating to chat
+              e.stopPropagation();
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setSelectedConv(item);
             }}
@@ -892,9 +826,6 @@ export default function MessagesInboxScreen() {
     );
   };
 
-  // ============================================================================
-  // 🖥️ MAIN RENDER
-  // ============================================================================
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -903,7 +834,6 @@ export default function MessagesInboxScreen() {
       />
 
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        {/* --- HEADER --- */}
         <View style={styles.header}>
           <View style={styles.headerTitleRow}>
             <Waypoints size={32} color={THEME.indigo} />
@@ -931,7 +861,6 @@ export default function MessagesInboxScreen() {
           </View>
         </View>
 
-        {/* --- KEY GENERATION OVERLAY --- */}
         {isProvisioningKeys ? (
           <Animated.View
             entering={FadeInDown}
@@ -951,7 +880,6 @@ export default function MessagesInboxScreen() {
           </Animated.View>
         ) : (
           <>
-            {/* --- SEARCH BAR --- */}
             <View style={styles.searchContainer}>
               <GlassCard style={styles.searchCard}>
                 <Search size={18} color={THEME.slate} />
@@ -970,7 +898,6 @@ export default function MessagesInboxScreen() {
               </GlassCard>
             </View>
 
-            {/* --- INBOX LIST --- */}
             {isLoading ? (
               <ActivityIndicator
                 color={THEME.indigo}
@@ -1022,10 +949,6 @@ export default function MessagesInboxScreen() {
           </>
         )}
       </SafeAreaView>
-
-      {/* ============================================================================
-          🛠️ MODALS & ACTION SHEETS
-      ============================================================================ */}
 
       <Modal
         visible={!!selectedConv}
@@ -1326,9 +1249,6 @@ export default function MessagesInboxScreen() {
   );
 }
 
-// ============================================================================
-// 🎨 STYLES
-// ============================================================================
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
   header: {
@@ -1413,14 +1333,24 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: THEME.obsidian,
   },
-  convDetails: { flex: 1, marginLeft: 16, justifyContent: 'center' },
+  convDetails: {
+    flex: 1,
+    marginLeft: 16,
+    justifyContent: 'center',
+    flexShrink: 1,
+  }, // 🛡️ Ensure text container shrinks
   convHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 6,
   },
-  convName: { fontSize: 16, fontWeight: '900', color: THEME.slate },
+  convName: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: THEME.slate,
+    flexShrink: 1,
+  }, // 🛡️ Prevent long names from pushing out
   convTime: { fontSize: 11, fontWeight: 'bold', color: THEME.slate },
   convPreviewRow: { flexDirection: 'row', alignItems: 'center' },
   convPreviewText: {

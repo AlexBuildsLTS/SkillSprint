@@ -46,6 +46,7 @@ export const api = {
           codeSnippet:
             "# Override Protocol\ndef bypass():\n    return 'Access Granted'",
           description: "Return 'Access Granted' to proceed.",
+          answer: undefined,
         },
       ];
     }
@@ -277,9 +278,12 @@ export const api = {
    * 🌐 PRESENCE: UPDATE STATUS (EDGE FUNCTION)
    */
   updatePresence: async (status: 'ONLINE' | 'OFFLINE' | 'BUSY') => {
-    const { data, error } = await supabase.functions.invoke('presence-handler', {
-      body: { status },
-    });
+    const { data, error } = await supabase.functions.invoke(
+      'presence-handler',
+      {
+        body: { status },
+      },
+    );
     if (error) throw error;
     return data;
   },

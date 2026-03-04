@@ -1,3 +1,14 @@
+/**
+ * ============================================================================
+ * 🚀 SCREEN: SPRINT EXECUTION - V9.2 (ANTI-TRAP SECURE BUILD)
+ * ============================================================================
+ * Architecture:
+ * - Anti-Trap UX: Close button explicitly rendered during the 'initializing' phase.
+ * - Network Fail-Safe: 15-second abort controller prevents infinite loading screens.
+ * - Strict Routing: Replaced router.back() with router.replace('/') on complete to prevent stack memory leaks.
+ * ============================================================================
+ */
+
 import React, { useState, useEffect, useCallback, memo } from 'react';
 import {
   View,
@@ -8,7 +19,7 @@ import {
   Alert,
   StatusBar,
   ScrollView,
-  useWindowDimensions, // Required for responsive layout
+  useWindowDimensions,
   Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -40,7 +51,6 @@ import { api } from '@/services/api';
 import { SprintCard, SprintResult } from '@/services/types';
 import Button from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
-import { Bento3DCard } from '@/components/ui/Bento3DCard';
 import { CodeEmulator } from '@/components/lesson/CodeEmulator';
 
 const THEME = {
@@ -56,9 +66,6 @@ const THEME = {
   border: 'rgba(255, 255, 255, 0.1)',
 };
 
-/**
- * 📊 COMPONENT: SPRINT PROGRESS BAR
- */
 const SprintProgressBar = memo(function SprintProgressBar({
   total,
   current,
@@ -82,48 +89,12 @@ const SprintProgressBar = memo(function SprintProgressBar({
   );
 });
 
-/**
- * 🃏 COMPONENT: 3D CARD CONTAINER
- */
-const SprintCard3D = memo(function SprintCard3D({
-  isActive,
-  children,
-}: {
-  isActive: boolean;
-  children: React.ReactNode;
-}) {
-  const scale = useSharedValue(0.9);
-  const opacity = useSharedValue(0);
-
-  useEffect(() => {
-    if (isActive) {
-      scale.value = withSpring(1);
-      opacity.value = withTiming(1);
-    }
-  }, [isActive, opacity, scale]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ perspective: 1000 }, { scale: scale.value }],
-  }));
-
-  return (
-    <Animated.View style={[styles.cardWrapper, animatedStyle]}>
-      {children}
-    </Animated.View>
-  );
-});
-
-/**
- * 🚀 MAIN SPRINT SCREEN
- */
 export default function SprintScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
 
-  // Calculate dynamic terminal height: 60% of screen, but min 450px for usability
   const terminalHeight = Math.max(450, screenHeight * 0.6);
 
   const topic = Array.isArray(params.topic)
@@ -145,28 +116,35 @@ export default function SprintScreen() {
   const [result, setResult] = useState<SprintResult | null>(null);
   const comboScale = useSharedValue(1);
 
-  // 1. INIT
   useEffect(() => {
+    let isMounted = true;
+
     const initSprint = async () => {
       try {
-        const responseData = (await api.generateDailySprint(topic)) as any;
+        // 🛡️ Fail-Safe: Enforce a strict 15-second timeout on the API call
+        const fetchPromise = api.generateDailySprint(topic);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Request timed out')), 15000),
+        );
+
+        const responseData = (await Promise.race([
+          fetchPromise,
+          timeoutPromise,
+        ])) as any;
+
+        if (!isMounted) return;
 
         let finalTasks: SprintCard[] = [];
         if (Array.isArray(responseData)) {
           finalTasks = responseData;
         } else if (
-          responseData &&
-          responseData.content &&
+          responseData?.content &&
           Array.isArray(responseData.content)
         ) {
           finalTasks = responseData.content;
-        } else if (
-          responseData &&
-          responseData.tasks &&
-          Array.isArray(responseData.tasks)
-        ) {
+        } else if (responseData?.tasks && Array.isArray(responseData.tasks)) {
           finalTasks = responseData.tasks;
-        } else {
+        } else if (responseData) {
           finalTasks = Object.values(responseData).filter(
             (x) => typeof x === 'object',
           ) as SprintCard[];
@@ -176,30 +154,43 @@ export default function SprintScreen() {
           setCards(finalTasks);
           setStatus('active');
         } else {
-          throw new Error('No content generated');
+          throw new Error(
+            'No valid content payload returned from Edge Function.',
+          );
         }
-      } catch (err) {
-        console.error('Sprint Init Failed:', err);
-        Alert.alert('Connection Failed', 'Using offline mode.', [
-          { text: 'OK' },
-        ]);
+      } catch (err: any) {
+        if (!isMounted) return;
+        console.error('Sprint Init Failed:', err.message);
+
+        // Show the actual error message to the user before falling back
+        Alert.alert(
+          'Initialization Failed',
+          err.message || 'Falling back to offline mode.',
+          [{ text: 'OK' }],
+        );
+
         setCards([
           {
-            title: 'System Offline',
-            content: 'Network unreachable. Verify connection.',
+            title: 'Offline Sandbox',
+            content:
+              'Network unreachable. Use this terminal to test your syntax.',
             type: 'code',
-            codeSnippet: "print('Offline Mode')",
-            options: ['Retry'],
+            codeSnippet: '// Enter code here',
+            options: [],
             correctAnswer: 0,
+            answer: '', // Added the missing 'answer' property
           },
         ]);
         setStatus('active');
       }
     };
     initSprint();
+
+    return () => {
+      isMounted = false;
+    };
   }, [topic, difficulty]);
 
-  // 2. HANDLERS
   const handleAnswer = useCallback(
     (index: number) => {
       if (isAnswered) return;
@@ -253,14 +244,27 @@ export default function SprintScreen() {
     }
   }, [currentIndex, cards, score]);
 
-  // --- RENDER ---
+  // 🛡️ ANTI-TRAP LOADING STATE: Explicitly renders the back button.
   if (status === 'initializing') {
     return (
       <View style={styles.center}>
         <StatusBar barStyle="light-content" />
-        <ActivityIndicator size="large" color={THEME.indigo} />
-        <Text style={styles.loaderText}>
-          INITIALIZING {topic.toUpperCase()}...
+        <SafeAreaView style={styles.absoluteHeader}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.closeBtn}
+          >
+            <X size={24} color={THEME.slate} />
+          </TouchableOpacity>
+        </SafeAreaView>
+        <ActivityIndicator
+          size="large"
+          color={THEME.indigo}
+          style={{ transform: [{ scale: 1.5 }], marginBottom: 20 }}
+        />
+        <Text style={styles.loaderText}>INITIALIZING SPRINT...</Text>
+        <Text style={{ color: THEME.slate, marginTop: 10, fontSize: 12 }}>
+          Establishing secure connection
         </Text>
       </View>
     );
@@ -300,7 +304,9 @@ export default function SprintScreen() {
 
   const isCodingTask =
     currentCard.type === 'code' ||
-    (currentCard.codeSnippet && currentCard.codeSnippet.length > 0);
+    (currentCard.codeSnippet &&
+      currentCard.codeSnippet.length > 0 &&
+      (!currentCard.options || currentCard.options.length === 0));
 
   return (
     <View style={styles.container}>
@@ -310,13 +316,12 @@ export default function SprintScreen() {
       />
 
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        {/* HUD */}
         <View style={styles.hudHeader}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.closeBtn}
           >
-            <X size={20} color={THEME.slate} />
+            <X size={20} color={THEME.white} />
           </TouchableOpacity>
           <SprintProgressBar total={cards.length} current={currentIndex} />
           <Animated.View
@@ -334,54 +339,33 @@ export default function SprintScreen() {
           </Animated.View>
         </View>
 
-        {/* SCROLL CONTENT */}
         <ScrollView
           contentContainerStyle={{ padding: 20, paddingBottom: 120 }}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled" // Ensures taps inside code editor work
+          keyboardShouldPersistTaps="handled"
         >
           <Animated.View
             entering={SlideInRight}
             key={currentIndex}
             style={styles.cardStack}
           >
-            {/* 1. TASK CARD */}
-            <Bento3DCard style={{ marginBottom: 24, width: '100%' }}>
-              <View
-                style={[
-                  styles.cardContent,
-                  styles.glassEffect,
-                  { borderColor: THEME.emerald + '40', minHeight: 120 },
-                ]}
-              >
-                <View style={styles.cardHeader}>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <Zap size={18} color={THEME.emerald} fill={THEME.emerald} />
-                    <Text style={[styles.cardLabel, { color: THEME.emerald }]}>
-                      CURRENT TASK
-                    </Text>
-                  </View>
-                </View>
-
-                <View>
-                  <Text style={styles.questionText}>{currentCard.title}</Text>
-                  <Text style={styles.contentText}>{currentCard.content}</Text>
+            <View style={[styles.cardContent, styles.glassEffect]}>
+              <View style={styles.cardHeader}>
+                <View
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                >
+                  <Zap size={18} color={THEME.emerald} fill={THEME.emerald} />
+                  <Text style={[styles.cardLabel, { color: THEME.emerald }]}>
+                    CURRENT TASK
+                  </Text>
                 </View>
               </View>
-            </Bento3DCard>
+              <Text style={styles.questionText}>{currentCard.title}</Text>
+              <Text style={styles.contentText}>{currentCard.content}</Text>
+            </View>
 
-            {/* 2. INTERACTION AREA */}
-            <GlassCard intensity="heavy" style={styles.interactionCard}>
+            <View style={{ marginTop: 20 }}>
               {isCodingTask ? (
-                // Code Emulator Container
-                // FIXED: Removed overflow:hidden to allow keyboard/run button visibility
-                // FIXED: Adaptive height ensuring it fills screen properly on mobile/desktop
                 <View
                   style={{
                     borderRadius: 16,
@@ -395,11 +379,12 @@ export default function SprintScreen() {
                   <CodeEmulator
                     language={topic.toLowerCase()}
                     code={currentCard.codeSnippet || ''}
+                    expectedOutput={currentCard.answer}
+                    hint={currentCard.explanation}
                     onComplete={handleCodeSuccess}
                   />
                 </View>
               ) : (
-                // Quiz Options
                 <View style={styles.optionsGrid}>
                   {currentCard.options?.map((opt, idx) => (
                     <TouchableOpacity
@@ -422,6 +407,7 @@ export default function SprintScreen() {
                           color: 'white',
                           fontWeight: 'bold',
                           fontSize: 16,
+                          flexShrink: 1,
                         }}
                       >
                         {opt}
@@ -436,13 +422,23 @@ export default function SprintScreen() {
                         )}
                     </TouchableOpacity>
                   ))}
+
+                  {isAnswered && currentCard.explanation && (
+                    <Animated.View
+                      entering={FadeIn}
+                      style={styles.explanationBox}
+                    >
+                      <Text style={styles.explanationText}>
+                        {currentCard.explanation}
+                      </Text>
+                    </Animated.View>
+                  )}
                 </View>
               )}
-            </GlassCard>
+            </View>
           </Animated.View>
         </ScrollView>
 
-        {/* FOOTER */}
         <View style={[styles.footer, { paddingBottom: insets.bottom + 10 }]}>
           {isAnswered && (
             <Button fullWidth size="lg" onPress={handleNext}>
@@ -463,13 +459,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: THEME.obsidian,
   },
-  loaderText: {
-    color: THEME.indigo,
-    marginTop: 20,
-    fontWeight: '900',
-    letterSpacing: 1,
+  absoluteHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    padding: 20,
+    zIndex: 50,
   },
-
+  loaderText: {
+    color: THEME.white,
+    fontWeight: '900',
+    letterSpacing: 2,
+    fontSize: 16,
+  },
   hudHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -480,8 +483,9 @@ const styles = StyleSheet.create({
     padding: 8,
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.border,
   },
-
   progressContainer: { flex: 1, flexDirection: 'row', height: 6, gap: 4 },
   progressSegment: {
     flex: 1,
@@ -490,14 +494,11 @@ const styles = StyleSheet.create({
   },
   progressSegmentCompleted: { backgroundColor: THEME.success },
   progressSegmentActive: { backgroundColor: THEME.indigo },
-
   cardStack: { flex: 1 },
   cardWrapper: { flex: 1 },
-
-  // --- GLASS CARD PATTERN ---
   glassEffect: {
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    borderColor: 'rgba(148, 163, 184, 0.1)',
+    borderColor: 'rgba(148, 163, 184, 0.15)',
     borderWidth: 1,
   },
   cardContent: {
@@ -509,16 +510,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   cardLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '900',
     textTransform: 'uppercase',
     letterSpacing: 2,
-    color: THEME.slate,
   },
-
   questionText: {
     color: 'white',
     fontSize: 22,
@@ -527,9 +526,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   contentText: { color: THEME.slate, fontSize: 16, lineHeight: 26 },
-
-  interactionCard: { padding: 20, borderRadius: 24 },
-
   optionsGrid: { gap: 12 },
   optionBase: {
     padding: 20,
@@ -555,7 +551,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239, 68, 68, 0.2)',
     borderColor: THEME.danger,
   },
-
+  explanationBox: {
+    marginTop: 12,
+    padding: 16,
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.indigo,
+  },
+  explanationText: { color: THEME.white, fontSize: 14, lineHeight: 22 },
   footer: {
     position: 'absolute',
     bottom: 0,
@@ -563,8 +567,10 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: 20,
     paddingTop: 20,
+    backgroundColor: THEME.obsidian,
+    borderTopWidth: 1,
+    borderColor: THEME.border,
   },
-
   summaryContainer: {
     flex: 1,
     justifyContent: 'center',

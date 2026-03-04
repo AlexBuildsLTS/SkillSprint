@@ -1324,7 +1324,6 @@ export function CodeEmulator({
         </ScrollView>
       </View>
 
-  
       {/* CONSOLE */}
       {isConsoleOpen && (
         <Animated.View

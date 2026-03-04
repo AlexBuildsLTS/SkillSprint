@@ -1,12 +1,12 @@
 /**
  * ============================================================================
- * 🛡️ SKILLSPRINT SECURE CHAT TERMINAL - TRUE E2EE PRODUCTION BUILD v9.5
+ * 🛡️ SKILLSPRINT SECURE CHAT TERMINAL - TRUE E2EE PRODUCTION BUILD v9.8
  * ============================================================================
  * Architecture (Dual-Key Hybrid Encryption):
- * - Lifecycle Fix: Block/Mute states now properly await Recipient ID resolution.
- * - Layout Fix: Strict Flexbox boundaries applied to prevent text clipping.
- * - Dual-Cipher E2EE: AES key is encrypted for BOTH the recipient AND the sender.
- * - DB Sync: Bypasses Deno edge functions for instant inserts and triggers.
+ * - Sender Key Fix: Now strictly pulls sender's public key from Secure Storage to guarantee dual-encryption.
+ * - Avatar Fix: Properly targets user.user_metadata for optimistic UI renders.
+ * - Native Crypto Offloading: Uses react-native-rsa-native to prevent APK freezing.
+ * - True Block Engine: Uses insert/delete directly instead of upsert to fix reset bugs.
  * ============================================================================
  */
 
@@ -84,9 +84,12 @@ import forge from 'node-forge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Database } from '@/supabase/database.types';
 
-// ============================================================================
-// 🎨 CONFIGURATION
-// ============================================================================
+// 🛡️ NATIVE CRYPTO BRIDGE (Prevents ANR Freezes on Android/iOS)
+let NativeRSA: any;
+if (Platform.OS !== 'web') {
+  NativeRSA = require('react-native-rsa-native').RSA;
+}
+
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
@@ -152,10 +155,6 @@ interface Message {
   decryptionError?: string;
 }
 
-// ============================================================================
-// 🔐 DUAL-KEY E2EE CRYPTOGRAPHY ENGINE
-// ============================================================================
-
 const getLocalPrivateKey = async (): Promise<string | null> => {
   try {
     return await secureStorage.getItem('skillsprint_private_key');
@@ -164,7 +163,14 @@ const getLocalPrivateKey = async (): Promise<string | null> => {
   }
 };
 
-// Encrypts the AES key for BOTH the recipient AND the sender directly using their known public keys
+const getLocalPublicKey = async (): Promise<string | null> => {
+  try {
+    return await secureStorage.getItem('skillsprint_public_key');
+  } catch (e) {
+    return null;
+  }
+};
+
 const encryptPayloadE2EDualKey = (
   text: string,
   recipientPublicKeyPem: string,
@@ -187,14 +193,12 @@ const encryptPayloadE2EDualKey = (
   cipher.finish();
   const encryptedPayload = cipher.output.getBytes();
 
-  // Encrypt for Recipient
   const recipientPubKey = forge.pki.publicKeyFromPem(recipientPublicKeyPem);
   const recipientEncryptedAES = recipientPubKey.encrypt(
     oneTimeAESKey,
     'RSA-OAEP',
   );
 
-  // Encrypt for Sender
   let senderEncryptedAES = null;
   if (senderPublicKeyPem) {
     try {
@@ -271,9 +275,6 @@ const generateIdentityFingerprint = (
   }
 };
 
-// ============================================================================
-// 🧩 MICRO-COMPONENTS
-// ============================================================================
 const UserAvatar = ({
   url,
   name,
@@ -367,9 +368,6 @@ const PresenceIndicator = ({
   return <View style={[styles.presenceDot, { backgroundColor: color }]} />;
 };
 
-// ============================================================================
-// 🚀 MAIN SCREEN COMPONENT
-// ============================================================================
 export default function ActiveChatScreen() {
   const { id: conversationId } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -397,7 +395,6 @@ export default function ActiveChatScreen() {
   const [showFingerprint, setShowFingerprint] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-  // Two-way Block Protocol States
   const [isMuted, setIsMuted] = useState(false);
   const [isBlockedByMe, setIsBlockedByMe] = useState(false);
   const [isBlockedByThem, setIsBlockedByThem] = useState(false);
@@ -410,11 +407,7 @@ export default function ActiveChatScreen() {
   } | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
-  const recipientRef = useRef<ProfileData | null>(null);
 
-  // ============================================================================
-  // 🔑 SAFE KEY PROVISIONING
-  // ============================================================================
   const ensureUserHasKeys = async () => {
     if (!user?.id) return;
     try {
@@ -423,22 +416,38 @@ export default function ActiveChatScreen() {
 
       if (!privKey || !pubKey) {
         setIsProvisioning(true);
-        setTimeout(() => {
-          const keypair = forge.pki.rsa.generateKeyPair({ bits: 2048 });
-          const generatedPriv = forge.pki.privateKeyToPem(keypair.privateKey);
-          const generatedPub = forge.pki.publicKeyToPem(keypair.publicKey);
 
-          secureStorage.setItem('skillsprint_private_key', generatedPriv);
-          secureStorage.setItem('skillsprint_public_key', generatedPub);
+        let generatedPriv, generatedPub;
 
-          supabase
-            .from('profiles')
-            .update({ public_key: generatedPub })
-            .eq('id', user.id as string)
-            .then();
-          setIsProvisioning(false);
-          loadChatData();
-        }, 150);
+        if (Platform.OS === 'web') {
+          const keypair = await new Promise<forge.pki.rsa.KeyPair>(
+            (resolve, reject) => {
+              forge.pki.rsa.generateKeyPair(
+                { bits: 2048, workers: -1 },
+                (err, kp) => {
+                  if (err) reject(err);
+                  else resolve(kp);
+                },
+              );
+            },
+          );
+          generatedPriv = forge.pki.privateKeyToPem(keypair.privateKey);
+          generatedPub = forge.pki.publicKeyToPem(keypair.publicKey);
+        } else {
+          const keys = await NativeRSA.generateKeys(2048);
+          generatedPriv = keys.private;
+          generatedPub = keys.public;
+        }
+
+        await secureStorage.setItem('skillsprint_private_key', generatedPriv);
+        await secureStorage.setItem('skillsprint_public_key', generatedPub);
+
+        await supabase
+          .from('profiles')
+          .update({ public_key: generatedPub })
+          .eq('id', user.id as string);
+        setIsProvisioning(false);
+        loadChatData();
       } else {
         loadChatData();
       }
@@ -448,9 +457,6 @@ export default function ActiveChatScreen() {
     }
   };
 
-  // ============================================================================
-  // 🔄 LIFECYCLE & REALTIME
-  // ============================================================================
   useEffect(() => {
     const showSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
@@ -481,6 +487,12 @@ export default function ActiveChatScreen() {
               payload.new.content,
               payload.new.encrypted_aes_key,
             );
+            const { data: senderProfile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', payload.new.sender_id)
+              .single();
+
             const newMsg: Message = {
               ...(payload.new as any),
               decryptedText: dec.text,
@@ -488,7 +500,7 @@ export default function ActiveChatScreen() {
               attachmentType: dec.attachmentType as any,
               isDecrypted: dec.success,
               decryptionError: dec.errorMsg,
-              profiles: recipientRef.current || {},
+              profiles: senderProfile || {},
             };
             setMessages((prev) => [newMsg, ...prev]);
             if (!isMuted)
@@ -498,7 +510,6 @@ export default function ActiveChatScreen() {
           }
         },
       )
-      // FIX FOR DELETE SYNC: Relies entirely on the Primary Key sent back by REPLICA IDENTITY FULL
       .on(
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'messages' },
@@ -519,7 +530,6 @@ export default function ActiveChatScreen() {
     if (!user?.id || !conversationId) return;
 
     try {
-      // 1. Fetch Participant Information
       const { data: partData } = await supabase
         .from('conversation_participants')
         .select('profiles(*)')
@@ -529,12 +539,12 @@ export default function ActiveChatScreen() {
 
       let currentRecipient = null;
       if (partData?.profiles) {
-        currentRecipient = partData.profiles;
+        currentRecipient = Array.isArray(partData.profiles)
+          ? partData.profiles[0]
+          : partData.profiles;
         setRecipient(currentRecipient as any);
-        recipientRef.current = currentRecipient as any;
       }
 
-      // 2. FIX: Wait until we definitively have the Recipient ID, THEN check blocks.
       if (currentRecipient) {
         const [{ data: myBlock }, { data: theirBlock }, { data: muteData }] =
           await Promise.all([
@@ -557,12 +567,12 @@ export default function ActiveChatScreen() {
               .eq('conversation_id', conversationId as string)
               .maybeSingle(),
           ]);
-        if (myBlock) setIsBlockedByMe(true);
-        if (theirBlock) setIsBlockedByThem(true);
-        if (muteData) setIsMuted(true);
+
+        setIsBlockedByMe(!!myBlock);
+        setIsBlockedByThem(!!theirBlock);
+        setIsMuted(!!muteData);
       }
 
-      // 3. Fetch Messages
       const { data: msgData, error } = await supabase
         .from('messages')
         .select('*, profiles:sender_id(username, full_name, avatar_url, role)')
@@ -570,7 +580,6 @@ export default function ActiveChatScreen() {
         .order('created_at', { ascending: false });
       if (error) throw error;
 
-      // 4. Decrypt Messages
       const decryptedHistory = await Promise.all(
         (msgData || []).map(async (m) => {
           let dec: DecryptedPayload & { success: boolean; errorMsg?: string } =
@@ -581,7 +590,6 @@ export default function ActiveChatScreen() {
               success: false,
             };
 
-          // DUAL KEY LOGIC: Use the sender key if we sent it, recipient key if we received it.
           const keyToUse =
             m.sender_id === user.id
               ? m.sender_encrypted_aes_key
@@ -590,7 +598,6 @@ export default function ActiveChatScreen() {
           if (keyToUse) {
             dec = await decryptPayloadE2E(m.content, keyToUse);
           } else if (m.sender_id === user.id) {
-            // Fallback for messages sent BEFORE we added the dual-key SQL fix
             dec.text = '🔒 Encrypted & Sent (Legacy)';
             dec.success = true;
           } else {
@@ -615,9 +622,6 @@ export default function ActiveChatScreen() {
     }
   };
 
-  // ============================================================================
-  // 📝 ACTIONS (SEND, BLOCK, MUTE)
-  // ============================================================================
   const handlePickAttachment = async (mode: 'image' | 'file') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setShowEmojiPicker(false);
@@ -682,12 +686,10 @@ export default function ActiveChatScreen() {
       try {
         const response = await fetch(pendingFile.uri);
         const blob = await response.blob();
-
         const { error } = await supabase.storage
           .from('message-attachments')
           .upload(fileName, blob, { contentType: blob.type });
         if (error) throw error;
-
         const { data: signedData, error: signError } = await supabase.storage
           .from('message-attachments')
           .createSignedUrl(fileName, 31536000);
@@ -708,8 +710,7 @@ export default function ActiveChatScreen() {
     setPendingFile(null);
 
     try {
-      // Fetch the sender's public key from their profile instead of Async Storage to guarantee availability
-      const senderPublicKeyPem = user.profile?.public_key || null;
+      const senderPublicKeyPem = await getLocalPublicKey();
 
       const { cipherText, recipientAES, senderAES } = encryptPayloadE2EDualKey(
         textToSend,
@@ -731,14 +732,17 @@ export default function ActiveChatScreen() {
         attachmentType: pendingFile?.type as any,
         isDecrypted: true,
         profiles: {
-          role: user.profile?.role as UserRole,
-          full_name: user.profile?.full_name,
-          avatar_url: user.profile?.avatar_url,
+          role: (user?.profile?.role || 'MEMBER') as UserRole,
+          full_name:
+            user?.profile?.full_name || user?.user_metadata?.full_name || 'Me',
+          avatar_url:
+            user?.profile?.avatar_url ||
+            user?.user_metadata?.avatar_url ||
+            null,
         },
       };
       setMessages((prev) => [optimisticMsg, ...prev]);
 
-      // DIRECT DATABASE INSERT (Bypasses Deno completely, triggers DB notification automatically)
       const { data, error } = await supabase
         .from('messages')
         .insert({
@@ -755,7 +759,6 @@ export default function ActiveChatScreen() {
 
       if (error) throw error;
 
-      // Update UI with real ID to allow immediate deletion
       if (data) {
         setMessages((prev) =>
           prev.map((m) =>
@@ -764,14 +767,11 @@ export default function ActiveChatScreen() {
         );
       }
     } catch (error: any) {
-      // Rollback optimistic update
       setMessages((prev) => prev.filter((m) => !m.id.startsWith('temp-')));
-
       const errMsg =
         error.message?.includes('RLS') || error.code === '42501'
           ? 'Message Blocked: The secure connection to this user has been severed.'
           : 'Cryptographic failure or network offline.';
-
       if (Platform.OS === 'web') window.alert(`Transmission Failed: ${errMsg}`);
       else Alert.alert('Transmission Failed', errMsg);
     } finally {
@@ -795,28 +795,27 @@ export default function ActiveChatScreen() {
     setSelectedMessage(null);
 
     const currentlyBlocked = isBlockedByMe;
-
-    // Optimistic update
     setIsBlockedByMe(!currentlyBlocked);
 
     try {
       if (currentlyBlocked) {
-        // UNBLOCK
-        await supabase
+        const { data, error } = await supabase
           .from('blocked_users')
           .delete()
-          .match({ blocker_id: user.id, blocked_id: recipient.id });
+          .eq('blocker_id', user.id)
+          .eq('blocked_id', recipient.id)
+          .select();
+        if (error || !data || data.length === 0)
+          throw new Error('Delete failed');
       } else {
-        // BLOCK
-        await supabase
+        const { data, error } = await supabase
           .from('blocked_users')
-          .upsert(
-            { blocker_id: user.id, blocked_id: recipient.id },
-            { onConflict: 'blocker_id, blocked_id' },
-          );
+          .insert({ blocker_id: user.id, blocked_id: recipient.id })
+          .select();
+        if (error || !data || data.length === 0)
+          throw new Error('Insert failed');
       }
     } catch (error) {
-      // Rollback UI
       setIsBlockedByMe(currentlyBlocked);
       if (Platform.OS === 'web')
         window.alert(
@@ -846,15 +845,19 @@ export default function ActiveChatScreen() {
           .from('muted_conversations')
           .delete()
           .eq('user_id', user.id)
-          .eq('conversation_id', conversationId as string);
+          .eq('conversation_id', conversationId as string)
+          .select();
       } else {
-        await supabase.from('muted_conversations').insert({
-          user_id: user.id,
-          conversation_id: conversationId as string,
-        });
+        await supabase
+          .from('muted_conversations')
+          .insert({
+            user_id: user.id,
+            conversation_id: conversationId as string,
+          })
+          .select();
       }
     } catch (error) {
-      setIsMuted(currentlyMuted); // Rollback
+      setIsMuted(currentlyMuted);
       if (Platform.OS === 'web')
         window.alert(
           'Network Error: Failed to synchronize mute status with server.',
@@ -897,7 +900,6 @@ export default function ActiveChatScreen() {
         .select();
 
       if (error || !data || data.length === 0) {
-        console.error('Failed to delete message', error);
         setMessages(backupMessages);
         if (Platform.OS === 'web')
           window.alert(
@@ -925,13 +927,9 @@ export default function ActiveChatScreen() {
     }
   };
 
-  // ============================================================================
-  // 🎨 UI RENDERERS
-  // ============================================================================
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isMe = item.sender_id === user?.id;
     return (
-      // 🛡️ FLEX FIX 1: The row container needs to stretch full width but not shrink
       <Animated.View
         entering={FadeInUp.delay(index * 15)}
         layout={Layout.springify()}
@@ -952,7 +950,6 @@ export default function ActiveChatScreen() {
           </View>
         )}
 
-        {/* 🛡️ FLEX FIX 2: Content Wrapper handles the available width and prevents overflow */}
         <View
           style={[
             styles.msgContentWrapper,
@@ -987,7 +984,6 @@ export default function ActiveChatScreen() {
               <RoleBadge role={item.profiles?.role as UserRole} />
             </View>
 
-            {/* 🛡️ FLEX FIX 3: The Bubble enforces hidden overflow so raw text doesn't break boundaries */}
             <View
               style={[
                 styles.bubble,
@@ -1077,13 +1073,22 @@ export default function ActiveChatScreen() {
             <MoreVertical size={16} color={THEME.white} />
           </TouchableOpacity>
         </View>
+
+        {isMe && (
+          <View
+            style={{ marginLeft: 8, alignSelf: 'flex-end', marginBottom: 4 }}
+          >
+            <UserAvatar
+              url={item.profiles?.avatar_url}
+              name={item.profiles?.full_name || item.profiles?.username}
+              size={32}
+            />
+          </View>
+        )}
       </Animated.View>
     );
   };
 
-  // ============================================================================
-  // 🖥️ MAIN RENDER
-  // ============================================================================
   if (isProvisioning) {
     return (
       <View
@@ -1127,7 +1132,7 @@ export default function ActiveChatScreen() {
         <GlassCard style={styles.header} intensity="heavy">
           <View style={styles.headerTop}>
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => router.push('/messages')}
               style={styles.iconBtn}
             >
               <ChevronLeft size={24} color={THEME.white} />
@@ -1363,8 +1368,6 @@ export default function ActiveChatScreen() {
         )}
       </Animated.View>
 
-      {/* ================= MODALS ================= */}
-
       <Modal
         visible={!!selectedMessage}
         transparent
@@ -1394,7 +1397,6 @@ export default function ActiveChatScreen() {
               <Text style={styles.actionText}>Copy Decrypted Text</Text>
             </TouchableOpacity>
 
-            {/* Block/Unblock directly on a message */}
             <TouchableOpacity
               onPress={toggleBlockUser}
               style={styles.actionBtn}
@@ -1598,18 +1600,17 @@ const styles = StyleSheet.create({
   },
   listContent: { padding: 16, paddingTop: 24 },
 
-  /* 🛡️ THE FLEXBOX FIX FOR LONG TEXT CUTOFF */
   msgRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     marginBottom: 20,
     width: '100%',
   },
-  msgContentWrapper: { flexDirection: 'row', alignItems: 'center', flex: 1 }, // Changed to flex: 1 to respect screen bounds
+  msgContentWrapper: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   bubbleContainer: {
     maxWidth: Platform.OS === 'web' ? '85%' : '80%',
     flexShrink: 1,
-  }, // Must shrink if text is too long
+  },
   bubble: {
     padding: 14,
     borderRadius: 20,
@@ -1622,7 +1623,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     flexShrink: 1,
   },
-  msgText: { color: 'white', fontSize: 16, lineHeight: 24 }, // Text will wrap naturally within bounded bubble
+  msgText: { color: 'white', fontSize: 16, lineHeight: 24 },
 
   senderName: {
     color: THEME.slate,

@@ -21,6 +21,7 @@ export interface ConversationWithDetails extends Conversation {
 
 // --- SPRINT & AI TYPES ---
 export interface SprintCard {
+  answer: string | undefined;
   title: string;
   description?: string;
   content: string;
