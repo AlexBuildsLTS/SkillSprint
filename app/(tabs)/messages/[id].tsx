@@ -1,17 +1,22 @@
 /**
  * ============================================================================
- * 🛡️ SKILLSPRINT SECURE CHAT TERMINAL - TRUE E2EE PRODUCTION BUILD v8.5
+ * 🛡️ SKILLSPRINT SECURE CHAT TERMINAL - TRUE E2EE PRODUCTION BUILD v9.5
  * ============================================================================
- * Architecture (Hybrid Encryption with node-forge):
- * - Key Exchange: RSA-OAEP Asymmetric Encryption (2048-bit).
- * - Payload: AES-256-CBC (One-time symmetric key per message).
- * - Storage: Cross-platform secureStorage wrapper (Native Keystore + Web).
- * - Fixes: 406 (maybeSingle), 400 (Temp UUIDs), and 409 (Unique Blocks) resolved.
- * - UX: Desktop action menus, safe optimistic UI, and removed dangerous Key Gen.
+ * Architecture (Dual-Key Hybrid Encryption):
+ * - Lifecycle Fix: Block/Mute states now properly await Recipient ID resolution.
+ * - Layout Fix: Strict Flexbox boundaries applied to prevent text clipping.
+ * - Dual-Cipher E2EE: AES key is encrypted for BOTH the recipient AND the sender.
+ * - DB Sync: Bypasses Deno edge functions for instant inserts and triggers.
  * ============================================================================
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from 'react';
 import {
   View,
   Text,
@@ -45,7 +50,6 @@ import {
   X,
   FileText,
   CheckCheck,
-  Circle,
   Trash2,
   Copy,
   Lock,
@@ -54,6 +58,9 @@ import {
   ChevronLeft,
   Settings,
   MoreVertical,
+  User,
+  KeyRound,
+  Circle,
 } from 'lucide-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
@@ -134,6 +141,7 @@ interface Message {
   id: string;
   content: string;
   encrypted_aes_key?: string | null;
+  sender_encrypted_aes_key?: string | null;
   sender_id: string | null;
   created_at: string;
   decryptedText?: string;
@@ -141,10 +149,11 @@ interface Message {
   attachmentType?: 'image' | 'file' | null;
   profiles?: Partial<ProfileData>;
   isDecrypted?: boolean;
+  decryptionError?: string;
 }
 
 // ============================================================================
-// 🔐 TRUE E2EE CRYPTOGRAPHY ENGINE
+// 🔐 DUAL-KEY E2EE CRYPTOGRAPHY ENGINE
 // ============================================================================
 
 const getLocalPrivateKey = async (): Promise<string | null> => {
@@ -155,9 +164,11 @@ const getLocalPrivateKey = async (): Promise<string | null> => {
   }
 };
 
-const encryptPayloadE2E = (
+// Encrypts the AES key for BOTH the recipient AND the sender directly using their known public keys
+const encryptPayloadE2EDualKey = (
   text: string,
   recipientPublicKeyPem: string,
+  senderPublicKeyPem: string | null,
   attachUrl?: string | null,
   attachType?: string | null,
 ) => {
@@ -176,28 +187,46 @@ const encryptPayloadE2E = (
   cipher.finish();
   const encryptedPayload = cipher.output.getBytes();
 
-  const publicKey = forge.pki.publicKeyFromPem(recipientPublicKeyPem);
-  const encryptedAESKey = publicKey.encrypt(oneTimeAESKey, 'RSA-OAEP');
+  // Encrypt for Recipient
+  const recipientPubKey = forge.pki.publicKeyFromPem(recipientPublicKeyPem);
+  const recipientEncryptedAES = recipientPubKey.encrypt(
+    oneTimeAESKey,
+    'RSA-OAEP',
+  );
+
+  // Encrypt for Sender
+  let senderEncryptedAES = null;
+  if (senderPublicKeyPem) {
+    try {
+      const myPubKey = forge.pki.publicKeyFromPem(senderPublicKeyPem);
+      senderEncryptedAES = myPubKey.encrypt(oneTimeAESKey, 'RSA-OAEP');
+    } catch (e) {
+      console.warn('Could not encrypt AES key for sender.');
+    }
+  }
 
   return {
     cipherText:
       forge.util.encode64(iv) + ':' + forge.util.encode64(encryptedPayload),
-    encryptedAESKey: forge.util.encode64(encryptedAESKey),
+    recipientAES: forge.util.encode64(recipientEncryptedAES),
+    senderAES: senderEncryptedAES
+      ? forge.util.encode64(senderEncryptedAES)
+      : null,
   };
 };
 
 const decryptPayloadE2E = async (
   cipherText: string,
   encryptedAESKeyB64?: string | null,
-): Promise<DecryptedPayload & { success: boolean }> => {
+): Promise<DecryptedPayload & { success: boolean; errorMsg?: string }> => {
   try {
     if (!encryptedAESKeyB64) throw new Error('Missing AES Key');
 
     const privateKeyPem = await getLocalPrivateKey();
-    if (!privateKeyPem) throw new Error('Keystore locked');
+    if (!privateKeyPem) throw new Error('Local Keystore Missing or Locked.');
 
     const parts = cipherText.split(':');
-    if (parts.length !== 2) throw new Error('Corrupt payload');
+    if (parts.length !== 2) throw new Error('Corrupt Payload Data.');
 
     const iv = forge.util.decode64(parts[0]);
     const encryptedPayload = forge.util.decode64(parts[1]);
@@ -213,16 +242,17 @@ const decryptPayloadE2E = async (
     decipher.update(forge.util.createBuffer(encryptedPayload));
 
     const pass = decipher.finish();
-    if (!pass) throw new Error('AES decryption failure');
+    if (!pass) throw new Error('AES Padding Failure');
 
     const originalText = forge.util.decodeUtf8(decipher.output.getBytes());
     return { ...JSON.parse(originalText), success: true };
-  } catch (e) {
+  } catch (e: any) {
     return {
       text: '🔒 Decryption Failed',
       attachmentUrl: null,
       attachmentType: null,
       success: false,
+      errorMsg: e.message,
     };
   }
 };
@@ -230,7 +260,7 @@ const decryptPayloadE2E = async (
 const generateIdentityFingerprint = (
   publicKeyPem: string | null | undefined,
 ): string => {
-  if (!publicKeyPem) return 'NO PUBLIC KEY FOUND';
+  if (!publicKeyPem) return 'NO PUBLIC KEY DETECTED';
   try {
     const md = forge.md.sha256.create();
     md.update(publicKeyPem, 'utf8');
@@ -244,7 +274,6 @@ const generateIdentityFingerprint = (
 // ============================================================================
 // 🧩 MICRO-COMPONENTS
 // ============================================================================
-
 const UserAvatar = ({
   url,
   name,
@@ -254,7 +283,7 @@ const UserAvatar = ({
   name?: string | null;
   size?: number;
 }) => {
-  if (url) {
+  if (url)
     return (
       <Image
         source={{ uri: url }}
@@ -267,7 +296,6 @@ const UserAvatar = ({
         }}
       />
     );
-  }
   const initial = name ? name.charAt(0).toUpperCase() : '?';
   return (
     <View
@@ -306,7 +334,6 @@ const RoleBadge = ({ role }: { role: UserRole | undefined }) => {
   const Icon =
     role === 'ADMIN' ? Shield : role === 'PREMIUM' ? Zap : ShieldCheck;
   let label = role === 'MODERATOR' ? 'MOD' : role === 'PREMIUM' ? 'PRO' : role;
-
   return (
     <View
       style={[
@@ -332,7 +359,6 @@ const PresenceIndicator = ({
     const lastActive = new Date(lastSeen).getTime();
     return lastActive > Date.now() - 5 * 60000;
   }, [lastSeen]);
-
   const color = isActuallyOnline
     ? THEME.success
     : status === 'BUSY'
@@ -347,7 +373,7 @@ const PresenceIndicator = ({
 export default function ActiveChatScreen() {
   const { id: conversationId } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { user, refreshUserData } = useAuth();
+  const { user } = useAuth();
 
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -370,8 +396,12 @@ export default function ActiveChatScreen() {
   const [showSettings, setShowSettings] = useState(false);
   const [showFingerprint, setShowFingerprint] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // Two-way Block Protocol States
   const [isMuted, setIsMuted] = useState(false);
-  const [isBlocked, setIsBlocked] = useState(false);
+  const [isBlockedByMe, setIsBlockedByMe] = useState(false);
+  const [isBlockedByThem, setIsBlockedByThem] = useState(false);
+
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [pendingFile, setPendingFile] = useState<{
     uri: string;
@@ -433,7 +463,6 @@ export default function ActiveChatScreen() {
 
     if (conversationId && user?.id) {
       ensureUserHasKeys();
-      checkBlockAndMuteStatus();
     }
 
     const channel = supabase
@@ -458,6 +487,7 @@ export default function ActiveChatScreen() {
               attachmentUrl: dec.attachmentUrl,
               attachmentType: dec.attachmentType as any,
               isDecrypted: dec.success,
+              decryptionError: dec.errorMsg,
               profiles: recipientRef.current || {},
             };
             setMessages((prev) => [newMsg, ...prev]);
@@ -468,14 +498,10 @@ export default function ActiveChatScreen() {
           }
         },
       )
+      // FIX FOR DELETE SYNC: Relies entirely on the Primary Key sent back by REPLICA IDENTITY FULL
       .on(
         'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
+        { event: 'DELETE', schema: 'public', table: 'messages' },
         (payload) => {
           setMessages((prev) => prev.filter((m) => m.id !== payload.old.id));
         },
@@ -490,18 +516,53 @@ export default function ActiveChatScreen() {
   }, [conversationId, user?.id]);
 
   const loadChatData = async () => {
+    if (!user?.id || !conversationId) return;
+
     try {
+      // 1. Fetch Participant Information
       const { data: partData } = await supabase
         .from('conversation_participants')
         .select('profiles(*)')
         .eq('conversation_id', conversationId as string)
-        .neq('user_id', user?.id as string)
+        .neq('user_id', user.id)
         .maybeSingle();
+
+      let currentRecipient = null;
       if (partData?.profiles) {
-        setRecipient(partData.profiles as any);
-        recipientRef.current = partData.profiles as any;
+        currentRecipient = partData.profiles;
+        setRecipient(currentRecipient as any);
+        recipientRef.current = currentRecipient as any;
       }
 
+      // 2. FIX: Wait until we definitively have the Recipient ID, THEN check blocks.
+      if (currentRecipient) {
+        const [{ data: myBlock }, { data: theirBlock }, { data: muteData }] =
+          await Promise.all([
+            supabase
+              .from('blocked_users')
+              .select('id')
+              .eq('blocker_id', user.id)
+              .eq('blocked_id', currentRecipient.id)
+              .maybeSingle(),
+            supabase
+              .from('blocked_users')
+              .select('id')
+              .eq('blocker_id', currentRecipient.id)
+              .eq('blocked_id', user.id)
+              .maybeSingle(),
+            supabase
+              .from('muted_conversations')
+              .select('id')
+              .eq('user_id', user.id)
+              .eq('conversation_id', conversationId as string)
+              .maybeSingle(),
+          ]);
+        if (myBlock) setIsBlockedByMe(true);
+        if (theirBlock) setIsBlockedByThem(true);
+        if (muteData) setIsMuted(true);
+      }
+
+      // 3. Fetch Messages
       const { data: msgData, error } = await supabase
         .from('messages')
         .select('*, profiles:sender_id(username, full_name, avatar_url, role)')
@@ -509,26 +570,40 @@ export default function ActiveChatScreen() {
         .order('created_at', { ascending: false });
       if (error) throw error;
 
+      // 4. Decrypt Messages
       const decryptedHistory = await Promise.all(
         (msgData || []).map(async (m) => {
-          let dec: DecryptedPayload & { success: boolean } = {
-            text: m.content,
-            attachmentUrl: null,
-            attachmentType: null,
-            success: false,
-          };
-          if (m.sender_id !== user?.id) {
-            dec = await decryptPayloadE2E(m.content, m.encrypted_aes_key);
-          } else {
-            dec.text = '🔒 Encrypted & Sent';
+          let dec: DecryptedPayload & { success: boolean; errorMsg?: string } =
+            {
+              text: m.content,
+              attachmentUrl: null,
+              attachmentType: null,
+              success: false,
+            };
+
+          // DUAL KEY LOGIC: Use the sender key if we sent it, recipient key if we received it.
+          const keyToUse =
+            m.sender_id === user.id
+              ? m.sender_encrypted_aes_key
+              : m.encrypted_aes_key;
+
+          if (keyToUse) {
+            dec = await decryptPayloadE2E(m.content, keyToUse);
+          } else if (m.sender_id === user.id) {
+            // Fallback for messages sent BEFORE we added the dual-key SQL fix
+            dec.text = '🔒 Encrypted & Sent (Legacy)';
             dec.success = true;
+          } else {
+            dec.errorMsg = 'Key missing for this party.';
           }
+
           return {
             ...m,
             decryptedText: dec.text,
             attachmentUrl: dec.attachmentUrl,
             attachmentType: dec.attachmentType,
             isDecrypted: dec.success,
+            decryptionError: dec.errorMsg,
           };
         }),
       );
@@ -538,28 +613,6 @@ export default function ActiveChatScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const checkBlockAndMuteStatus = async () => {
-    if (!recipientRef.current?.id || !user?.id || !conversationId) return;
-
-    // 🛡️ 406 NOT ACCEPTABLE FIX: Replaced .single() with .maybeSingle()
-    const [{ data: blockData }, { data: muteData }] = await Promise.all([
-      supabase
-        .from('blocked_users')
-        .select('id')
-        .eq('blocker_id', user.id)
-        .eq('blocked_id', recipientRef.current.id)
-        .maybeSingle(),
-      supabase
-        .from('muted_conversations')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('conversation_id', conversationId as string)
-        .maybeSingle(),
-    ]);
-    if (blockData) setIsBlocked(true);
-    if (muteData) setIsMuted(true);
   };
 
   // ============================================================================
@@ -595,19 +648,24 @@ export default function ActiveChatScreen() {
   };
 
   const handleSendMessage = async () => {
-    if (isBlocked) {
-      Alert.alert(
-        'Action Denied',
-        'You must unblock this user to send transmissions.',
-      );
+    if (isBlockedByMe || isBlockedByThem) {
+      if (Platform.OS === 'web')
+        window.alert('Action Denied: You cannot send messages in this state.');
+      else
+        Alert.alert('Action Denied', 'You cannot send messages in this state.');
       return;
     }
     if ((!inputText.trim() && !pendingFile) || isSending || !user?.id) return;
     if (!recipient?.public_key) {
-      Alert.alert(
-        'Key Exchange Pending',
-        `The recipient (${recipient?.username}) has not initialized their secure terminal yet.`,
-      );
+      if (Platform.OS === 'web')
+        window.alert(
+          `Key Exchange Pending: The recipient (${recipient?.username}) has not initialized their secure terminal yet.`,
+        );
+      else
+        Alert.alert(
+          'Key Exchange Pending',
+          `The recipient (${recipient?.username}) has not initialized their secure terminal yet.`,
+        );
       return;
     }
 
@@ -634,11 +692,12 @@ export default function ActiveChatScreen() {
           .from('message-attachments')
           .createSignedUrl(fileName, 31536000);
         if (signError) throw signError;
-
         secureAttachmentUrl = signedData.signedUrl;
       } catch (e) {
-        console.error('[Storage Upload Error]', e);
-        Alert.alert('Upload Failed', 'Could not secure attachment to vault.');
+        if (Platform.OS === 'web')
+          window.alert('Upload Failed: Could not secure attachment to vault.');
+        else
+          Alert.alert('Upload Failed', 'Could not secure attachment to vault.');
         setIsSending(false);
         return;
       }
@@ -649,9 +708,13 @@ export default function ActiveChatScreen() {
     setPendingFile(null);
 
     try {
-      const { cipherText, encryptedAESKey } = encryptPayloadE2E(
+      // Fetch the sender's public key from their profile instead of Async Storage to guarantee availability
+      const senderPublicKeyPem = user.profile?.public_key || null;
+
+      const { cipherText, recipientAES, senderAES } = encryptPayloadE2EDualKey(
         textToSend,
         recipient.public_key,
+        senderPublicKeyPem,
         secureAttachmentUrl,
         pendingFile?.type,
       );
@@ -659,7 +722,8 @@ export default function ActiveChatScreen() {
       const optimisticMsg: Message = {
         id: `temp-${Date.now()}`,
         content: cipherText,
-        encrypted_aes_key: encryptedAESKey,
+        encrypted_aes_key: recipientAES,
+        sender_encrypted_aes_key: senderAES,
         sender_id: user.id,
         created_at: new Date().toISOString(),
         decryptedText: textToSend,
@@ -674,19 +738,42 @@ export default function ActiveChatScreen() {
       };
       setMessages((prev) => [optimisticMsg, ...prev]);
 
-      const { error } = await supabase.functions.invoke('send-message', {
-        body: {
-          conversationId,
+      // DIRECT DATABASE INSERT (Bypasses Deno completely, triggers DB notification automatically)
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversationId as string,
+          sender_id: user.id,
           content: cipherText,
-          encrypted_aes_key: encryptedAESKey,
-        },
-      });
+          encrypted_aes_key: recipientAES,
+          sender_encrypted_aes_key: senderAES,
+          attachment_type: pendingFile?.type || null,
+          attachment_url: secureAttachmentUrl || null,
+        } as any)
+        .select()
+        .single();
+
       if (error) throw error;
-    } catch (error) {
-      Alert.alert(
-        'Transmission Failed',
-        'Cryptographic failure or network offline.',
-      );
+
+      // Update UI with real ID to allow immediate deletion
+      if (data) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === optimisticMsg.id ? { ...m, id: data.id } : m,
+          ),
+        );
+      }
+    } catch (error: any) {
+      // Rollback optimistic update
+      setMessages((prev) => prev.filter((m) => !m.id.startsWith('temp-')));
+
+      const errMsg =
+        error.message?.includes('RLS') || error.code === '42501'
+          ? 'Message Blocked: The secure connection to this user has been severed.'
+          : 'Cryptographic failure or network offline.';
+
+      if (Platform.OS === 'web') window.alert(`Transmission Failed: ${errMsg}`);
+      else Alert.alert('Transmission Failed', errMsg);
     } finally {
       setIsSending(false);
     }
@@ -705,42 +792,78 @@ export default function ActiveChatScreen() {
     if (!recipient?.id || !user?.id) return;
 
     setShowSettings(false);
+    setSelectedMessage(null);
 
-    if (isBlocked) {
-      setIsBlocked(false);
-      await supabase
-        .from('blocked_users')
-        .delete()
-        .match({ blocker_id: user.id, blocked_id: recipient.id });
-    } else {
-      setIsBlocked(true);
-      // 🛡️ 409 CONFLICT FIX: Insert, but catch unique constraints cleanly
-      const { error } = await supabase
-        .from('blocked_users')
-        .insert({ blocker_id: user.id, blocked_id: recipient.id });
-      if (error && error.code !== '23505') {
-        setIsBlocked(false); // Rollback if it was a real failure
-        Alert.alert('Action Failed', 'Could not terminate link.');
+    const currentlyBlocked = isBlockedByMe;
+
+    // Optimistic update
+    setIsBlockedByMe(!currentlyBlocked);
+
+    try {
+      if (currentlyBlocked) {
+        // UNBLOCK
+        await supabase
+          .from('blocked_users')
+          .delete()
+          .match({ blocker_id: user.id, blocked_id: recipient.id });
+      } else {
+        // BLOCK
+        await supabase
+          .from('blocked_users')
+          .upsert(
+            { blocker_id: user.id, blocked_id: recipient.id },
+            { onConflict: 'blocker_id, blocked_id' },
+          );
       }
+    } catch (error) {
+      // Rollback UI
+      setIsBlockedByMe(currentlyBlocked);
+      if (Platform.OS === 'web')
+        window.alert(
+          'Network Error: Failed to synchronize block status with server.',
+        );
+      else
+        Alert.alert(
+          'Network Error',
+          'Failed to synchronize block status with server.',
+        );
     }
   };
 
   const toggleMute = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (!user?.id || !conversationId) return;
-    if (isMuted) {
-      await supabase
-        .from('muted_conversations')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('conversation_id', conversationId as string);
-      setIsMuted(false);
-    } else {
-      await supabase.from('muted_conversations').insert({
-        user_id: user.id,
-        conversation_id: conversationId as string,
-      });
-      setIsMuted(true);
+
+    const currentlyMuted = isMuted;
+
+    setShowSettings(false);
+    setSelectedMessage(null);
+    setIsMuted(!currentlyMuted);
+
+    try {
+      if (currentlyMuted) {
+        await supabase
+          .from('muted_conversations')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('conversation_id', conversationId as string);
+      } else {
+        await supabase.from('muted_conversations').insert({
+          user_id: user.id,
+          conversation_id: conversationId as string,
+        });
+      }
+    } catch (error) {
+      setIsMuted(currentlyMuted); // Rollback
+      if (Platform.OS === 'web')
+        window.alert(
+          'Network Error: Failed to synchronize mute status with server.',
+        );
+      else
+        Alert.alert(
+          'Network Error',
+          'Failed to synchronize mute status with server.',
+        );
     }
   };
 
@@ -749,15 +872,57 @@ export default function ActiveChatScreen() {
     const msgId = selectedMessage.id;
     setSelectedMessage(null);
 
-    // 🛡️ 400 BAD REQUEST FIX: Prevent deleting strings like "temp-12345"
     if (msgId.startsWith('temp-')) {
-      setMessages((prev) => prev.filter((m) => m.id !== msgId)); // Just remove from UI safely
+      if (Platform.OS === 'web')
+        window.alert(
+          'This transmission is currently syncing to the secure vault. Please wait a moment before deleting.',
+        );
+      else
+        Alert.alert(
+          'Processing Payload',
+          'This transmission is currently syncing to the secure vault. Please wait a moment before deleting.',
+        );
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setMessages((prev) => prev.filter((m) => m.id !== msgId));
-    await supabase.from('messages').delete().eq('id', msgId);
+    const executeDelete = async () => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      const backupMessages = [...messages];
+      setMessages((prev) => prev.filter((m) => m.id !== msgId));
+
+      const { data, error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', msgId)
+        .select();
+
+      if (error || !data || data.length === 0) {
+        console.error('Failed to delete message', error);
+        setMessages(backupMessages);
+        if (Platform.OS === 'web')
+          window.alert(
+            'Failed to delete. Ensure you ran the SQL policy updates.',
+          );
+        else
+          Alert.alert('Delete Failed', 'Database security prevented deletion.');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(
+        'Are you sure you want to delete this message for everyone? This cannot be undone.',
+      );
+      if (confirmed) executeDelete();
+    } else {
+      Alert.alert(
+        'Purge Payload',
+        'Are you sure you want to delete this message for everyone? This cannot be undone.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: executeDelete },
+        ],
+      );
+    }
   };
 
   // ============================================================================
@@ -766,6 +931,7 @@ export default function ActiveChatScreen() {
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isMe = item.sender_id === user?.id;
     return (
+      // 🛡️ FLEX FIX 1: The row container needs to stretch full width but not shrink
       <Animated.View
         entering={FadeInUp.delay(index * 15)}
         layout={Layout.springify()}
@@ -775,7 +941,9 @@ export default function ActiveChatScreen() {
         ]}
       >
         {!isMe && (
-          <View style={{ marginRight: 8 }}>
+          <View
+            style={{ marginRight: 8, alignSelf: 'flex-end', marginBottom: 4 }}
+          >
             <UserAvatar
               url={item.profiles?.avatar_url}
               name={item.profiles?.full_name || item.profiles?.username}
@@ -784,11 +952,12 @@ export default function ActiveChatScreen() {
           </View>
         )}
 
+        {/* 🛡️ FLEX FIX 2: Content Wrapper handles the available width and prevents overflow */}
         <View
-          style={{
-            flexDirection: isMe ? 'row-reverse' : 'row',
-            alignItems: 'center',
-          }}
+          style={[
+            styles.msgContentWrapper,
+            { justifyContent: isMe ? 'flex-end' : 'flex-start' },
+          ]}
         >
           <TouchableOpacity
             activeOpacity={0.8}
@@ -796,10 +965,10 @@ export default function ActiveChatScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
               setSelectedMessage(item);
             }}
-            style={{
-              maxWidth: isMobile ? '80%' : 400,
-              alignItems: isMe ? 'flex-end' : 'flex-start',
-            }}
+            style={[
+              styles.bubbleContainer,
+              { alignItems: isMe ? 'flex-end' : 'flex-start' },
+            ]}
           >
             <View
               style={{
@@ -818,6 +987,7 @@ export default function ActiveChatScreen() {
               <RoleBadge role={item.profiles?.role as UserRole} />
             </View>
 
+            {/* 🛡️ FLEX FIX 3: The Bubble enforces hidden overflow so raw text doesn't break boundaries */}
             <View
               style={[
                 styles.bubble,
@@ -854,11 +1024,19 @@ export default function ActiveChatScreen() {
                 }}
               >
                 {!item.isDecrypted && (
-                  <Lock
-                    size={10}
-                    color={THEME.danger}
-                    style={{ marginRight: 4 }}
-                  />
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      marginRight: 4,
+                    }}
+                  >
+                    <Lock
+                      size={10}
+                      color={THEME.warning}
+                      style={{ marginRight: 4 }}
+                    />
+                  </View>
                 )}
                 <Text style={styles.msgTime}>
                   {new Date(item.created_at).toLocaleTimeString([], {
@@ -874,27 +1052,31 @@ export default function ActiveChatScreen() {
                   />
                 )}
               </View>
+
+              {item.decryptionError && (
+                <Text
+                  style={{
+                    fontSize: 9,
+                    color: THEME.warning,
+                    marginTop: 4,
+                    fontStyle: 'italic',
+                  }}
+                >
+                  {item.decryptionError.includes('Missing')
+                    ? 'Old Format / Key Missing'
+                    : 'Key Mismatch'}
+                </Text>
+              )}
             </View>
           </TouchableOpacity>
 
-          {/* DESKTOP/WEB FIX: The Visible 3-Dot Options Menu */}
           <TouchableOpacity
             onPress={() => setSelectedMessage(item)}
-            style={styles.desktopActionIcon}
+            style={{ padding: 8, opacity: 0.5 }}
           >
             <MoreVertical size={16} color={THEME.white} />
           </TouchableOpacity>
         </View>
-
-        {isMe && (
-          <View style={{ marginLeft: 8 }}>
-            <UserAvatar
-              url={item.profiles?.avatar_url}
-              name={item.profiles?.full_name || item.profiles?.username}
-              size={32}
-            />
-          </View>
-        )}
       </Animated.View>
     );
   };
@@ -985,7 +1167,7 @@ export default function ActiveChatScreen() {
                     />
                   )}
                 </View>
-                {isBlocked ? (
+                {isBlockedByMe || isBlockedByThem ? (
                   <Text style={[styles.headerStatus, { color: THEME.danger }]}>
                     USER BLOCKED
                   </Text>
@@ -1061,7 +1243,7 @@ export default function ActiveChatScreen() {
       <Animated.View
         style={[styles.inputWrapper, { paddingBottom: bottomPadding }]}
       >
-        {isBlocked ? (
+        {isBlockedByMe ? (
           <View style={styles.blockedBanner}>
             <AlertCircle color={THEME.danger} size={20} />
             <Text style={styles.blockedText}>
@@ -1073,6 +1255,13 @@ export default function ActiveChatScreen() {
             >
               <Text style={styles.unblockBtnText}>Unblock</Text>
             </TouchableOpacity>
+          </View>
+        ) : isBlockedByThem ? (
+          <View style={styles.blockedBanner}>
+            <AlertCircle color={THEME.warning} size={20} />
+            <Text style={[styles.blockedText, { color: THEME.warning }]}>
+              You cannot reply to this conversation.
+            </Text>
           </View>
         ) : (
           <GlassCard style={styles.inputCard} intensity="heavy">
@@ -1196,6 +1385,7 @@ export default function ActiveChatScreen() {
             }
           >
             <Text style={styles.contextTitle}>Message Options</Text>
+
             <TouchableOpacity
               onPress={handleCopyMessage}
               style={styles.actionBtn}
@@ -1203,6 +1393,29 @@ export default function ActiveChatScreen() {
               <Copy size={20} color={THEME.white} />
               <Text style={styles.actionText}>Copy Decrypted Text</Text>
             </TouchableOpacity>
+
+            {/* Block/Unblock directly on a message */}
+            <TouchableOpacity
+              onPress={toggleBlockUser}
+              style={styles.actionBtn}
+            >
+              {isBlockedByMe ? (
+                <User size={20} color={THEME.success} />
+              ) : (
+                <UserX size={20} color={THEME.danger} />
+              )}
+              <Text
+                style={[
+                  styles.actionText,
+                  { color: isBlockedByMe ? THEME.success : THEME.danger },
+                ]}
+              >
+                {isBlockedByMe
+                  ? 'Restore Connection (Unblock)'
+                  : 'Sever Connection (Block)'}
+              </Text>
+            </TouchableOpacity>
+
             {selectedMessage?.sender_id === user?.id && (
               <TouchableOpacity
                 onPress={handleDeleteMessage}
@@ -1214,6 +1427,7 @@ export default function ActiveChatScreen() {
                 </Text>
               </TouchableOpacity>
             )}
+
             <TouchableOpacity
               onPress={() => setSelectedMessage(null)}
               style={styles.closeBtn}
@@ -1318,9 +1532,20 @@ export default function ActiveChatScreen() {
               onPress={toggleBlockUser}
               style={styles.actionBtn}
             >
-              <UserX color={THEME.danger} size={22} />
-              <Text style={[styles.actionText, { color: THEME.danger }]}>
-                {isBlocked ? 'Unblock User' : 'Sever Connection (Block)'}
+              {isBlockedByMe ? (
+                <User size={22} color={THEME.success} />
+              ) : (
+                <UserX size={22} color={THEME.danger} />
+              )}
+              <Text
+                style={[
+                  styles.actionText,
+                  { color: isBlockedByMe ? THEME.success : THEME.danger },
+                ]}
+              >
+                {isBlockedByMe
+                  ? 'Restore Connection (Unblock)'
+                  : 'Sever Connection (Block)'}
               </Text>
             </TouchableOpacity>
 
@@ -1372,13 +1597,19 @@ const styles = StyleSheet.create({
     borderColor: THEME.obsidian,
   },
   listContent: { padding: 16, paddingTop: 24 },
-  msgRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 20 },
-  senderName: {
-    color: THEME.slate,
-    fontSize: 11,
-    fontWeight: 'bold',
-    marginRight: 6,
+
+  /* 🛡️ THE FLEXBOX FIX FOR LONG TEXT CUTOFF */
+  msgRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginBottom: 20,
+    width: '100%',
   },
+  msgContentWrapper: { flexDirection: 'row', alignItems: 'center', flex: 1 }, // Changed to flex: 1 to respect screen bounds
+  bubbleContainer: {
+    maxWidth: Platform.OS === 'web' ? '85%' : '80%',
+    flexShrink: 1,
+  }, // Must shrink if text is too long
   bubble: {
     padding: 14,
     borderRadius: 20,
@@ -1388,8 +1619,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
+    overflow: 'hidden',
+    flexShrink: 1,
   },
-  msgText: { color: 'white', fontSize: 16, lineHeight: 24 },
+  msgText: { color: 'white', fontSize: 16, lineHeight: 24 }, // Text will wrap naturally within bounded bubble
+
+  senderName: {
+    color: THEME.slate,
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginRight: 6,
+  },
   msgTime: { fontSize: 9, color: 'rgba(255,255,255,0.5)', fontWeight: 'bold' },
   bubbleImage: {
     width: 220,
@@ -1567,12 +1807,12 @@ const styles = StyleSheet.create({
   },
   contextMenuDesktop: {
     backgroundColor: '#1e293b',
+    alignSelf: 'center',
+    width: 400,
     borderRadius: 24,
     padding: 24,
     borderWidth: 1,
     borderColor: THEME.glassBorder,
-    width: 400,
-    maxWidth: '90%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.5,
@@ -1684,7 +1924,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   statusActive: {
-    backgroundColor: 'rgba(99,102,241,0.15)',
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
     borderColor: THEME.indigo,
   },
   statusOptionText: { color: 'white', fontWeight: '900', fontSize: 13 },

@@ -252,6 +252,7 @@ export type Database = {
           created_at: string | null;
           encrypted_aes_key: string | null;
           id: string;
+          sender_encrypted_aes_key: string | null;
           sender_id: string | null;
         };
         Insert: {
@@ -262,6 +263,7 @@ export type Database = {
           created_at?: string | null;
           encrypted_aes_key?: string | null;
           id?: string;
+          sender_encrypted_aes_key?: string | null;
           sender_id?: string | null;
         };
         Update: {
@@ -272,6 +274,7 @@ export type Database = {
           created_at?: string | null;
           encrypted_aes_key?: string | null;
           id?: string;
+          sender_encrypted_aes_key?: string | null;
           sender_id?: string | null;
         };
         Relationships: [
@@ -832,6 +835,10 @@ export type Database = {
         Returns: Json;
       };
       is_chat_participant: { Args: { conv_id: string }; Returns: boolean };
+      is_conversation_blocked: {
+        Args: { conv_id: string; sender_id: string };
+        Returns: boolean;
+      };
       is_user_online: { Args: { last_seen: string }; Returns: boolean };
     };
     Enums: {

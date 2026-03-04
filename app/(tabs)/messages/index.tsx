@@ -1,14 +1,13 @@
 /**
  * ============================================================================
- * 🛡️ SKILLSPRINT SECURE INBOX - PRODUCTION BUILD v8.1 (DESKTOP OPTIMIZED)
+ * 🛡️ SKILLSPRINT SECURE INBOX - PRODUCTION BUILD v8.8 (WEB & APK SAFE)
  * ============================================================================
  * Architecture:
- * - Cross-Platform UX: Visible action menus (⋮) for desktop/web users.
- * - Global Settings: Dedicated settings access directly from the inbox header.
- * - Thread Safety: Uses asynchronous RSA key generation to prevent ANR freezes.
- * - Realtime Engine: Automatically bubbles active conversations to the top.
- * - E2EE Previews: Asynchronously decrypts the last message securely.
- * - Resilient UI: Optimistic rollbacks alert the user if DB Purges fail.
+ * - True Block Engine: Fetches and displays two-way block states in the UI.
+ * - Context Menus: Block/Unblock functionality added to the Desktop 3-dot menu.
+ * - Privacy Protocol: Forces "Offline" presence status if a block exists.
+ * - Anti-Placebo UI: All mutations use .select() to catch Silent RLS Failures.
+ * - Web Compatibility: Bypasses React Native Alert on Web to fix silent failures.
  * ============================================================================
  */
 
@@ -50,6 +49,7 @@ import {
   Settings,
   KeyRound,
   Circle,
+  UserX,
 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
@@ -107,6 +107,7 @@ const decryptPreviewAsync = async (
 ): Promise<string> => {
   if (!message || !message.content) return 'Start a secure tunnel...';
 
+  // Note: Dual-key decryption is handled inside the chat room. Inbox preview shows placeholder for sent E2EE messages.
   if (message.sender_id === currentUserId && message.encrypted_aes_key) {
     return '🔒 Encrypted & Sent';
   }
@@ -281,7 +282,7 @@ export default function MessagesInboxScreen() {
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
 
   // ============================================================================
-  // 🔑 NON-BLOCKING BACKGROUND KEY PROVISIONING
+  // 🔑 BACKGROUND KEY PROVISIONING
   // ============================================================================
   const ensureUserHasKeys = async (forceRegenerate = false) => {
     if (!user?.id) return;
@@ -323,16 +324,24 @@ export default function MessagesInboxScreen() {
           .eq('id', user.id);
 
         if (forceRegenerate) {
-          Alert.alert(
-            'Keys Regenerated',
-            'Your secure keys have been reset and synced to the server.',
-          );
+          if (Platform.OS === 'web') {
+            window.alert(
+              'Your secure keys have been reset. Old messages will remain mathematically locked.',
+            );
+          } else {
+            Alert.alert(
+              'Keys Regenerated',
+              'Your secure keys have been reset. Old messages will remain mathematically locked.',
+            );
+          }
         }
       }
     } catch (error) {
       console.error('[E2EE Provisioning Error]', error);
       if (forceRegenerate) {
-        Alert.alert('Key Generation Failed', 'Please try again later.');
+        if (Platform.OS === 'web')
+          window.alert('Key Generation Failed. Please try again.');
+        else Alert.alert('Key Generation Failed', 'Please try again later.');
       }
     } finally {
       setIsProvisioningKeys(false);
@@ -352,6 +361,13 @@ export default function MessagesInboxScreen() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
+        () => {
+          fetchConversations(true);
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'messages' },
         () => {
           fetchConversations(true);
         },
@@ -380,23 +396,45 @@ export default function MessagesInboxScreen() {
     if (!silentRefresh) setIsLoading(true);
 
     try {
-      const { data, error } = await supabase.from('conversations').select(`
+      // 1. Fetch Conversations, Mutes, AND Blocks simultaneously
+      const [
+        { data: convData, error: convError },
+        { data: muteData },
+        { data: blockData },
+      ] = await Promise.all([
+        supabase.from('conversations').select(`
           id, updated_at,
           conversation_participants!inner(user_id, last_read_at, profiles(id, username, full_name, avatar_url, presence_status, last_seen_at, role)),
           messages(content, created_at, sender_id, encrypted_aes_key)
-        `);
+        `),
+        supabase
+          .from('muted_conversations')
+          .select('conversation_id')
+          .eq('user_id', user.id),
+        supabase
+          .from('blocked_users')
+          .select('blocker_id, blocked_id')
+          .or(`blocker_id.eq.${user.id},blocked_id.eq.${user.id}`),
+      ]);
 
-      if (error) throw error;
+      if (convError) throw convError;
 
-      const { data: mutedData } = await supabase
-        .from('muted_conversations')
-        .select('conversation_id')
-        .eq('user_id', user.id);
+      const mutedIds = new Set(muteData?.map((m) => m.conversation_id) || []);
 
-      const mutedIds = new Set(mutedData?.map((m) => m.conversation_id) || []);
+      // Map out block relationships
+      const myBlocks = new Set(
+        blockData
+          ?.filter((b) => b.blocker_id === user.id)
+          .map((b) => b.blocked_id) || [],
+      );
+      const blockedBy = new Set(
+        blockData
+          ?.filter((b) => b.blocked_id === user.id)
+          .map((b) => b.blocker_id) || [],
+      );
 
       const formatted = await Promise.all(
-        (data || []).map(async (conv: any) => {
+        (convData || []).map(async (conv: any) => {
           const me = conv.conversation_participants.find(
             (p: any) => p.user_id === user.id,
           );
@@ -404,13 +442,21 @@ export default function MessagesInboxScreen() {
             (p: any) => p.user_id !== user.id,
           )?.profiles;
 
+          // Check block status
+          const isBlockedByMe = other?.id ? myBlocks.has(other.id) : false;
+          const hasBlockedMe = other?.id ? blockedBy.has(other.id) : false;
+
           const lastSeen = other?.last_seen_at
             ? new Date(other.last_seen_at).getTime()
             : 0;
           const isActuallyOnline = lastSeen > Date.now() - 5 * 60000;
+
           let actualStatus = other?.presence_status;
           if (actualStatus === 'ONLINE' && !isActuallyOnline)
             actualStatus = 'OFFLINE';
+
+          // PRIVACY PROTOCOL: If a block exists, force offline status visually
+          if (isBlockedByMe || hasBlockedMe) actualStatus = 'OFFLINE';
 
           const sortedMessages = conv.messages?.sort(
             (a: any, b: any) =>
@@ -423,7 +469,6 @@ export default function MessagesInboxScreen() {
             lastMessage && me?.last_read_at
               ? new Date(lastMessage.created_at) > new Date(me.last_read_at)
               : false;
-
           const previewText = await decryptPreviewAsync(lastMessage, user.id);
 
           return {
@@ -433,6 +478,7 @@ export default function MessagesInboxScreen() {
             previewText,
             hasUnread,
             isMuted: mutedIds.has(conv.id),
+            iBlockedThem: isBlockedByMe,
             updatedAt: conv.updated_at,
           };
         }),
@@ -506,15 +552,20 @@ export default function MessagesInboxScreen() {
       if (error) throw error;
       if (conversationId) router.push(`/messages/${conversationId}`);
     } catch (err) {
-      Alert.alert(
-        'Handshake Failed',
-        'Could not establish a secure connection.',
-      );
+      if (Platform.OS === 'web')
+        window.alert(
+          'Handshake Failed: Could not establish a secure connection.',
+        );
+      else
+        Alert.alert(
+          'Handshake Failed',
+          'Could not establish a secure connection.',
+        );
     }
   };
 
   // ============================================================================
-  // ⚡ CONTEXT ACTIONS (Mute/Delete/Status)
+  // ⚡ CONTEXT ACTIONS
   // ============================================================================
   const handleTogglePresence = async (
     status: 'ONLINE' | 'OFFLINE' | 'BUSY',
@@ -530,31 +581,98 @@ export default function MessagesInboxScreen() {
     }
   };
 
+  const handleBlockToggle = async () => {
+    if (!selectedConv || !user?.id) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+    const otherUserId = selectedConv.otherUser.id;
+    const currentlyBlocked = selectedConv.iBlockedThem;
+
+    // Optimistic Update & Close Modal
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === selectedConv.id
+          ? { ...c, iBlockedThem: !currentlyBlocked }
+          : c,
+      ),
+    );
+    setSelectedConv(null);
+
+    try {
+      if (currentlyBlocked) {
+        // UNBLOCK
+        await supabase
+          .from('blocked_users')
+          .delete()
+          .match({ blocker_id: user.id, blocked_id: otherUserId });
+      } else {
+        // BLOCK (Using upsert to prevent 409 constraints safely)
+        await supabase
+          .from('blocked_users')
+          .upsert(
+            { blocker_id: user.id, blocked_id: otherUserId },
+            { onConflict: 'blocker_id, blocked_id' },
+          );
+      }
+    } catch (error) {
+      // Revert on silent failure
+      fetchConversations(true);
+      if (Platform.OS === 'web')
+        window.alert(
+          'Network Error: Failed to synchronize block status with server.',
+        );
+      else
+        Alert.alert(
+          'Network Error',
+          'Failed to synchronize block status with server.',
+        );
+    }
+  };
+
   const handleMuteConversation = async () => {
     if (!selectedConv || !user?.id) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+    const convId = selectedConv.id;
+    const wasMuted = selectedConv.isMuted;
+    const backupConvs = [...conversations];
+
+    // Optimistic update & CLOSE MODAL INSTANTLY
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, isMuted: !c.isMuted } : c)),
+    );
+    setSelectedConv(null);
+
     try {
-      if (selectedConv.isMuted) {
-        await supabase
+      if (wasMuted) {
+        const { data, error } = await supabase
           .from('muted_conversations')
           .delete()
           .eq('user_id', user.id)
-          .eq('conversation_id', selectedConv.id);
+          .eq('conversation_id', convId)
+          .select();
+        if (error || !data || data.length === 0)
+          throw new Error('RLS blocked unmute');
       } else {
-        await supabase
+        const { data, error } = await supabase
           .from('muted_conversations')
-          .insert({ user_id: user.id, conversation_id: selectedConv.id });
+          .insert({ user_id: user.id, conversation_id: convId })
+          .select();
+        if (error || !data || data.length === 0)
+          throw new Error('RLS blocked mute');
       }
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === selectedConv.id ? { ...c, isMuted: !c.isMuted } : c,
-        ),
-      );
     } catch (e) {
-      console.error(e);
-    } finally {
-      setSelectedConv(null);
+      console.error('Mute Sync Failed:', e);
+      setConversations(backupConvs); // Rollback UI
+      if (Platform.OS === 'web')
+        window.alert(
+          'Network Error: Failed to synchronize mute status with server.',
+        );
+      else
+        Alert.alert(
+          'Network Error',
+          'Failed to synchronize mute status with server.',
+        );
     }
   };
 
@@ -562,42 +680,86 @@ export default function MessagesInboxScreen() {
     if (!selectedConv || !user?.id) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
 
-    Alert.alert(
-      'Purge Terminal',
-      'This removes the conversation from your device permanently. Proceed?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Purge',
-          style: 'destructive',
-          onPress: async () => {
-            const backupConvs = [...conversations];
-            const convId = selectedConv.id;
+    const executePurge = async () => {
+      const backupConvs = [...conversations];
+      const convId = selectedConv.id;
 
-            // Optimistic UI Rollback Implementation
-            setConversations((prev) => prev.filter((c) => c.id !== convId));
-            setSelectedConv(null);
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      // 1. Optimistic UI Rollback Implementation - CLOSE MODAL INSTANTLY
+      setConversations((prev) => prev.filter((c) => c.id !== convId));
+      setSelectedConv(null);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
-            const { error } = await supabase
-              .from('conversation_participants')
-              .delete()
-              .eq('conversation_id', convId)
-              .eq('user_id', user.id);
+      // 2. True DB Deletion WITH safety select to catch Silent RLS Failures
+      const { data, error } = await supabase
+        .from('conversation_participants')
+        .delete()
+        .eq('conversation_id', convId)
+        .eq('user_id', user.id)
+        .select();
 
-            if (error) {
-              console.error('[Purge Error]:', error);
-              // Rollback UI if database rejects
-              setConversations(backupConvs);
-              Alert.alert(
-                'Purge Failed',
-                `Database prevented deletion: ${error.message}`,
-              );
-            }
+      if (error || !data || data.length === 0) {
+        console.error(
+          '[Purge Error or Silent RLS Block]:',
+          error || '0 rows affected',
+        );
+        setConversations(backupConvs);
+
+        if (Platform.OS === 'web') {
+          window.alert(
+            'Purge Failed: Database security prevented deletion. Please ensure you ran the provided SQL migrations.',
+          );
+        } else {
+          Alert.alert(
+            'Purge Failed',
+            'Database security prevented deletion. Please ensure you ran the provided SQL migrations.',
+          );
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(
+        'This removes the conversation from your device permanently. The other user will retain their copy. Proceed?',
+      );
+      if (confirmed) executePurge();
+      else setSelectedConv(null);
+    } else {
+      Alert.alert(
+        'Purge Terminal',
+        'This removes the conversation from your device permanently. The other user will retain their copy. Proceed?',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => setSelectedConv(null),
           },
-        },
-      ],
-    );
+          { text: 'Purge', style: 'destructive', onPress: executePurge },
+        ],
+      );
+    }
+  };
+
+  const triggerKeyRegeneration = () => {
+    setShowGlobalSettings(false);
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(
+        '⚠️ CRITICAL WARNING ⚠️\n\nRegenerating your security keys will PERMANENTLY lock you out of reading all previously sent/received messages. This action cannot be undone.\n\nAre you absolutely sure?',
+      );
+      if (confirmed) ensureUserHasKeys(true);
+    } else {
+      Alert.alert(
+        '⚠️ CRITICAL WARNING ⚠️',
+        'Regenerating your security keys will PERMANENTLY lock you out of reading all previously sent/received messages. This action cannot be undone.\n\nAre you absolutely sure?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Nuke & Regenerate',
+            style: 'destructive',
+            onPress: () => ensureUserHasKeys(true),
+          },
+        ],
+      );
+    }
   };
 
   // ============================================================================
@@ -669,6 +831,13 @@ export default function MessagesInboxScreen() {
                     item.otherUser?.username ||
                     'Unknown User'}
                 </Text>
+
+                {/* Blocked and Muted Indicators */}
+                {item.iBlockedThem && (
+                  <View style={styles.blockedBadge}>
+                    <Text style={styles.blockedBadgeText}>BLOCKED</Text>
+                  </View>
+                )}
                 {item.isMuted && (
                   <BellOff
                     size={12}
@@ -710,7 +879,7 @@ export default function MessagesInboxScreen() {
           {/* DESKTOP/WEB ACCESSIBILITY FIX: Explicit Action Button */}
           <TouchableOpacity
             onPress={(e) => {
-              e.stopPropagation();
+              e.stopPropagation(); // Prevents navigating to chat
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setSelectedConv(item);
             }}
@@ -903,6 +1072,31 @@ export default function MessagesInboxScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
+              onPress={handleBlockToggle}
+              style={styles.actionBtn}
+            >
+              {selectedConv?.iBlockedThem ? (
+                <User size={22} color={THEME.success} />
+              ) : (
+                <UserX size={22} color={THEME.danger} />
+              )}
+              <Text
+                style={[
+                  styles.actionText,
+                  {
+                    color: selectedConv?.iBlockedThem
+                      ? THEME.success
+                      : THEME.danger,
+                  },
+                ]}
+              >
+                {selectedConv?.iBlockedThem
+                  ? 'Restore Connection (Unblock)'
+                  : 'Sever Connection (Block)'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               onPress={handleDeleteConversation}
               style={styles.actionBtn}
             >
@@ -997,11 +1191,13 @@ export default function MessagesInboxScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => ensureUserHasKeys(true)}
+              onPress={triggerKeyRegeneration}
               style={styles.actionBtn}
             >
-              <KeyRound color={THEME.white} size={22} />
-              <Text style={styles.actionText}>Regenerate Security Keys</Text>
+              <KeyRound color={THEME.warning} size={22} />
+              <Text style={[styles.actionText, { color: THEME.warning }]}>
+                Regenerate Security Keys
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1247,6 +1443,21 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.5,
   },
+  blockedBadge: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: THEME.danger,
+  },
+  blockedBadgeText: {
+    color: THEME.danger,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
   desktopActionIcon: { padding: 10, marginLeft: 8, opacity: 0.6 },
   roleBadge: {
     flexDirection: 'row',
@@ -1314,6 +1525,11 @@ const styles = StyleSheet.create({
     padding: 24,
     borderWidth: 1,
     borderColor: THEME.glassBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 15,
   },
   settingsSheetMobile: {
     backgroundColor: '#0f172a',

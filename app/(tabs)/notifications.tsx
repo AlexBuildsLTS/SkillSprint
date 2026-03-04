@@ -1,13 +1,11 @@
 /**
  * ============================================================================
- * 🔔 SKILLSPRINT UNIFIED NOTIFICATIONS CENTER - AAAA+ TIER v9.0
+ * 🔔 SKILLSPRINT UNIFIED NOTIFICATIONS CENTER - AAAA+ TIER v9.2
  * ============================================================================
  * Architecture:
- * - Direct DB Sync: Bypasses Edge Functions. Uses secure Client-Side RLS to
- * instantly and permanently update `is_read` and delete notifications.
- * - Desktop UX: Visible action menus (⋮) on every notification for web/desktop.
- * - Advanced Filtering: Quick-toggles for All, System, Messages, and Support.
- * - Real-Time Sync: Supabase WebSockets listen for instant inserts/updates.
+ * - True Disappearance: UI aggressively filters out any notification marked as read.
+ * - Database Level Filtering: The fetch query strictly requests ONLY unread items.
+ * - Anti-Placebo Engine: Actions use `.select()` to verify DB commits and rollback if failed.
  * ============================================================================
  */
 
@@ -58,9 +56,6 @@ import {
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Database } from '@/supabase/database.types';
 
-// ============================================================================
-// 🎨 THEME & CONSTANTS
-// ============================================================================
 const THEME = {
   obsidian: '#020617',
   indigo: '#6366f1',
@@ -76,13 +71,9 @@ const THEME = {
 type NotificationRow = Database['public']['Tables']['notifications']['Row'];
 type FilterType = 'ALL' | 'MESSAGES' | 'SYSTEM' | 'SUPPORT';
 
-// ============================================================================
-// 🚀 MAIN COMPONENT
-// ============================================================================
 export default function NotificationsScreen() {
   const { user } = useAuth();
   const router = useRouter();
-
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isMobile = width < 768;
@@ -92,15 +83,11 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   const [selectedNotice, setSelectedNotice] = useState<NotificationRow | null>(
     null,
   );
 
-  // ============================================================================
-  // 🔄 DATA FETCHING & REALTIME
-  // ============================================================================
   const fetchNotifications = useCallback(
     async (silent = false) => {
       if (!user?.id) return;
@@ -111,6 +98,7 @@ export default function NotificationsScreen() {
           .from('notifications')
           .select('*')
           .eq('user_id', user.id)
+          .eq('is_read', false) // 🛡️ CRITICAL FIX: Only fetch UNREAD items from the database
           .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -127,8 +115,8 @@ export default function NotificationsScreen() {
 
   useEffect(() => {
     fetchNotifications();
-
     if (!user?.id) return;
+
     const channel = supabase
       .channel('public:notifications')
       .on(
@@ -153,11 +141,18 @@ export default function NotificationsScreen() {
           filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
-          setNotifications((prev) =>
-            prev.map((n) =>
-              n.id === payload.new.id ? (payload.new as NotificationRow) : n,
-            ),
-          );
+          if (payload.new.is_read) {
+            // 🛡️ CRITICAL FIX: If a notification gets marked as read from another device, instantly remove it here
+            setNotifications((prev) =>
+              prev.filter((n) => n.id !== payload.new.id),
+            );
+          } else {
+            setNotifications((prev) =>
+              prev.map((n) =>
+                n.id === payload.new.id ? (payload.new as NotificationRow) : n,
+              ),
+            );
+          }
         },
       )
       .on(
@@ -187,9 +182,6 @@ export default function NotificationsScreen() {
     fetchNotifications(true);
   };
 
-  // ============================================================================
-  // 🧮 FILTERING ENGINE
-  // ============================================================================
   const filteredData = useMemo(() => {
     switch (activeFilter) {
       case 'MESSAGES':
@@ -210,32 +202,44 @@ export default function NotificationsScreen() {
     }
   }, [notifications, activeFilter]);
 
-  const unreadCount = useMemo(
-    () => notifications.filter((n) => !n.is_read).length,
-    [notifications],
-  );
+  const unreadCount = notifications.length; // Because the array now ONLY contains unread items.
 
   // ============================================================================
-  // 📝 DIRECT DATABASE ACTIONS (NO EDGE FUNCTIONS)
+  // 📝 ACTIONS: INSTANT DISAPPEARANCE & DB VERIFICATION
   // ============================================================================
   const handleInteract = async (item: NotificationRow) => {
     Haptics.selectionAsync();
 
-    // 1. Optimistic UI update
     if (!item.is_read) {
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === item.id ? { ...n, is_read: true } : n)),
-      );
+      // 1. INSTANT UI DISAPPEARANCE
+      setNotifications((prev) => prev.filter((n) => n.id !== item.id));
 
-      // 2. Direct DB update (Requires the RLS policy provided in Step 1)
-      const { error } = await supabase
+      // 2. Database confirmation
+      const { data, error } = await supabase
         .from('notifications')
         .update({ is_read: true })
-        .eq('id', item.id);
-      if (error) console.error('Failed to mark as read in DB:', error);
+        .eq('id', item.id)
+        .select();
+
+      if (error || !data || data.length === 0) {
+        // Rollback: put it back in the list if DB fails
+        setNotifications((prev) =>
+          [item, ...prev].sort(
+            (a, b) =>
+              new Date(b.created_at!).getTime() -
+              new Date(a.created_at!).getTime(),
+          ),
+        );
+        if (Platform.OS === 'web')
+          window.alert('Database Security blocked marking this as read.');
+        else
+          Alert.alert(
+            'Action Failed',
+            'Database Security blocked marking this as read.',
+          );
+      }
     }
 
-    // 3. Routing
     if (item.type === 'message' || item.type === 'SECURE_MESSAGE')
       router.push('/messages');
     else if (item.type === 'TICKET_UPDATE') router.push('/support');
@@ -246,52 +250,69 @@ export default function NotificationsScreen() {
     if (unreadCount === 0) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    // Optimistic Update
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    const backup = [...notifications];
 
-    // Direct DB update
-    const { error } = await supabase
+    // 1. INSTANT UI DISAPPEARANCE
+    setNotifications([]);
+
+    const { data, error } = await supabase
       .from('notifications')
       .update({ is_read: true })
       .eq('user_id', user?.id as string)
-      .eq('is_read', false);
-    if (error) {
-      Alert.alert('Sync Error', 'Could not mark all as read on the server.');
-      fetchNotifications(true); // Rollback
+      .eq('is_read', false)
+      .select();
+
+    if (error || !data || data.length === 0) {
+      // Rollback
+      setNotifications(backup);
+      if (Platform.OS === 'web')
+        window.alert('Sync Error: Could not mark all as read on the server.');
+      else
+        Alert.alert('Sync Error', 'Could not mark all as read on the server.');
     }
   };
 
   const clearAllNotifications = () => {
     if (notifications.length === 0) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    Alert.alert(
-      'Purge Feed',
-      'Are you sure you want to clear your entire notification history?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Purge All',
-          style: 'destructive',
-          onPress: async () => {
-            const backup = [...notifications];
-            setNotifications([]); // Optimistic Purge
 
-            // Direct DB Delete
-            const { error } = await supabase
-              .from('notifications')
-              .delete()
-              .eq('user_id', user?.id as string);
-            if (error) {
-              setNotifications(backup); // Rollback
-              Alert.alert(
-                'Purge Failed',
-                'Could not delete history from server.',
-              );
-            }
-          },
-        },
-      ],
-    );
+    const executePurge = async () => {
+      const backup = [...notifications];
+
+      // 1. INSTANT UI DISAPPEARANCE
+      setNotifications([]);
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', user?.id as string)
+        .select();
+
+      if (error || !data) {
+        setNotifications(backup);
+        if (Platform.OS === 'web')
+          window.alert('Purge Failed: Database blocked deletion.');
+        else Alert.alert('Purge Failed', 'Database blocked deletion.');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (
+        window.confirm(
+          'Are you sure you want to clear your entire notification history?',
+        )
+      )
+        executePurge();
+    } else {
+      Alert.alert(
+        'Purge Feed',
+        'Are you sure you want to clear your entire notification history?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Purge All', style: 'destructive', onPress: executePurge },
+        ],
+      );
+    }
   };
 
   const deleteSingle = async (id: string) => {
@@ -299,22 +320,32 @@ export default function NotificationsScreen() {
     setSelectedNotice(null);
 
     const backup = [...notifications];
-    setNotifications((prev) => prev.filter((n) => n.id !== id)); // Optimistic delete
+    const removedItem = notifications.find((n) => n.id === id);
 
-    // Direct DB Delete
-    const { error } = await supabase
+    // 1. INSTANT UI DISAPPEARANCE
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+
+    const { data, error } = await supabase
       .from('notifications')
       .delete()
-      .eq('id', id);
-    if (error) {
-      setNotifications(backup); // Rollback if it fails
-      Alert.alert('Error', 'Could not delete notification.');
+      .eq('id', id)
+      .select();
+
+    if (error || !data || data.length === 0) {
+      if (removedItem)
+        setNotifications((prev) =>
+          [removedItem, ...prev].sort(
+            (a, b) =>
+              new Date(b.created_at!).getTime() -
+              new Date(a.created_at!).getTime(),
+          ),
+        );
+      if (Platform.OS === 'web')
+        window.alert('Error: Database blocked deletion.');
+      else Alert.alert('Error', 'Database blocked deletion.');
     }
   };
 
-  // ============================================================================
-  // 🎨 UI RENDERERS
-  // ============================================================================
   const FilterPill = ({ label, type }: { label: string; type: FilterType }) => {
     const isActive = activeFilter === type;
     return (
@@ -362,8 +393,6 @@ export default function NotificationsScreen() {
       bgPulse = 'rgba(16, 185, 129, 0.05)';
     }
 
-    const isUnread = !item.is_read;
-
     return (
       <Animated.View
         entering={FadeInUp.delay(index * 30)}
@@ -373,10 +402,9 @@ export default function NotificationsScreen() {
         <View
           style={[
             styles.notificationCard,
-            isUnread && { backgroundColor: bgPulse, borderColor: color },
+            { backgroundColor: bgPulse, borderColor: color },
           ]}
         >
-          {/* Main Touchable Area */}
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={() => handleInteract(item)}
@@ -386,12 +414,11 @@ export default function NotificationsScreen() {
               style={[styles.iconWrapper, { backgroundColor: color + '20' }]}
             >
               <Icon size={22} color={color} />
-              {isUnread && <View style={styles.unreadDot} />}
+              <View style={styles.unreadDot} />
             </View>
-
             <View style={styles.textContent}>
               <Text
-                style={[styles.title, isUnread && { color: THEME.white }]}
+                style={[styles.title, { color: THEME.white }]}
                 numberOfLines={1}
               >
                 {item.title}
@@ -410,7 +437,6 @@ export default function NotificationsScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* DESKTOP ACCESSIBILITY FIX: Explicit Action Menu Button */}
           <TouchableOpacity
             onPress={(e) => {
               e.stopPropagation();
@@ -426,9 +452,6 @@ export default function NotificationsScreen() {
     );
   };
 
-  // ============================================================================
-  // 🖥️ MAIN RENDER
-  // ============================================================================
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -437,7 +460,6 @@ export default function NotificationsScreen() {
       />
 
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        {/* --- HEADER --- */}
         <View style={styles.header}>
           <View style={styles.headerTitleRow}>
             <View style={styles.headerIconBox}>
@@ -450,7 +472,6 @@ export default function NotificationsScreen() {
             </View>
             <Text style={styles.headerTitle}>Feed</Text>
           </View>
-
           <View style={styles.headerActions}>
             <TouchableOpacity
               onPress={markAllAsRead}
@@ -473,7 +494,6 @@ export default function NotificationsScreen() {
           </View>
         </View>
 
-        {/* --- FILTER ROW --- */}
         <View style={styles.filterContainer}>
           <FlatList
             horizontal
@@ -485,7 +505,6 @@ export default function NotificationsScreen() {
           />
         </View>
 
-        {/* --- NOTIFICATIONS LIST --- */}
         {isLoading ? (
           <ActivityIndicator
             color={THEME.indigo}
@@ -533,7 +552,6 @@ export default function NotificationsScreen() {
         )}
       </SafeAreaView>
 
-      {/* --- CONTEXT MODAL --- */}
       <Modal
         visible={!!selectedNotice}
         transparent
@@ -555,22 +573,18 @@ export default function NotificationsScreen() {
           >
             <Text style={styles.contextTitle}>Alert Options</Text>
 
-            {!selectedNotice?.is_read && (
-              <TouchableOpacity
-                onPress={() => {
-                  handleInteract(selectedNotice!);
-                  setSelectedNotice(null);
-                }}
-                style={styles.modalActionBtn}
-              >
-                <CheckCheck size={22} color={THEME.success} />
-                <Text
-                  style={[styles.modalActionText, { color: THEME.success }]}
-                >
-                  Mark as Read
-                </Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              onPress={() => {
+                handleInteract(selectedNotice!);
+                setSelectedNotice(null);
+              }}
+              style={styles.modalActionBtn}
+            >
+              <CheckCheck size={22} color={THEME.success} />
+              <Text style={[styles.modalActionText, { color: THEME.success }]}>
+                Mark as Read & Hide
+              </Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               onPress={() => {
@@ -589,7 +603,7 @@ export default function NotificationsScreen() {
             >
               <Trash2 size={22} color={THEME.danger} />
               <Text style={[styles.modalActionText, { color: THEME.danger }]}>
-                Delete from Feed
+                Delete from Database
               </Text>
             </TouchableOpacity>
 
@@ -606,9 +620,6 @@ export default function NotificationsScreen() {
   );
 }
 
-// ============================================================================
-// 🎨 STYLES
-// ============================================================================
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
   header: {
@@ -666,7 +677,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: THEME.glassBorder,
   },
-
   filterContainer: { paddingBottom: 16 },
   filterPill: {
     paddingHorizontal: 20,
@@ -688,10 +698,8 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   filterPillTextActive: { color: THEME.white },
-
   listContainer: { paddingHorizontal: 16, paddingTop: 8 },
   desktopContainer: { alignSelf: 'center', width: '100%', maxWidth: 800 },
-
   notificationCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -726,7 +734,6 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: THEME.obsidian,
   },
-
   textContent: { flex: 1, marginLeft: 16, marginRight: 8 },
   title: {
     fontSize: 16,
@@ -742,14 +749,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
     opacity: 0.7,
   },
-
   desktopActionIcon: {
     padding: 16,
     opacity: 0.6,
     justifyContent: 'center',
     alignItems: 'center',
   },
-
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -779,7 +784,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
-
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.85)',
