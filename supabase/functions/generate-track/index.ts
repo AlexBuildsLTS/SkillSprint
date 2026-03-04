@@ -112,7 +112,6 @@ Deno.serve(async (req) => {
     // CRITICAL: If the DB save fails, we THROW so the function fails
     // and you see the 500 error instead of a fake success.
     if (dbError) {
-      console.error('CRITICAL DB SAVE ERROR:', dbError);
       throw new Error(`Database Save Failed: ${dbError.message}`);
     }
 
@@ -120,7 +119,6 @@ Deno.serve(async (req) => {
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Sprint Gen Error:', error);
     return new Response(JSON.stringify({ error: (error as Error).message }), {
       status: 500,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },

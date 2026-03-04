@@ -1,12 +1,13 @@
 /**
  * ============================================================================
- * 🔔 SKILLSPRINT UNIFIED NOTIFICATIONS CENTER - AAAA+ TIER
+ * 🔔 SKILLSPRINT UNIFIED NOTIFICATIONS CENTER - AAAA+ TIER v9.0
  * ============================================================================
  * Architecture:
+ * - Direct DB Sync: Bypasses Edge Functions. Uses secure Client-Side RLS to
+ * instantly and permanently update `is_read` and delete notifications.
+ * - Desktop UX: Visible action menus (⋮) on every notification for web/desktop.
  * - Advanced Filtering: Quick-toggles for All, System, Messages, and Support.
- * - Real-Time Sync: Supabase WebSockets listen for instant updates.
- * - Edge Offloading: Routes all mutations (mark read, clear) to Deno Edge.
- * - Adaptive UI: Centered glass-panels on Desktop, edge-to-edge on Mobile.
+ * - Real-Time Sync: Supabase WebSockets listen for instant inserts/updates.
  * ============================================================================
  */
 
@@ -38,6 +39,7 @@ import Animated, {
   FadeInUp,
   FadeInDown,
   Layout,
+  SlideOutLeft,
   ZoomIn,
 } from 'react-native-reanimated';
 import {
@@ -48,8 +50,9 @@ import {
   Info,
   CheckCheck,
   Trash2,
-  ChevronRight,
   Filter,
+  MoreVertical,
+  ChevronRight,
 } from 'lucide-react-native';
 
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -80,7 +83,6 @@ export default function NotificationsScreen() {
   const { user } = useAuth();
   const router = useRouter();
 
-  // Adaptive Engine
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isMobile = width < 768;
@@ -91,7 +93,6 @@ export default function NotificationsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Advanced State
   const [activeFilter, setActiveFilter] = useState<FilterType>('ALL');
   const [selectedNotice, setSelectedNotice] = useState<NotificationRow | null>(
     null,
@@ -215,34 +216,26 @@ export default function NotificationsScreen() {
   );
 
   // ============================================================================
-  // 📝 EDGE-ROUTED ACTIONS
+  // 📝 DIRECT DATABASE ACTIONS (NO EDGE FUNCTIONS)
   // ============================================================================
-  const invokeEdgeAction = async (action: string, id?: string) => {
-    try {
-      const { error } = await supabase.functions.invoke(
-        'notification-handler',
-        {
-          body: { action, notificationId: id },
-        },
-      );
-      if (error) throw error;
-    } catch (e) {
-      console.error(`Edge action [${action}] failed:`, e);
-      fetchNotifications(true); // Revert optimistic updates if server fails
-    }
-  };
-
-  const handleInteract = (item: NotificationRow) => {
+  const handleInteract = async (item: NotificationRow) => {
     Haptics.selectionAsync();
 
+    // 1. Optimistic UI update
     if (!item.is_read) {
       setNotifications((prev) =>
         prev.map((n) => (n.id === item.id ? { ...n, is_read: true } : n)),
       );
-      invokeEdgeAction('mark_read', item.id);
+
+      // 2. Direct DB update (Requires the RLS policy provided in Step 1)
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', item.id);
+      if (error) console.error('Failed to mark as read in DB:', error);
     }
 
-    // Smart Routing
+    // 3. Routing
     if (item.type === 'message' || item.type === 'SECURE_MESSAGE')
       router.push('/messages');
     else if (item.type === 'TICKET_UPDATE') router.push('/support');
@@ -252,8 +245,20 @@ export default function NotificationsScreen() {
   const markAllAsRead = async () => {
     if (unreadCount === 0) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Optimistic Update
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-    await invokeEdgeAction('mark_all_read');
+
+    // Direct DB update
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('user_id', user?.id as string)
+      .eq('is_read', false);
+    if (error) {
+      Alert.alert('Sync Error', 'Could not mark all as read on the server.');
+      fetchNotifications(true); // Rollback
+    }
   };
 
   const clearAllNotifications = () => {
@@ -268,27 +273,48 @@ export default function NotificationsScreen() {
           text: 'Purge All',
           style: 'destructive',
           onPress: async () => {
-            setNotifications([]);
-            await invokeEdgeAction('clear_all');
+            const backup = [...notifications];
+            setNotifications([]); // Optimistic Purge
+
+            // Direct DB Delete
+            const { error } = await supabase
+              .from('notifications')
+              .delete()
+              .eq('user_id', user?.id as string);
+            if (error) {
+              setNotifications(backup); // Rollback
+              Alert.alert(
+                'Purge Failed',
+                'Could not delete history from server.',
+              );
+            }
           },
         },
       ],
     );
   };
 
-  const deleteSingle = (id: string) => {
+  const deleteSingle = async (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-
-    // Perform a direct client-side delete for a single item for immediate speed
-    supabase.from('notifications').delete().eq('id', id).then();
     setSelectedNotice(null);
+
+    const backup = [...notifications];
+    setNotifications((prev) => prev.filter((n) => n.id !== id)); // Optimistic delete
+
+    // Direct DB Delete
+    const { error } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('id', id);
+    if (error) {
+      setNotifications(backup); // Rollback if it fails
+      Alert.alert('Error', 'Could not delete notification.');
+    }
   };
 
   // ============================================================================
   // 🎨 UI RENDERERS
   // ============================================================================
-
   const FilterPill = ({ label, type }: { label: string; type: FilterType }) => {
     const isActive = activeFilter === type;
     return (
@@ -341,69 +367,61 @@ export default function NotificationsScreen() {
     return (
       <Animated.View
         entering={FadeInUp.delay(index * 30)}
+        exiting={SlideOutLeft}
         layout={Layout.springify()}
       >
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => handleInteract(item)}
-          onLongPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setSelectedNotice(item);
-          }}
+        <View
           style={[
             styles.notificationCard,
             isUnread && { backgroundColor: bgPulse, borderColor: color },
           ]}
         >
-          <View style={[styles.iconWrapper, { backgroundColor: color + '20' }]}>
-            <Icon size={22} color={color} />
-            {isUnread && <View style={styles.unreadDot} />}
-          </View>
-
-          <View style={styles.textContent}>
-            <Text
-              style={[styles.title, isUnread && { color: THEME.white }]}
-              numberOfLines={1}
+          {/* Main Touchable Area */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => handleInteract(item)}
+            style={styles.cardContent}
+          >
+            <View
+              style={[styles.iconWrapper, { backgroundColor: color + '20' }]}
             >
-              {item.title}
-            </Text>
-            <Text style={styles.message} numberOfLines={2}>
-              {item.message}
-            </Text>
-            <Text style={styles.timeLabel}>
-              {new Date(item.created_at || '').toLocaleString([], {
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </Text>
-          </View>
+              <Icon size={22} color={color} />
+              {isUnread && <View style={styles.unreadDot} />}
+            </View>
 
-          {isUnread ? (
-            <TouchableOpacity
-              onPress={() => {
-                Haptics.selectionAsync();
-                setNotifications((prev) =>
-                  prev.map((n) =>
-                    n.id === item.id ? { ...n, is_read: true } : n,
-                  ),
-                );
-                invokeEdgeAction('mark_read', item.id);
-              }}
-            >
-              <View style={styles.markReadBtn}>
-                <CheckCheck size={14} color={THEME.white} />
-              </View>
-            </TouchableOpacity>
-          ) : (
-            <ChevronRight
-              size={20}
-              color={THEME.slate}
-              style={{ opacity: 0.3 }}
-            />
-          )}
-        </TouchableOpacity>
+            <View style={styles.textContent}>
+              <Text
+                style={[styles.title, isUnread && { color: THEME.white }]}
+                numberOfLines={1}
+              >
+                {item.title}
+              </Text>
+              <Text style={styles.message} numberOfLines={2}>
+                {item.message}
+              </Text>
+              <Text style={styles.timeLabel}>
+                {new Date(item.created_at || '').toLocaleString([], {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* DESKTOP ACCESSIBILITY FIX: Explicit Action Menu Button */}
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setSelectedNotice(item);
+            }}
+            style={styles.desktopActionIcon}
+          >
+            <MoreVertical size={20} color={THEME.slate} />
+          </TouchableOpacity>
+        </View>
       </Animated.View>
     );
   };
@@ -515,7 +533,7 @@ export default function NotificationsScreen() {
         )}
       </SafeAreaView>
 
-      {/* --- CONTEXT MODAL (Long Press) --- */}
+      {/* --- CONTEXT MODAL --- */}
       <Modal
         visible={!!selectedNotice}
         transparent
@@ -523,7 +541,10 @@ export default function NotificationsScreen() {
         onRequestClose={() => setSelectedNotice(null)}
       >
         <Pressable
-          style={styles.modalBackdrop}
+          style={[
+            styles.modalBackdrop,
+            !isMobile && { justifyContent: 'center', alignItems: 'center' },
+          ]}
           onPress={() => setSelectedNotice(null)}
         >
           <Animated.View
@@ -533,6 +554,23 @@ export default function NotificationsScreen() {
             }
           >
             <Text style={styles.contextTitle}>Alert Options</Text>
+
+            {!selectedNotice?.is_read && (
+              <TouchableOpacity
+                onPress={() => {
+                  handleInteract(selectedNotice!);
+                  setSelectedNotice(null);
+                }}
+                style={styles.modalActionBtn}
+              >
+                <CheckCheck size={22} color={THEME.success} />
+                <Text
+                  style={[styles.modalActionText, { color: THEME.success }]}
+                >
+                  Mark as Read
+                </Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               onPress={() => {
@@ -657,12 +695,17 @@ const styles = StyleSheet.create({
   notificationCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
     marginBottom: 12,
     backgroundColor: THEME.glassSurface,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: THEME.glassBorder,
+  },
+  cardContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
   },
   iconWrapper: {
     width: 48,
@@ -700,13 +743,11 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 
-  markReadBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: THEME.indigo,
-    alignItems: 'center',
+  desktopActionIcon: {
+    padding: 16,
+    opacity: 0.6,
     justifyContent: 'center',
+    alignItems: 'center',
   },
 
   emptyState: {
@@ -755,12 +796,17 @@ const styles = StyleSheet.create({
   },
   contextMenuDesktop: {
     backgroundColor: '#1e293b',
-    alignSelf: 'center',
-    width: 400,
     borderRadius: 24,
-    padding: 20,
+    padding: 24,
     borderWidth: 1,
     borderColor: THEME.glassBorder,
+    width: 400,
+    maxWidth: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 15,
   },
   contextTitle: {
     color: THEME.slate,

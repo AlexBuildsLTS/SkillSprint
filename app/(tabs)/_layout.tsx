@@ -199,7 +199,6 @@ export default function AdaptiveLayout() {
 
           {/* HIDDEN ROUTES */}
           <Tabs.Screen name="settings" options={{ href: null }} />
-          <Tabs.Screen name="settings/profile-view" options={{ href: null }} />
           <Tabs.Screen name="support" options={{ href: null }} />
           <Tabs.Screen name="messages" options={{ href: null }} />
           <Tabs.Screen name="notifications" options={{ href: null }} />

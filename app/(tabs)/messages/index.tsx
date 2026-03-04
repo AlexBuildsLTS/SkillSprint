@@ -1,17 +1,18 @@
 /**
  * ============================================================================
- * 🛡️ SKILLSPRINT SECURE INBOX - PRODUCTION BUILD v7.0 (NODE-FORGE E2EE)
+ * 🛡️ SKILLSPRINT SECURE INBOX - PRODUCTION BUILD v8.1 (DESKTOP OPTIMIZED)
  * ============================================================================
  * Architecture:
- * - Realtime Engine: Subscribes to global messages & profiles. Automatically
- * bubbles active conversations to the top with fluid spring animations.
+ * - Cross-Platform UX: Visible action menus (⋮) for desktop/web users.
+ * - Global Settings: Dedicated settings access directly from the inbox header.
+ * - Thread Safety: Uses asynchronous RSA key generation to prevent ANR freezes.
+ * - Realtime Engine: Automatically bubbles active conversations to the top.
  * - E2EE Previews: Asynchronously decrypts the last message securely.
- * - Cross-Platform: Uses secureStorage wrapper for Web/Native safe keystore.
- * - True Presence: Instantly updates online/busy indicators without refreshing.
+ * - Resilient UI: Optimistic rollbacks alert the user if DB Purges fail.
  * ============================================================================
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -45,17 +46,22 @@ import {
   ShieldCheck,
   Shield,
   Zap,
+  MoreVertical,
+  Settings,
+  KeyRound,
+  Circle,
 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
-import secureStorage from '@/lib/secureStorage'; // Web-safe storage wrapper
+import secureStorage from '@/lib/secureStorage';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   FadeInUp,
   FadeInDown,
   Layout,
+  ZoomIn,
 } from 'react-native-reanimated';
 import forge from 'node-forge';
 
@@ -77,7 +83,6 @@ const THEME = {
   glassSurface: 'rgba(30, 41, 59, 0.4)',
 };
 
-// Legacy fallback for old messages encrypted before RSA implementation
 const LEGACY_SECRET = forge.util.createBuffer(
   'SKILLSPRINT_SUPER_SECRET_KEY_123',
   'utf8',
@@ -102,7 +107,6 @@ const decryptPreviewAsync = async (
 ): Promise<string> => {
   if (!message || !message.content) return 'Start a secure tunnel...';
 
-  // If we are the sender and it's an RSA encrypted key, we don't have the recipient's private key to read it back.
   if (message.sender_id === currentUserId && message.encrypted_aes_key) {
     return '🔒 Encrypted & Sent';
   }
@@ -114,7 +118,6 @@ const decryptPreviewAsync = async (
     let decryptedPayloadStr = '';
 
     if (!message.encrypted_aes_key) {
-      // Legacy Symmetric Decryption
       const iv = forge.util.hexToBytes(parts[0]);
       const encryptedPayload = forge.util.decode64(parts[1]);
 
@@ -124,7 +127,6 @@ const decryptPreviewAsync = async (
       decipher.finish();
       decryptedPayloadStr = forge.util.decodeUtf8(decipher.output.getBytes());
     } else {
-      // True E2EE Asymmetric + Symmetric Decryption
       const privateKeyPem = await getLocalPrivateKey();
       if (!privateKeyPem) return '🔒 Key Locked';
 
@@ -146,7 +148,6 @@ const decryptPreviewAsync = async (
       decryptedPayloadStr = forge.util.decodeUtf8(decipher.output.getBytes());
     }
 
-    // Parse JSON Payload if applicable
     if (decryptedPayloadStr.startsWith('{')) {
       const payloadObj = JSON.parse(decryptedPayloadStr);
       if (payloadObj.attachmentType === 'image') return '🖼️ Encrypted Image';
@@ -156,6 +157,20 @@ const decryptPreviewAsync = async (
     return decryptedPayloadStr;
   } catch (e) {
     return '🔒 Decryption Error';
+  }
+};
+
+const generateIdentityFingerprint = (
+  publicKeyPem: string | null | undefined,
+): string => {
+  if (!publicKeyPem) return 'NO PUBLIC KEY FOUND';
+  try {
+    const md = forge.md.sha256.create();
+    md.update(publicKeyPem, 'utf8');
+    const hex = md.digest().toHex().toUpperCase();
+    return hex.match(/.{1,4}/g)?.join(' ') || hex;
+  } catch (e) {
+    return 'FINGERPRINT GENERATION FAILED';
   }
 };
 
@@ -237,10 +252,11 @@ const UserAvatar = ({
 // 🚀 MAIN SCREEN COMPONENT
 // ============================================================================
 export default function MessagesInboxScreen() {
-  const { user } = useAuth();
+  const { user, refreshUserData } = useAuth();
   const router = useRouter();
 
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isMobile = width < 768;
 
   // --- Inbox State ---
@@ -249,22 +265,28 @@ export default function MessagesInboxScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isProvisioningKeys, setIsProvisioningKeys] = useState(false);
+  const [localPresence, setLocalPresence] = useState<
+    'ONLINE' | 'BUSY' | 'OFFLINE' | null
+  >(user?.profile?.presence_status as any);
 
-  // --- Actions State ---
+  // --- Modals State ---
   const [selectedConv, setSelectedConv] = useState<any | null>(null);
+  const [showGlobalSettings, setShowGlobalSettings] = useState(false);
+  const [showFingerprint, setShowFingerprint] = useState(false);
 
-  // --- New Chat Modal State ---
+  // --- New Chat State ---
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [searchedUsers, setSearchedUsers] = useState<any[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
 
   // ============================================================================
-  // 🔑 BACKGROUND KEY PROVISIONING
+  // 🔑 NON-BLOCKING BACKGROUND KEY PROVISIONING
   // ============================================================================
-  const ensureUserHasKeys = async () => {
+  const ensureUserHasKeys = async (forceRegenerate = false) => {
     if (!user?.id) return;
     try {
+      if (forceRegenerate) setIsProvisioningKeys(true);
       let privKey = await secureStorage.getItem('skillsprint_private_key');
       let pubKey = await secureStorage.getItem('skillsprint_public_key');
 
@@ -274,17 +296,21 @@ export default function MessagesInboxScreen() {
         .eq('id', user.id)
         .single();
 
-      if (!privKey || !pubKey || !profile?.public_key) {
+      if (!privKey || !pubKey || !profile?.public_key || forceRegenerate) {
         setIsProvisioningKeys(true);
-        console.log(
-          '[E2EE Inbox] Provisioning RSA-2048 keys for discoverability...',
+
+        const keypair = await new Promise<forge.pki.rsa.KeyPair>(
+          (resolve, reject) => {
+            forge.pki.rsa.generateKeyPair(
+              { bits: 2048, workers: -1 },
+              (err, kp) => {
+                if (err) reject(err);
+                else resolve(kp);
+              },
+            );
+          },
         );
 
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        const keypair = forge.pki.rsa.generateKeyPair({
-          bits: 2048,
-          e: 0x10001,
-        });
         privKey = forge.pki.privateKeyToPem(keypair.privateKey);
         pubKey = forge.pki.publicKeyToPem(keypair.publicKey);
 
@@ -295,10 +321,19 @@ export default function MessagesInboxScreen() {
           .from('profiles')
           .update({ public_key: pubKey })
           .eq('id', user.id);
-        console.log('[E2EE Inbox] Keys synced to global directory.');
+
+        if (forceRegenerate) {
+          Alert.alert(
+            'Keys Regenerated',
+            'Your secure keys have been reset and synced to the server.',
+          );
+        }
       }
     } catch (error) {
       console.error('[E2EE Provisioning Error]', error);
+      if (forceRegenerate) {
+        Alert.alert('Key Generation Failed', 'Please try again later.');
+      }
     } finally {
       setIsProvisioningKeys(false);
     }
@@ -312,20 +347,17 @@ export default function MessagesInboxScreen() {
       ensureUserHasKeys().then(() => fetchConversations());
     }
 
-    // REALTIME: Listen for any new messages globally to bubble conversations to top
     const messageChannel = supabase
       .channel('inbox_messages')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         () => {
-          // A new message arrived! Fetch silently to decrypt preview and re-sort
           fetchConversations(true);
         },
       )
       .subscribe();
 
-    // REALTIME: Listen for profile updates to update online/busy dots instantly
     const profileChannel = supabase
       .channel('inbox_profiles')
       .on(
@@ -372,7 +404,6 @@ export default function MessagesInboxScreen() {
             (p: any) => p.user_id !== user.id,
           )?.profiles;
 
-          // True Presence Evaluation
           const lastSeen = other?.last_seen_at
             ? new Date(other.last_seen_at).getTime()
             : 0;
@@ -381,7 +412,6 @@ export default function MessagesInboxScreen() {
           if (actualStatus === 'ONLINE' && !isActuallyOnline)
             actualStatus = 'OFFLINE';
 
-          // Sort messages internally to find the absolute latest one
           const sortedMessages = conv.messages?.sort(
             (a: any, b: any) =>
               new Date(b.created_at).getTime() -
@@ -408,7 +438,7 @@ export default function MessagesInboxScreen() {
         }),
       );
 
-      // GUARANTEED SORTING: Bubble newest activity to the very top
+      // Bubble newest activity to the very top
       const sortedConversations = formatted.sort((a, b) => {
         const timeA = a.lastMessage
           ? new Date(a.lastMessage.created_at).getTime()
@@ -484,8 +514,22 @@ export default function MessagesInboxScreen() {
   };
 
   // ============================================================================
-  // ⚡ CONTEXT ACTIONS (Mute/Delete)
+  // ⚡ CONTEXT ACTIONS (Mute/Delete/Status)
   // ============================================================================
+  const handleTogglePresence = async (
+    status: 'ONLINE' | 'OFFLINE' | 'BUSY',
+  ) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setLocalPresence(status);
+
+    try {
+      await supabase.functions.invoke('presence-handler', { body: { status } });
+      if (refreshUserData) await refreshUserData();
+    } catch (e) {
+      console.error('Presence error', e);
+    }
+  };
+
   const handleMuteConversation = async () => {
     if (!selectedConv || !user?.id) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -520,23 +564,36 @@ export default function MessagesInboxScreen() {
 
     Alert.alert(
       'Purge Terminal',
-      'This removes the conversation from your device. The other user retains their encrypted copy.',
+      'This removes the conversation from your device permanently. Proceed?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Purge',
           style: 'destructive',
           onPress: async () => {
-            await supabase
-              .from('conversation_participants')
-              .delete()
-              .eq('conversation_id', selectedConv.id)
-              .eq('user_id', user.id);
-            setConversations((prev) =>
-              prev.filter((c) => c.id !== selectedConv.id),
-            );
+            const backupConvs = [...conversations];
+            const convId = selectedConv.id;
+
+            // Optimistic UI Rollback Implementation
+            setConversations((prev) => prev.filter((c) => c.id !== convId));
             setSelectedConv(null);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+            const { error } = await supabase
+              .from('conversation_participants')
+              .delete()
+              .eq('conversation_id', convId)
+              .eq('user_id', user.id);
+
+            if (error) {
+              console.error('[Purge Error]:', error);
+              // Rollback UI if database rejects
+              setConversations(backupConvs);
+              Alert.alert(
+                'Purge Failed',
+                `Database prevented deletion: ${error.message}`,
+              );
+            }
           },
         },
       ],
@@ -649,6 +706,18 @@ export default function MessagesInboxScreen() {
               )}
             </View>
           </View>
+
+          {/* DESKTOP/WEB ACCESSIBILITY FIX: Explicit Action Button */}
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setSelectedConv(item);
+            }}
+            style={styles.desktopActionIcon}
+          >
+            <MoreVertical size={20} color={THEME.slate} />
+          </TouchableOpacity>
         </TouchableOpacity>
       </Animated.View>
     );
@@ -672,13 +741,15 @@ export default function MessagesInboxScreen() {
             <Text style={styles.headerTitle}>Terminals</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {isProvisioningKeys && (
-              <ActivityIndicator
-                size="small"
-                color={THEME.indigo}
-                style={{ marginRight: 16 }}
-              />
-            )}
+            <TouchableOpacity
+              onPress={() => setShowGlobalSettings(true)}
+              style={[
+                styles.newChatBtn,
+                { backgroundColor: THEME.glassSurface, marginRight: 12 },
+              ]}
+            >
+              <Settings size={20} color={THEME.slate} />
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -691,70 +762,95 @@ export default function MessagesInboxScreen() {
           </View>
         </View>
 
-        {/* --- SEARCH BAR --- */}
-        <View style={styles.searchContainer}>
-          <GlassCard style={styles.searchCard}>
-            <Search size={18} color={THEME.slate} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search active connections..."
-              placeholderTextColor={THEME.slate}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
+        {/* --- KEY GENERATION OVERLAY --- */}
+        {isProvisioningKeys ? (
+          <Animated.View
+            entering={FadeInDown}
+            style={styles.provisioningOverlay}
+          >
+            <ActivityIndicator
+              size="large"
+              color={THEME.indigo}
+              style={{ marginBottom: 24, transform: [{ scale: 1.5 }] }}
             />
-            {searchQuery !== '' && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <X size={18} color={THEME.slate} />
-              </TouchableOpacity>
-            )}
-          </GlassCard>
-        </View>
-
-        {/* --- INBOX LIST --- */}
-        {isLoading ? (
-          <ActivityIndicator
-            color={THEME.indigo}
-            style={{ flex: 1 }}
-            size="large"
-          />
+            <Text style={styles.provisioningTitle}>Securing Environment</Text>
+            <Text style={styles.provisioningSub}>
+              Generating military-grade RSA-2048 encryption keys specifically
+              for this device. This may take up to 30 seconds to complete
+              safely...
+            </Text>
+          </Animated.View>
         ) : (
-          <FlatList
-            data={conversations.filter(
-              (c) =>
-                c.otherUser?.username
-                  ?.toLowerCase()
-                  .includes(searchQuery.toLowerCase()) ||
-                c.otherUser?.full_name
-                  ?.toLowerCase()
-                  .includes(searchQuery.toLowerCase()),
-            )}
-            renderItem={renderConversationItem}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={[
-              styles.listContainer,
-              { paddingBottom: isMobile ? 120 : 60 },
-            ]}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                onRefresh={onRefresh}
-                tintColor={THEME.indigo}
+          <>
+            {/* --- SEARCH BAR --- */}
+            <View style={styles.searchContainer}>
+              <GlassCard style={styles.searchCard}>
+                <Search size={18} color={THEME.slate} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search active connections..."
+                  placeholderTextColor={THEME.slate}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+                {searchQuery !== '' && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')}>
+                    <X size={18} color={THEME.slate} />
+                  </TouchableOpacity>
+                )}
+              </GlassCard>
+            </View>
+
+            {/* --- INBOX LIST --- */}
+            {isLoading ? (
+              <ActivityIndicator
+                color={THEME.indigo}
+                style={{ flex: 1 }}
+                size="large"
               />
-            }
-            ListEmptyComponent={
-              <Animated.View entering={FadeInDown} style={styles.emptyState}>
-                <View style={styles.emptyIconBg}>
-                  <Lock size={32} color={THEME.slate} />
-                </View>
-                <Text style={styles.emptyTitle}>Secure Environment</Text>
-                <Text style={styles.emptySub}>
-                  No active transmissions. Tap the pen icon to initiate a
-                  verified E2EE handshake.
-                </Text>
-              </Animated.View>
-            }
-          />
+            ) : (
+              <FlatList
+                data={conversations.filter(
+                  (c) =>
+                    c.otherUser?.username
+                      ?.toLowerCase()
+                      .includes(searchQuery.toLowerCase()) ||
+                    c.otherUser?.full_name
+                      ?.toLowerCase()
+                      .includes(searchQuery.toLowerCase()),
+                )}
+                renderItem={renderConversationItem}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={[
+                  styles.listContainer,
+                  { paddingBottom: isMobile ? 120 : 60 },
+                ]}
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={isRefreshing}
+                    onRefresh={onRefresh}
+                    tintColor={THEME.indigo}
+                  />
+                }
+                ListEmptyComponent={
+                  <Animated.View
+                    entering={FadeInDown}
+                    style={styles.emptyState}
+                  >
+                    <View style={styles.emptyIconBg}>
+                      <Lock size={32} color={THEME.slate} />
+                    </View>
+                    <Text style={styles.emptyTitle}>Secure Environment</Text>
+                    <Text style={styles.emptySub}>
+                      No active transmissions. Tap the pen icon to initiate a
+                      verified E2EE handshake.
+                    </Text>
+                  </Animated.View>
+                }
+              />
+            )}
+          </>
         )}
       </SafeAreaView>
 
@@ -769,13 +865,22 @@ export default function MessagesInboxScreen() {
         onRequestClose={() => setSelectedConv(null)}
       >
         <Pressable
-          style={styles.modalBackdrop}
+          style={[
+            styles.modalBackdrop,
+            !isMobile && { justifyContent: 'center', alignItems: 'center' },
+          ]}
           onPress={() => setSelectedConv(null)}
         >
-          <Animated.View entering={FadeInUp} style={styles.contextMenu}>
+          <Animated.View
+            entering={isMobile ? FadeInUp : ZoomIn}
+            style={
+              isMobile ? styles.contextMenuMobile : styles.contextMenuDesktop
+            }
+          >
             <Text style={styles.contextTitle}>
               Terminal Options: @{selectedConv?.otherUser?.username}
             </Text>
+
             <TouchableOpacity
               onPress={handleMuteConversation}
               style={styles.actionBtn}
@@ -796,6 +901,7 @@ export default function MessagesInboxScreen() {
                   : 'Mute Incoming Signals'}
               </Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               onPress={handleDeleteConversation}
               style={styles.actionBtn}
@@ -805,11 +911,145 @@ export default function MessagesInboxScreen() {
                 Purge from Device
               </Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               onPress={() => setSelectedConv(null)}
               style={styles.closeBtn}
             >
               <Text style={styles.closeText}>Cancel</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showGlobalSettings}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowGlobalSettings(false)}
+      >
+        <Pressable
+          style={[
+            styles.modalBackdrop,
+            !isMobile && { justifyContent: 'center', alignItems: 'center' },
+          ]}
+          onPress={() => setShowGlobalSettings(false)}
+        >
+          <Animated.View
+            entering={isMobile ? FadeInDown : ZoomIn}
+            style={
+              isMobile
+                ? styles.settingsSheetMobile
+                : styles.settingsModalDesktop
+            }
+            onStartShouldSetResponder={() => true}
+          >
+            {isMobile && <View style={styles.sheetHandle} />}
+            <Text style={styles.sheetTitle}>Global Link Configuration</Text>
+
+            <View style={{ marginBottom: 24 }}>
+              <Text style={styles.sectionLabel}>YOUR BROADCAST STATUS</Text>
+              <View style={styles.statusSelectRow}>
+                <TouchableOpacity
+                  onPress={() => handleTogglePresence('ONLINE')}
+                  style={[
+                    styles.statusOption,
+                    localPresence === 'ONLINE' && styles.statusActive,
+                  ]}
+                >
+                  <Circle
+                    fill={THEME.success}
+                    size={10}
+                    color={THEME.success}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={styles.statusOptionText}>ONLINE</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleTogglePresence('BUSY')}
+                  style={[
+                    styles.statusOption,
+                    localPresence === 'BUSY' && styles.statusActive,
+                  ]}
+                >
+                  <Circle
+                    fill={THEME.warning}
+                    size={10}
+                    color={THEME.warning}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={styles.statusOptionText}>BUSY</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                setShowGlobalSettings(false);
+                setShowFingerprint(true);
+              }}
+              style={styles.actionBtn}
+            >
+              <ShieldCheck color={THEME.success} size={22} />
+              <Text style={styles.actionText}>
+                View My Security Fingerprint
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => ensureUserHasKeys(true)}
+              style={styles.actionBtn}
+            >
+              <KeyRound color={THEME.white} size={22} />
+              <Text style={styles.actionText}>Regenerate Security Keys</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setShowGlobalSettings(false)}
+              style={styles.closeBtn}
+            >
+              <Text style={styles.closeText}>Close Configuration</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showFingerprint}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFingerprint(false)}
+      >
+        <Pressable
+          style={[
+            styles.modalBackdrop,
+            { justifyContent: 'center', alignItems: 'center' },
+          ]}
+          onPress={() => setShowFingerprint(false)}
+        >
+          <Animated.View
+            entering={ZoomIn}
+            style={styles.fingerprintModal}
+            onStartShouldSetResponder={() => true}
+          >
+            <View style={styles.fingerprintIconWrapper}>
+              <ShieldCheck color={THEME.success} size={48} />
+            </View>
+            <Text style={styles.fingerprintTitle}>My Public Identity</Text>
+            <Text style={styles.fingerprintSub}>
+              This is your cryptographic fingerprint. Others can compare this
+              64-character code with you to verify end-to-end security.
+            </Text>
+            <View style={styles.fingerprintCodeBox}>
+              <Text style={styles.fingerprintCodeText}>
+                {generateIdentityFingerprint(user?.profile?.public_key)}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setShowFingerprint(false)}
+              style={styles.fingerprintCloseBtn}
+            >
+              <Text style={styles.fingerprintCloseText}>Close</Text>
             </TouchableOpacity>
           </Animated.View>
         </Pressable>
@@ -918,11 +1158,29 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.indigo,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: THEME.indigo,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+  },
+  provisioningOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+    marginTop: -100,
+  },
+  provisioningTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: THEME.white,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  provisioningSub: {
+    fontSize: 16,
+    color: THEME.success,
+    textAlign: 'center',
+    lineHeight: 24,
+    fontWeight: '600',
   },
   searchContainer: { paddingHorizontal: 20, paddingBottom: 16 },
   searchCard: {
@@ -989,6 +1247,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.5,
   },
+  desktopActionIcon: { padding: 10, marginLeft: 8, opacity: 0.6 },
   roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1038,7 +1297,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.85)',
     justifyContent: 'flex-end',
   },
-  contextMenu: {
+  contextMenuMobile: {
     backgroundColor: '#1e293b',
     margin: 20,
     marginBottom: 50,
@@ -1046,6 +1305,101 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: THEME.glassBorder,
+  },
+  contextMenuDesktop: {
+    backgroundColor: '#1e293b',
+    alignSelf: 'center',
+    width: 400,
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+  },
+  settingsSheetMobile: {
+    backgroundColor: '#0f172a',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    padding: 24,
+    paddingBottom: 50,
+    borderTopWidth: 1,
+    borderColor: THEME.glassBorder,
+    width: '100%',
+  },
+  settingsModalDesktop: {
+    backgroundColor: '#0f172a',
+    borderRadius: 24,
+    padding: 32,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    width: 400,
+    maxWidth: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  fingerprintModal: {
+    backgroundColor: '#0f172a',
+    borderRadius: 24,
+    padding: 32,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    width: 360,
+    maxWidth: '90%',
+    alignItems: 'center',
+  },
+  fingerprintIconWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  fingerprintTitle: {
+    color: THEME.white,
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  fingerprintSub: {
+    color: THEME.slate,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  fingerprintCodeBox: {
+    backgroundColor: THEME.obsidian,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.glassBorder,
+    width: '100%',
+    marginBottom: 24,
+  },
+  fingerprintCodeText: {
+    color: THEME.success,
+    fontSize: 16,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    textAlign: 'center',
+    letterSpacing: 2,
+    lineHeight: 24,
+  },
+  fingerprintCloseBtn: {
+    width: '100%',
+    padding: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+  },
+  fingerprintCloseText: {
+    color: THEME.white,
+    textAlign: 'center',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
   contextTitle: {
     color: THEME.slate,
@@ -1056,6 +1410,44 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  sheetTitle: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: '900',
+    marginBottom: 24,
+  },
+  sectionLabel: {
+    color: THEME.slate,
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    letterSpacing: 1,
+  },
+  statusSelectRow: { flexDirection: 'row', gap: 12 },
+  statusOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  statusActive: {
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+    borderColor: THEME.indigo,
+  },
+  statusOptionText: { color: 'white', fontWeight: '900', fontSize: 13 },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
