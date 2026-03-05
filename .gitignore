@@ -65,6 +65,7 @@ lerna-debug.log*
 Thumbs.db
 Desktop.ini
 *.GEMINI.MD
+GEMINI.md
 # ==========================================
 # 🧪 TESTING & COVERAGE
 # ==========================================
