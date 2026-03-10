@@ -1,13 +1,6 @@
 /**
  * ============================================================================
- * 🧠 MODULE: AI NEURAL INTERFACE (CHAT) - AAAAA+ PRODUCTION MASTER v17.1
- * ============================================================================
- * PATH: app/(tabs)/ai-chat.tsx
- * VERSION: 17.1.0 (Fluid Layout + Web-Safe Dropdown & Premium Purge Modal)
- * * FEATURES & FIXES:
- * 1. FLUID LAYOUT: Intact from V17.
- * 2. WEB-SAFE PREMIUM DROPDOWN: Removed buggy <Modal>, using pure absolute overlay.
- * 3. CUSTOM PURGE CONFIRMATION: Slick UI modal replaces ugly window.confirm.
+ * 🧠 MODULE: AI NEURAL INTERFACE (CHAT)
  * ============================================================================
  */
 
