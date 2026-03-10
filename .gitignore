@@ -25,6 +25,9 @@ web-build/
 # Expo specific
 .expo/
 expo-env.d.ts
+.kombai
+
+
 
 # ==========================================
 # ⚡ SUPABASE SPECIFIC

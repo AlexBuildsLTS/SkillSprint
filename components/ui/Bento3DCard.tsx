@@ -43,8 +43,8 @@ export function Bento3DCard({
     .onUpdate((e) => {
       // ⚡ DIALED DOWN INTENSITY:
       // Dividing by larger numbers (e.g. 200/100) to make movement subtle
-      rotateX.value = interpolate(e.y, [0, 200], [5, -5], Extrapolation.CLAMP);
-      rotateY.value = interpolate(e.x, [0, 200], [-5, 5], Extrapolation.CLAMP);
+      rotateX.value = interpolate(e.y, [0, 200], [1.5, -1.5], Extrapolation.CLAMP);
+      rotateY.value = interpolate(e.x, [0, 200], [-1.5, 1.5], Extrapolation.CLAMP);
     })
     .onFinalize(() => {
       rotateX.value = withSpring(0);
@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.15,
     shadowRadius: 20,
-    elevation: 5,
+    elevation: 6,
     overflow: 'hidden', // Ensures inner content clips to border
   },
 });

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * 📊 SCREEN: DASHBOARD (HOME) - V9.0 (FINAL ARCHITECT GRADE)
+ * 📊 SCREEN: DASHBOARD (HOME) - V9.2 (USERNAME SYNC FIX)
  * ============================================================================
  * PATH: app/(tabs)/index.tsx
  * STATUS: PRODUCTION READY - FULL SYNC ENABLED
@@ -10,10 +10,11 @@
  * - Weekly Sprint Activity Chart (True Data).
  * - 3D Gyroscopic Bento Cards (Touch & Mouse).
  * - Responsive Layout (Zero Clipping).
+ * - CORRECTED: Now displays the actual `username` from `public.profiles`.
  * ============================================================================
  */
 
-import React, { useCallback, useState, useEffect, memo } from 'react';
+import React, { useCallback, useState, memo } from 'react';
 import {
   View,
   Text,
@@ -21,7 +22,6 @@ import {
   RefreshControl,
   useWindowDimensions,
   StyleSheet,
-  TouchableOpacity,
   Pressable,
   Platform,
   LayoutChangeEvent,
@@ -42,7 +42,6 @@ import Animated, {
   interpolateColor,
   interpolate,
   Extrapolation,
-  withSequence,
 } from 'react-native-reanimated';
 
 // ICONS
@@ -106,7 +105,6 @@ interface DashboardStats {
 /**
  * ============================================================================
  * 🧩 COMPONENT: TRACK BAR (XP BREAKDOWN ROW)
- * Renders a language progress bar.
  * ============================================================================
  */
 const TrackBar = memo(
@@ -137,7 +135,6 @@ TrackBar.displayName = 'TrackBar';
 /**
  * ============================================================================
  * 🧊 COMPONENT: 3D BENTO CARD (INTERNAL)
- * We define it here to ensure it has access to all props and context perfectly.
  * ============================================================================
  */
 const Bento3DCard = memo(
@@ -155,7 +152,6 @@ const Bento3DCard = memo(
     const { width } = useWindowDimensions();
     const isDesktop = width >= 768;
 
-    // ANIMATION VALUES
     const rotateX = useSharedValue(0);
     const rotateY = useSharedValue(0);
     const scale = useSharedValue(1);
@@ -177,7 +173,6 @@ const Bento3DCard = memo(
       shadowOpacity: interpolate(glowOpacity.value, [0, 1], [0, 0.3]),
     }));
 
-    // --- INTERACTION LOGIC ---
     const handlePressIn = () => {
       scale.value = withSpring(0.98, SPRING_CONFIG);
       glowOpacity.value = withTiming(1, { duration: 200 });
@@ -259,10 +254,8 @@ export default function Dashboard() {
   const isDesktop = width >= 1024;
   const { user, refreshUserData } = useAuth();
 
-  // STATE
   const [showXpDetails, setShowXpDetails] = useState(false);
 
-  // --- QUERY: DASHBOARD STATS ---
   const {
     data: stats,
     isLoading,
@@ -271,23 +264,20 @@ export default function Dashboard() {
     queryKey: ['dashboard-stats', user?.id],
     queryFn: () => api.getDashboardStats(user?.id!),
     enabled: !!user?.id,
-    refetchOnWindowFocus: true, // Auto-refresh when coming back to app
+    refetchOnWindowFocus: true,
   });
 
-  // --- REFRESH HANDLER ---
   const onRefresh = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await Promise.all([refetch(), refreshUserData()]);
   }, [refetch, refreshUserData]);
 
-  // --- DERIVED DATA ---
   const maxTrackXP =
     stats?.track_breakdown?.reduce(
       (max, t) => Math.max(max, t.total_xp),
       100,
     ) || 100;
 
-  // Level Logic (Defensive Defaults)
   const currentLevel = stats?.level || 1;
   const currentXP = stats?.xp || 0;
   const baseXP = stats?.current_level_base_xp || 0;
@@ -297,7 +287,6 @@ export default function Dashboard() {
     Math.max(0, ((currentXP - baseXP) / (nextTarget - baseXP)) * 100),
   );
 
-  // Chart Data Mapper (Mon, Tue... -> Last 7 Days)
   const dayMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const last7Days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
@@ -306,7 +295,6 @@ export default function Dashboard() {
   });
 
   const chartData = last7Days.map((day) => {
-    // SQL returns "Mon", "Tue" etc. We match strictly.
     const match = stats?.activity_chart?.find(
       (d) => d.day_label?.trim() === day,
     );
@@ -323,9 +311,11 @@ export default function Dashboard() {
     return 'Good Evening';
   };
 
+  // 🚀 FIXED USERNAME LOGIC: Pulls strictly from the `username` column in `public.profiles`
+  const displayUsername = user?.profile?.username || 'Commander';
+
   return (
     <View style={styles.root}>
-      {/* GLOBAL BACKGROUND */}
       <LinearGradient
         colors={[THEME.obsidian, '#0f172a', '#000000']}
         style={StyleSheet.absoluteFill}
@@ -362,17 +352,13 @@ export default function Dashboard() {
             </Text>
             <Text style={styles.greeting}>
               {getGreeting()},{'\n'}
-              <Text style={styles.username}>
-                {user?.user_metadata?.full_name?.split(' ')[0] || 'Operator'}
-              </Text>
+              <Text style={styles.username}>{displayUsername}</Text>
             </Text>
           </Animated.View>
 
           {/* --- MAIN GRID --- */}
           <View style={[styles.grid, isDesktop && styles.desktopGrid]}>
-            {/* ROW 1: STREAK & LEVEL */}
             <View style={[styles.row, !isDesktop && styles.mobileRow]}>
-              {/* CARD: STREAK */}
               <Bento3DCard style={{ flex: 1 }}>
                 <View
                   style={[
@@ -395,7 +381,6 @@ export default function Dashboard() {
                 </View>
               </Bento3DCard>
 
-              {/* CARD: LEVEL */}
               <Bento3DCard style={{ flex: 1 }}>
                 <View
                   style={[
@@ -416,7 +401,6 @@ export default function Dashboard() {
                     <Text style={styles.statSub}>
                       {`${Math.floor(nextTarget - currentXP)} XP to Lvl ${currentLevel + 1}`}
                     </Text>
-                    {/* LEVEL PROGRESS BAR */}
                     <View style={styles.progressBarBg}>
                       <Animated.View
                         layout={LinearTransition}
@@ -434,9 +418,7 @@ export default function Dashboard() {
               </Bento3DCard>
             </View>
 
-            {/* ROW 2: ACTIONS (DAILY & WEEKLY) */}
             <View style={[styles.row, !isDesktop && styles.mobileRow]}>
-              {/* CARD: DAILY SPRINT (Primary CTA) */}
               <Bento3DCard
                 style={{ flex: 1.5 }}
                 onPress={() => {
@@ -474,7 +456,6 @@ export default function Dashboard() {
                 </LinearGradient>
               </Bento3DCard>
 
-              {/* CARD: WEEKLY TARGET */}
               <Bento3DCard style={{ flex: 1 }}>
                 <View
                   style={[
@@ -521,7 +502,6 @@ export default function Dashboard() {
               </Bento3DCard>
             </View>
 
-            {/* ROW 3: ACTIVITY CHART */}
             <Bento3DCard style={{ width: '100%' }}>
               <View style={[styles.cardInner, { minHeight: 200 }]}>
                 <View style={styles.cardHeader}>
@@ -535,8 +515,6 @@ export default function Dashboard() {
                     ACTIVITY CHART
                   </Text>
                 </View>
-
-                {/* CHART BARS */}
                 <View style={styles.chartContainer}>
                   {chartData.map((d, i) => (
                     <View key={i} style={styles.chartCol}>
@@ -546,7 +524,7 @@ export default function Dashboard() {
                           style={[
                             styles.barFill,
                             {
-                              height: `${Math.max(d.value * 20, 8)}%`, // Min 8% visibility
+                              height: `${Math.max(d.value * 20, 8)}%`,
                               backgroundColor:
                                 d.value > 0 ? THEME.indigo : '#334155',
                             },
@@ -560,10 +538,9 @@ export default function Dashboard() {
               </View>
             </Bento3DCard>
 
-            {/* ROW 4: XP BREAKDOWN (AUTO-EXPANDING) */}
             <Bento3DCard
               style={{ width: '100%' }}
-              height="auto" // Tells component to allow flex growth
+              height="auto"
               onPress={() => {
                 Haptics.selectionAsync();
                 setShowXpDetails(!showXpDetails);
@@ -575,7 +552,6 @@ export default function Dashboard() {
                   styles.cardInner,
                   {
                     borderColor: THEME.indigo + '40',
-                    // Auto-height logic
                     minHeight: showXpDetails ? 300 : 130,
                   },
                 ]}
@@ -592,7 +568,6 @@ export default function Dashboard() {
                   />
                 </View>
 
-                {/* CONTENT SWAP WITH ANIMATION */}
                 {!showXpDetails ? (
                   <Animated.View entering={FadeIn} key="summary">
                     <Text style={styles.statMain}>
@@ -608,7 +583,6 @@ export default function Dashboard() {
                     style={{ paddingTop: 12 }}
                   >
                     {stats?.track_breakdown?.length ? (
-                      // Render ALL languages dynamically from SQL response
                       stats.track_breakdown.map((t, i) => (
                         <TrackBar
                           key={i}
@@ -635,16 +609,11 @@ export default function Dashboard() {
   );
 }
 
-// --- STYLESHEET (PROFESSIONAL GRADE) ---
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.obsidian },
-
-  // SCROLL CONTAINERS
   scrollContent: { paddingBottom: 120 },
   mobileScroll: { padding: 16 },
   desktopScroll: { paddingHorizontal: 64, paddingTop: 32 },
-
-  // HEADER
   header: { marginBottom: 32, paddingLeft: 4 },
   dateLabel: {
     color: THEME.slate,
@@ -661,25 +630,21 @@ const styles = StyleSheet.create({
     lineHeight: 44,
   },
   username: { color: THEME.indigo },
-
-  // LAYOUT GRID
   grid: { gap: 16 },
   desktopGrid: { maxWidth: 1280, alignSelf: 'center', width: '100%' },
   row: { flexDirection: 'row', gap: 16 },
   mobileRow: { flexDirection: 'column', gap: 16 },
-
-  // BENTO CARD CORE
   bentoContainer: {
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'transparent', // Handled by animated style
-    overflow: 'hidden', // Ensures masking
+    borderColor: 'transparent',
+    overflow: 'hidden',
     shadowColor: THEME.indigo,
     shadowOffset: { width: 0, height: 8 },
     shadowRadius: 16,
   },
   cardInner: {
-    flexGrow: 1, // Crucial for layout expansion
+    flexGrow: 1,
     padding: 24,
     backgroundColor: THEME.glassBg,
     borderWidth: 1,
@@ -688,10 +653,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   sprintCard: {
-    borderWidth: 0, // Gradient card has no border
+    borderWidth: 0,
   },
-
-  // CARD TYPOGRAPHY
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -717,8 +680,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     letterSpacing: 0.5,
   },
-
-  // ACTIONS
   ctaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
   ctaText: {
     color: THEME.white,
@@ -737,8 +698,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   bonusText: { color: THEME.white, fontSize: 10, fontWeight: '800' },
-
-  // PROGRESS BARS
   progressBarBg: {
     height: 6,
     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -747,8 +706,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   progressBarFill: { height: '100%', borderRadius: 3 },
-
-  // ACTIVITY CHART
   chartContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -773,8 +730,6 @@ const styles = StyleSheet.create({
   },
   barFill: { width: '100%', borderRadius: 4 },
   chartLabel: { color: THEME.slate, fontSize: 10, fontWeight: '700' },
-
-  // TRACK BREAKDOWN (XP)
   trackContainer: { marginBottom: 16 },
   trackHeader: {
     flexDirection: 'row',
@@ -800,8 +755,6 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.indigo,
     borderRadius: 4,
   },
-
-  // STATES
   tapHint: {
     position: 'absolute',
     bottom: 0,
